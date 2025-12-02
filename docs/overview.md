@@ -16,6 +16,16 @@ The Autopilot system provides automated kernel testing for the NVIDIA Jetson AGX
 - **Request Queue**: Directory-based queue system for submitting multiple tests
 - **Non-blocking**: Tests run asynchronously without manual intervention
 
+## Prerequisites
+
+### SSH Key Setup
+
+The autopilot system requires passwordless SSH access to the Tegra board for kernel upload:
+
+1. Ensure your SSH public key is in `/root/.ssh/authorized_keys` on the target
+2. Target IP: `192.168.101.112`
+3. Test with: `ssh root@192.168.101.112 hostname`
+
 ## Quick Start
 
 ### Submit a Test Request
@@ -62,10 +72,10 @@ cat ${WORKSPACE}/autopilot/results/${TIMESTAMP}/smmu_faults.log  # SMMU faults (
   - `/tmp/ttyACM0` → Target's main console (ttyTCU0)
   - `/tmp/ttyACM1` → Target's UARTI (hypervisor debug output)
 
-### Target Hardware (192.168.101.106)
+### Target Hardware (192.168.101.112)
 - **Jetson AGX Orin**: Test platform running custom pKVM kernel
-- **Update Service**: systemd service (`update.service`) downloads kernel on boot
-- **Network**: Static IP 192.168.101.106 or DHCP on eno1
+- **SSH Access**: Root SSH with public key authentication
+- **Network**: Static IP 192.168.101.112
 - **Boot Configuration**: UEFI with extlinux boot menu (3 options)
 
 ### Boot Control (192.168.101.110)
@@ -77,10 +87,11 @@ cat ${WORKSPACE}/autopilot/results/${TIMESTAMP}/smmu_faults.log  # SMMU faults (
 1. **Developer builds kernel** on host (192.168.101.100)
 2. **Submit test request**: Create `.request` file in pending directory
 3. **Autopilot detects request**: Moves to processing directory
-4. **Phase 1 - Update**:
-   - Boots board into update mode (extlinux option 0)
-   - Target runs `update.service` → downloads kernel via SSH
-   - Target reboots automatically
+4. **Phase 1 - Upload**:
+   - Boots board into vanilla Jetson Linux (extlinux option 1)
+   - Waits for shell prompt (indicates SSH ready)
+   - Uploads kernel via SCP to `/boot/Image-${KVER}`
+   - Reboots target via SSH
 5. **Phase 2 - Test**:
    - Boots board into test mode (extlinux option 2)
    - Monitors kernel console for panics/faults
@@ -141,9 +152,8 @@ requests/
 
 ### Target Hardware
 - UEFI firmware with extlinux boot support
-- systemd with custom `update.target` and `update.service`
-- SSH server running on boot
-- Network connectivity (DHCP or static IP)
+- SSH server running on boot with root access (public key auth)
+- Network connectivity (static IP: 192.168.101.112)
 
 ### Boot Control Server
 - USB relay board (for BoardControlLocal) OR

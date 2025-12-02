@@ -3,6 +3,7 @@ import sys, re
 import serial
 import time
 import threading
+import subprocess
 from pexpect import fdpexpect, EOF, TIMEOUT
 
 class Tee:
@@ -97,7 +98,7 @@ class PanicBootHarness(BootHarness):
 
         # First, try to detect either panic or SMMU faults
         smmu_fault_count = 0
-        timeout_total = 60  # Total timeout for detection
+        timeout_total = 300  # Total timeout for detection
 
         while timeout_total > 0:
             idx = self.child.expect([
@@ -160,29 +161,42 @@ class PanicBootHarness(BootHarness):
         self.stop()
 
 class UpdateBootHarness(BootHarness):
-    def __init__(self, board, tty, filename, hyp_tty, hyp_filename):
+    TARGET_IP = '192.168.101.112'
+    TARGET_USER = 'root'
+
+    def __init__(self, board, tty, filename, hyp_tty, hyp_filename, kernel_image_path, kernel_version):
         super().__init__(board, tty, filename, hyp_tty, hyp_filename)
+        self.boot_option = '1'  # Boot vanilla Jetson Linux
+        self.kernel_image_path = kernel_image_path
+        self.kernel_version = kernel_version
 
     def run(self):
         super().run()
 
-        # Now we wait until kernel panics
-
-#        logfile = open(self.filename, 'w', buffering=1, encoding='utf-8')
-#        self.child.logfile_read = Tee(sys.stdout, logfile)   # kernel log buffer
-
-        debug_print('Waiting for rebooting message')
+        debug_print('Waiting for shell prompt (SSH ready)')
         idx = self.child.expect([
-            r'Rebooting system',
+            r'ubuntu@tegra-ubuntu:~\$',
             TIMEOUT,
             EOF
-        ], timeout=180)
+        ], timeout=120)
 
-        time.sleep(1)
-        if idx == 0:
-            debug_print('Cool, system rebooted itself')
-        else:
-            debug_print('Unexpected error')
+        if idx != 0:
+            debug_print('Failed to get shell prompt')
             exit(1)
+
+        target_path = f'/boot/Image-{self.kernel_version}'
+        debug_print(f'Uploading kernel via SCP to {target_path}')
+        subprocess.run([
+            'scp', '-o', 'StrictHostKeyChecking=no',
+            self.kernel_image_path,
+            f'{self.TARGET_USER}@{self.TARGET_IP}:{target_path}'
+        ], check=True)
+
+        debug_print('Rebooting target via SSH')
+        subprocess.run([
+            'ssh', '-o', 'StrictHostKeyChecking=no',
+            f'{self.TARGET_USER}@{self.TARGET_IP}',
+            'reboot'
+        ])  # Don't check=True, reboot may close connection before exit
 
         self.stop()

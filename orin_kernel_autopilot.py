@@ -16,6 +16,12 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 # Use SCRIPT_DIR as base (script is at ${WORKSPACE}/autopilot/)
 AUTOPILOT_DIR = SCRIPT_DIR
 
+# Kernel paths
+WORKSPACE = Path(os.environ.get('WORKSPACE', '/home/hlyytine/pkvm'))
+KERNEL_DIR = WORKSPACE / 'Linux_for_Tegra/source/kernel/linux'
+KERNEL_IMAGE = KERNEL_DIR / 'arch/arm64/boot/Image'
+KERNEL_RELEASE_FILE = KERNEL_DIR / 'include/config/kernel.release'
+
 # Directory structure for request queue
 PENDING_DIR = AUTOPILOT_DIR / "requests" / "pending"
 PROCESSING_DIR = AUTOPILOT_DIR / "requests" / "processing"
@@ -90,15 +96,22 @@ while True:
     # Process the request
     try:
         print(f"[AUTOPILOT] Initializing board controller...", flush=True)
-        board = BoardControl.BoardControlRemote()
+        board = BoardControl.BoardControlLocal()
+
+        # Read kernel version
+        kernel_version = KERNEL_RELEASE_FILE.read_text().strip()
+        print(f"[AUTOPILOT] Kernel version: {kernel_version}", flush=True)
+        print(f"[AUTOPILOT] Kernel image: {KERNEL_IMAGE}", flush=True)
 
         print(f"[AUTOPILOT] Starting kernel update harness...", flush=True)
         seq = BootHarness.UpdateBootHarness(
             board,
-            '/tmp/ttyACM0',
+            '/dev/ttyACM0',
             str(result_dir / 'kernel-update.log'),
-            '/tmp/ttyACM1',
-            str(result_dir / 'uarti-dummy.log')
+            '/dev/ttyACM1',
+            str(result_dir / 'uarti-dummy.log'),
+            str(KERNEL_IMAGE),
+            kernel_version
         )
         seq.run()
         print(f"[AUTOPILOT] Kernel update completed", flush=True)
@@ -106,9 +119,9 @@ while True:
         print(f"[AUTOPILOT] Starting panic boot harness...", flush=True)
         seq = BootHarness.PanicBootHarness(
             board,
-            '/tmp/ttyACM0',
+            '/dev/ttyACM0',
             str(result_dir / 'kernel.log'),
-            '/tmp/ttyACM1',
+            '/dev/ttyACM1',
             str(result_dir / 'uarti.log')
         )
         seq.run()
