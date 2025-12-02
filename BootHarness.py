@@ -52,93 +52,8 @@ class BootHarness(object):
         self.board.boot(False)
 
     def run(self):
-        # Press ESC to enter UEFI menu
-        # Retry logic in case board falls through to HTTP boot
-
-        max_boot_retries = 3
-        for boot_attempt in range(max_boot_retries):
-            debug_print(f'Booting board in normal mode (attempt {boot_attempt + 1}/{max_boot_retries})')
-            self.boot()
-
-            debug_print('Waiting for first UEFI prompt')
-            idx = self.child.expect([
-                r'ESC   to enter Setup.',       # 0: Normal UEFI prompt
-                r'Start HTTP Boot',             # 1: Fell through to network boot
-                TIMEOUT,                        # 2: Timeout
-                EOF                             # 3: EOF
-            ], timeout=60)
-
-            debug_print('---done---')
-
-            if idx == 0:
-                # Successfully got UEFI prompt
-                time.sleep(2)
-                debug_print('Sending ESC to board')
-                self.child.send('\x1b')
-                break
-            elif idx == 1:
-                # Fell through to HTTP boot, need to retry
-                debug_print('Detected HTTP Boot fallthrough, rebooting...')
-                time.sleep(2)
-                if boot_attempt < max_boot_retries - 1:
-                    continue  # Retry the boot
-                else:
-                    debug_print('Max boot retries reached, giving up')
-                    exit(1)
-            else:
-                # Timeout or EOF
-                debug_print(f'Unexpected error (idx={idx})')
-                exit(1)
-
-        # Select Boot Manager
-
-        debug_print('Waiting for UEFI menu')
-        idx = self.child.expect([
-            r'Select Entry',
-            TIMEOUT,
-            EOF
-        ], timeout=60)
-
-        debug_print('---done---')
-        time.sleep(1)
-
-        if idx == 0:
-            # Two arrow downs and enter to select Boot Manager
-            self.child.send('\x1b[B')
-            time.sleep(0.3)
-            self.child.send('\x1b[B')
-            time.sleep(0.3)
-            self.child.send('\r')
-        else:
-            debug_print('Unexpected error')
-            exit(1)
-
-        # Select eMMC boot
-
-        debug_print('Waiting for Boot Manager menu')
-        idx = self.child.expect([
-            r'Select Entry',
-            TIMEOUT,
-            EOF
-        ], timeout=60)
-
-        debug_print('---done---')
-        time.sleep(2)
-
-        if idx == 0:
-            # Three arrow downs and enter to select eMMC boot
-            self.child.send('\x1b[B')
-            time.sleep(0.3)
-            self.child.send('\x1b[B')
-            time.sleep(0.3)
-            self.child.send('\x1b[B')
-            time.sleep(0.3)
-            self.child.send('\r')
-        else:
-            debug_print('Unexpected error')
-            exit(1)
-
-        # Press 1 to select Linux 6.17
+        debug_print('Booting board in normal mode')
+        self.boot()
 
         debug_print('Waiting for extlinux menu')
         idx = self.child.expect([
@@ -148,13 +63,12 @@ class BootHarness(object):
         ], timeout=60)
 
         debug_print('---done---')
-        time.sleep(2)
 
         if idx == 0:
-            # Select Linux 6.17
+            time.sleep(1)
             self.child.send(self.boot_option)
         else:
-            debug_print('Unexpected error')
+            debug_print(f'Unexpected error (idx={idx})')
             exit(1)
 
     def stop(self):
