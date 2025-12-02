@@ -28,18 +28,22 @@ def log_port(dev, fname, stop_event, baud=115200):
             f.write(data)
 
 class BootHarness(object):
-    def __init__(self, board, tty, filename, hyp_tty, hyp_filename):
+    def __init__(self, board, tty, filename, hyp_tty=None, hyp_filename=None):
         self.board = board
         self.boot_option = '0'
 
-        self.stop_evt = threading.Event()
-
-        self.t = threading.Thread(
-            target=log_port,
-            args=(hyp_tty, hyp_filename, self.stop_evt),
-            daemon=True
-        )
-        self.t.start()
+        # Hyp logging is optional - if hyp_tty is provided, we manage it
+        # If not, caller is expected to manage hyp logging externally
+        self.stop_evt = None
+        self.t = None
+        if hyp_tty and hyp_filename:
+            self.stop_evt = threading.Event()
+            self.t = threading.Thread(
+                target=log_port,
+                args=(hyp_tty, hyp_filename, self.stop_evt),
+                daemon=True
+            )
+            self.t.start()
 
         self.ser = serial.Serial(tty, 115200, timeout=0.2)
         self.child = fdpexpect.fdspawn(self.ser, timeout=10, encoding='utf-8', codec_errors='ignore')
@@ -73,8 +77,9 @@ class BootHarness(object):
             exit(1)
 
     def stop(self):
-        self.stop_evt.set()
-        self.t.join(timeout=1.0)
+        if self.stop_evt and self.t:
+            self.stop_evt.set()
+            self.t.join(timeout=1.0)
 
 
 class PanicBootHarness(BootHarness):
@@ -98,6 +103,7 @@ class PanicBootHarness(BootHarness):
 
         # First, try to detect either panic or SMMU faults
         smmu_fault_count = 0
+        bash_prompt_seen = False
         timeout_total = 300  # Total timeout for detection
 
         while timeout_total > 0:
@@ -105,8 +111,10 @@ class PanicBootHarness(BootHarness):
                 r'Kernel panic',                           # 0: Kernel panic
                 r'Unexpected global fault',                # 1: SMMU global fault
                 r'callbacks suppressed',                   # 2: SMMU callback suppression
-                TIMEOUT,                                   # 3: Timeout
-                EOF                                        # 4: EOF
+                r'Press \[ENTER\] to start bash',          # 3: Emergency bash prompt
+                r'nvgpu.*HS ucode boot failed',            # 4: nvgpu ACR failure
+                TIMEOUT,                                   # 5: Timeout
+                EOF                                        # 6: EOF
             ], timeout=5)
 
             if idx == 0:
@@ -126,9 +134,28 @@ class PanicBootHarness(BootHarness):
                     time.sleep(3)
                     break
             elif idx == 3:
-                # Timeout - check if we have any SMMU faults
+                # Emergency bash prompt - send enter but DON'T break
+                # The prompt might be for a different TTY, keep listening
+                debug_print('Detected emergency bash prompt, sending ENTER')
+                self.child.send('\r')
+                bash_prompt_seen = True
+                # Continue loop - wait for board to respond or show different output
+                continue
+            elif idx == 4:
+                # nvgpu ACR boot failure
+                debug_print('Detected nvgpu HS ucode boot failure')
+                self.fault_type = 'nvgpu_acr_fail'
+                time.sleep(1)
+                break
+            elif idx == 5:
+                # Timeout - check what state we're in
                 timeout_total -= 5
-                if smmu_fault_count > 0:
+                if bash_prompt_seen:
+                    # We sent enter and got no more output - board responded
+                    debug_print('Board responded to bash prompt')
+                    self.fault_type = 'bash_prompt'
+                    break
+                elif smmu_fault_count > 0:
                     debug_print(f'Timeout reached with {smmu_fault_count} SMMU faults detected')
                     self.fault_type = 'smmu_fault'
                     break
@@ -136,10 +163,12 @@ class PanicBootHarness(BootHarness):
                     debug_print('No panic or SMMU faults detected within timeout')
                     self.fault_type = 'timeout'
                     break
-            elif idx == 4:
+            elif idx == 6:
                 debug_print('EOF reached')
                 if smmu_fault_count > 0:
                     self.fault_type = 'smmu_fault'
+                elif bash_prompt_seen:
+                    self.fault_type = 'bash_prompt'
                 else:
                     self.fault_type = 'eof'
                 break
@@ -148,6 +177,10 @@ class PanicBootHarness(BootHarness):
             debug_print('Collecting remaining panic output...')
         elif self.fault_type == 'smmu_fault':
             debug_print(f'Collected {smmu_fault_count} SMMU fault instances')
+        elif self.fault_type == 'bash_prompt':
+            debug_print('Boot failed - dropped to emergency bash shell')
+        elif self.fault_type == 'nvgpu_acr_fail':
+            debug_print('GPU ACR initialization failed')
         else:
             debug_print(f'Unexpected condition: {self.fault_type}')
 
@@ -160,29 +193,47 @@ class PanicBootHarness(BootHarness):
 
         self.stop()
 
-class UpdateBootHarness(BootHarness):
-    TARGET_IP = '192.168.101.112'
-    TARGET_USER = 'root'
+class ReadyBootHarness(BootHarness):
+    """Boot to vanilla Jetson Linux and wait for SSH ready state."""
+    TARGET_PROMPT = r'ubuntu@tegra-ubuntu:~\$'
 
-    def __init__(self, board, tty, filename, hyp_tty, hyp_filename, kernel_image_path, kernel_version):
+    def __init__(self, board, tty, filename, hyp_tty=None, hyp_filename=None):
         super().__init__(board, tty, filename, hyp_tty, hyp_filename)
-        self.boot_option = '1'  # Boot vanilla Jetson Linux
-        self.kernel_image_path = kernel_image_path
-        self.kernel_version = kernel_version
+        self.boot_option = '1'  # Vanilla Jetson Linux
 
     def run(self):
-        super().run()
+        super().run()  # Boot board, wait extlinux, send '1'
 
         debug_print('Waiting for shell prompt (SSH ready)')
         idx = self.child.expect([
-            r'ubuntu@tegra-ubuntu:~\$',
+            self.TARGET_PROMPT,
             TIMEOUT,
             EOF
         ], timeout=120)
 
         if idx != 0:
-            debug_print('Failed to get shell prompt')
-            exit(1)
+            debug_print('Failed to reach ready state')
+            raise RuntimeError('Board failed to reach ready state')
+
+        debug_print('Board is ready (SSH accessible)')
+        self.stop()
+
+
+class UpdateBootHarness(BootHarness):
+    """Upload kernel via SCP and reboot. Assumes board is already in ready state."""
+    TARGET_IP = '192.168.101.112'
+    TARGET_USER = 'root'
+
+    def __init__(self, board, tty, filename, hyp_tty, hyp_filename, kernel_image_path, kernel_version):
+        super().__init__(board, tty, filename, hyp_tty, hyp_filename)
+        self.kernel_image_path = kernel_image_path
+        self.kernel_version = kernel_version
+
+    def boot(self):
+        pass  # Board already in ready state
+
+    def run(self):
+        # DON'T call super().run() - board is already booted
 
         target_path = f'/boot/Image-{self.kernel_version}'
         debug_print(f'Uploading kernel via SCP to {target_path}')

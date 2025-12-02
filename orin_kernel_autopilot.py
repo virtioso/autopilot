@@ -6,6 +6,7 @@ import sys
 import subprocess
 import time
 import traceback
+import threading
 
 from pathlib import Path
 
@@ -56,6 +57,19 @@ print(f"[AUTOPILOT] Autopilot service started", flush=True)
 print(f"[AUTOPILOT] Watching for requests in: {PENDING_DIR}", flush=True)
 print(f"[AUTOPILOT] Results will be written to: {RESULTS_DIR}", flush=True)
 
+# === STARTUP: Boot to ready state ===
+print(f"[AUTOPILOT] Booting board to ready state...", flush=True)
+board = BoardControl.BoardControlLocal()
+ready = BootHarness.ReadyBootHarness(
+    board,
+    '/dev/ttyACM0',
+    str(AUTOPILOT_DIR / 'startup.log'),
+    None,
+    None
+)
+ready.run()
+print(f"[AUTOPILOT] Board is ready, waiting for requests...", flush=True)
+
 while True:
     # Find pending requests (oldest first)
     requests = sorted(PENDING_DIR.glob("*.request"))
@@ -95,21 +109,29 @@ while True:
 
     # Process the request
     try:
-        print(f"[AUTOPILOT] Initializing board controller...", flush=True)
-        board = BoardControl.BoardControlLocal()
-
         # Read kernel version
         kernel_version = KERNEL_RELEASE_FILE.read_text().strip()
         print(f"[AUTOPILOT] Kernel version: {kernel_version}", flush=True)
         print(f"[AUTOPILOT] Kernel image: {KERNEL_IMAGE}", flush=True)
+
+        # Start centralized hyp logging ONCE - continues across both boot harnesses
+        # This ensures we capture ALL hyp output including early boot after reboot
+        hyp_stop_evt = threading.Event()
+        hyp_log_thread = threading.Thread(
+            target=BootHarness.log_port,
+            args=('/dev/ttyACM1', str(result_dir / 'uarti.log'), hyp_stop_evt),
+            daemon=True
+        )
+        hyp_log_thread.start()
+        print(f"[AUTOPILOT] Started centralized hyp logging to uarti.log", flush=True)
 
         print(f"[AUTOPILOT] Starting kernel update harness...", flush=True)
         seq = BootHarness.UpdateBootHarness(
             board,
             '/dev/ttyACM0',
             str(result_dir / 'kernel-update.log'),
-            '/dev/ttyACM1',
-            str(result_dir / 'uarti-dummy.log'),
+            None,  # No local hyp logging - using centralized
+            None,
             str(KERNEL_IMAGE),
             kernel_version
         )
@@ -120,13 +142,38 @@ while True:
         seq = BootHarness.PanicBootHarness(
             board,
             '/dev/ttyACM0',
-            str(result_dir / 'kernel.log'),
-            '/dev/ttyACM1',
-            str(result_dir / 'uarti.log')
+            str(result_dir / 'uart-raw.log'),
+            None,  # No local hyp logging - using centralized
+            None
         )
         seq.run()
         fault_type = seq.fault_type
         print(f"[AUTOPILOT] Panic boot harness completed (fault_type: {fault_type})", flush=True)
+
+        # Stop centralized hyp logging
+        hyp_stop_evt.set()
+        hyp_log_thread.join(timeout=1.0)
+        print(f"[AUTOPILOT] Stopped centralized hyp logging", flush=True)
+
+        print(f"[AUTOPILOT] Filtering UART log (dropping pre-MB1 lines)...", flush=True)
+        with open(result_dir / 'uart-raw.log', "rb") as fin, \
+             open(result_dir / 'uart.log', "wb") as fout:
+            subprocess.run(
+                SCRIPT_DIR / 'filter_mb1_start.py',
+                stdin=fin,
+                stdout=fout,
+                check=True
+            )
+
+        print(f"[AUTOPILOT] Filtering kernel log (dropping pre-kernel lines)...", flush=True)
+        with open(result_dir / 'uart.log', "rb") as fin, \
+             open(result_dir / 'kernel.log', "wb") as fout:
+            subprocess.run(
+                SCRIPT_DIR / 'filter_kernel_start.py',
+                stdin=fin,
+                stdout=fout,
+                check=True
+            )
 
         print(f"[AUTOPILOT] Filtering kernel panic log...", flush=True)
         with open(result_dir / 'kernel.log', "rb") as fin, \
@@ -176,6 +223,18 @@ while True:
                 f"No disassembly available (fault_type: {fault_type})\n"
             )
 
+        # === RECOVERY: Boot back to ready state ===
+        print(f"[AUTOPILOT] Recovering board to ready state...", flush=True)
+        ready = BootHarness.ReadyBootHarness(
+            board,
+            '/dev/ttyACM0',
+            str(result_dir / 'recovery.log'),
+            None,
+            None
+        )
+        ready.run()
+        print(f"[AUTOPILOT] Board recovered to ready state", flush=True)
+
         # Success - move to completed
         processing_file.rename(COMPLETED_DIR / request_file.name)
 
@@ -197,6 +256,13 @@ while True:
         # Failure - move to failed directory
         processing_file.rename(FAILED_DIR / request_file.name)
 
+        # Cleanup hyp logging if it was started
+        try:
+            hyp_stop_evt.set()
+            hyp_log_thread.join(timeout=1.0)
+        except NameError:
+            pass  # hyp logging wasn't started yet
+
         print(f"\n[AUTOPILOT] ========================================", flush=True)
         print(f"[AUTOPILOT] Request {timestamp} FAILED", flush=True)
         print(f"[AUTOPILOT] ========================================", flush=True)
@@ -205,3 +271,20 @@ while True:
         traceback.print_exc()
         print(f"[AUTOPILOT] Partial results may be in: {result_dir}/", flush=True)
         print(f"[AUTOPILOT] ========================================\n", flush=True)
+
+        # Try to recover even on failure
+        try:
+            print(f"[AUTOPILOT] Attempting recovery after failure...", flush=True)
+            recovery_log = str(result_dir / 'recovery.log') if result_dir.exists() else str(AUTOPILOT_DIR / 'recovery.log')
+            ready = BootHarness.ReadyBootHarness(
+                board,
+                '/dev/ttyACM0',
+                recovery_log,
+                None,
+                None
+            )
+            ready.run()
+            print(f"[AUTOPILOT] Recovery successful", flush=True)
+        except Exception as recovery_error:
+            print(f"[AUTOPILOT] Recovery failed: {recovery_error}", flush=True)
+            print(f"[AUTOPILOT] Board may need manual intervention", flush=True)
