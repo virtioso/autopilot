@@ -155,6 +155,27 @@ while True:
         hyp_log_thread.join(timeout=1.0)
         print(f"[AUTOPILOT] Stopped centralized hyp logging", flush=True)
 
+        # === START RECOVERY IN BACKGROUND ===
+        print(f"[AUTOPILOT] Starting board recovery (parallel with log processing)...", flush=True)
+        recovery_exception = [None]  # Mutable container for thread exception
+
+        def recovery_thread_fn():
+            try:
+                ready = BootHarness.ReadyBootHarness(
+                    board,
+                    '/dev/ttyACM0',
+                    str(result_dir / 'recovery.log'),
+                    None,
+                    None
+                )
+                ready.run()
+            except Exception as e:
+                recovery_exception[0] = e
+
+        recovery_thread = threading.Thread(target=recovery_thread_fn, daemon=True)
+        recovery_thread.start()
+
+        # === LOG FILTERING (parallel with recovery boot) ===
         print(f"[AUTOPILOT] Filtering UART log (dropping pre-MB1 lines)...", flush=True)
         with open(result_dir / 'uart-raw.log', "rb") as fin, \
              open(result_dir / 'uart.log', "wb") as fout:
@@ -223,16 +244,11 @@ while True:
                 f"No disassembly available (fault_type: {fault_type})\n"
             )
 
-        # === RECOVERY: Boot back to ready state ===
-        print(f"[AUTOPILOT] Recovering board to ready state...", flush=True)
-        ready = BootHarness.ReadyBootHarness(
-            board,
-            '/dev/ttyACM0',
-            str(result_dir / 'recovery.log'),
-            None,
-            None
-        )
-        ready.run()
+        # === WAIT FOR RECOVERY TO COMPLETE ===
+        print(f"[AUTOPILOT] Waiting for board recovery...", flush=True)
+        recovery_thread.join()
+        if recovery_exception[0]:
+            raise recovery_exception[0]
         print(f"[AUTOPILOT] Board recovered to ready state", flush=True)
 
         # Success - move to completed
@@ -273,18 +289,29 @@ while True:
         print(f"[AUTOPILOT] ========================================\n", flush=True)
 
         # Try to recover even on failure
-        try:
-            print(f"[AUTOPILOT] Attempting recovery after failure...", flush=True)
-            recovery_log = str(result_dir / 'recovery.log') if result_dir.exists() else str(AUTOPILOT_DIR / 'recovery.log')
-            ready = BootHarness.ReadyBootHarness(
-                board,
-                '/dev/ttyACM0',
-                recovery_log,
-                None,
-                None
-            )
-            ready.run()
-            print(f"[AUTOPILOT] Recovery successful", flush=True)
-        except Exception as recovery_error:
-            print(f"[AUTOPILOT] Recovery failed: {recovery_error}", flush=True)
+        print(f"[AUTOPILOT] Attempting recovery after failure...", flush=True)
+        recovery_log = str(result_dir / 'recovery.log') if result_dir.exists() else str(AUTOPILOT_DIR / 'recovery.log')
+        recovery_exception = [None]
+
+        def recovery_thread_fn():
+            try:
+                ready = BootHarness.ReadyBootHarness(
+                    board,
+                    '/dev/ttyACM0',
+                    recovery_log,
+                    None,
+                    None
+                )
+                ready.run()
+            except Exception as re:
+                recovery_exception[0] = re
+
+        recovery_thread = threading.Thread(target=recovery_thread_fn, daemon=True)
+        recovery_thread.start()
+        recovery_thread.join()
+
+        if recovery_exception[0]:
+            print(f"[AUTOPILOT] Recovery failed: {recovery_exception[0]}", flush=True)
             print(f"[AUTOPILOT] Board may need manual intervention", flush=True)
+        else:
+            print(f"[AUTOPILOT] Recovery successful", flush=True)
