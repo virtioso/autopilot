@@ -244,14 +244,7 @@ while True:
                 f"No disassembly available (fault_type: {fault_type})\n"
             )
 
-        # === WAIT FOR RECOVERY TO COMPLETE ===
-        print(f"[AUTOPILOT] Waiting for board recovery...", flush=True)
-        recovery_thread.join()
-        if recovery_exception[0]:
-            raise recovery_exception[0]
-        print(f"[AUTOPILOT] Board recovered to ready state", flush=True)
-
-        # Success - move to completed
+        # Success - move to completed (don't wait for recovery)
         processing_file.rename(COMPLETED_DIR / request_file.name)
 
         print(f"\n[AUTOPILOT] ========================================", flush=True)
@@ -267,6 +260,13 @@ while True:
         if fault_type == 'panic':
             print(f"[AUTOPILOT]   - Disassembly:    disassembly.log", flush=True)
         print(f"[AUTOPILOT] ========================================\n", flush=True)
+
+        # === WAIT FOR RECOVERY TO COMPLETE ===
+        print(f"[AUTOPILOT] Waiting for board recovery...", flush=True)
+        recovery_thread.join()
+        if recovery_exception[0]:
+            raise recovery_exception[0]
+        print(f"[AUTOPILOT] Board recovered to ready state", flush=True)
 
     except Exception as e:
         # Failure - move to failed directory
