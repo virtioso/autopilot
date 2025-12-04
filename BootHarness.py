@@ -1,5 +1,6 @@
 import BoardControl
 import sys, re
+import select
 import serial
 import time
 import threading
@@ -15,8 +16,34 @@ class Tee:
     def flush(self):
         for s in self.streams: s.flush()
 
+# === STATUS LINE SUPPORT ===
+# VT100-based status line on row 1, scroll region rows 2-N
+
+def init_status_line():
+    """Initialize scroll region to leave row 1 for status."""
+    sys.stdout.write('\x1b[2;r')  # Scroll region: row 2 to bottom
+    sys.stdout.write('\x1b[2;1H')  # Move cursor to row 2
+    sys.stdout.flush()
+
+def reset_status_line():
+    """Reset scroll region to full screen."""
+    sys.stdout.write('\x1b[r')
+    sys.stdout.flush()
+
+def set_status(text):
+    """Update the status line (row 1) without disturbing main output."""
+    sys.stdout.write('\x1b7')       # Save cursor position
+    sys.stdout.write('\x1b[1;1H')   # Move to row 1, col 1
+    sys.stdout.write('\x1b[2K')     # Clear entire line
+    sys.stdout.write('\x1b[1;37;44m')  # White on blue background
+    sys.stdout.write(text[:120])    # Write status (truncate to avoid wrap)
+    sys.stdout.write('\x1b[0m')     # Reset attributes
+    sys.stdout.write('\x1b8')       # Restore cursor position
+    sys.stdout.flush()
+
 def debug_print(s):
-    print('\x1b[41;1m%s\x1b[30;0m' % s)
+    """Update status line with debug message."""
+    set_status(f'[HARNESS] {s}')
 
 def log_port(dev, fname, stop_event, baud=115200):
     ser = serial.Serial(dev, baudrate=baud, timeout=0.1)
@@ -26,6 +53,56 @@ def log_port(dev, fname, stop_event, baud=115200):
             if not data:
                 continue
             f.write(data)
+
+def check_stdin_ready():
+    """Check if stdin has data available (non-blocking)."""
+    return select.select([sys.stdin], [], [], 0)[0]
+
+def enter_interactive_mode(ser):
+    """Enter full interactive mode. Returns on Ctrl+C.
+
+    Args:
+        ser: An open serial.Serial object
+    """
+    import tty
+    import termios
+
+    debug_print('Entering interactive mode (Ctrl+C to exit)')
+
+    # Save terminal settings
+    old_settings = termios.tcgetattr(sys.stdin)
+
+    try:
+        # Set terminal to raw mode for character-by-character input
+        tty.setraw(sys.stdin.fileno())
+
+        while True:
+            # Check both stdin and serial for data
+            readable, _, _ = select.select([sys.stdin, ser], [], [], 0.1)
+
+            for fd in readable:
+                if fd == sys.stdin:
+                    # Read from stdin, send to serial
+                    char = sys.stdin.read(1)
+                    if char == '\x03':  # Ctrl+C
+                        raise KeyboardInterrupt
+                    ser.write(char.encode('utf-8', errors='ignore'))
+                elif fd == ser:
+                    # Read from serial, print to stdout
+                    data = ser.read(ser.in_waiting or 1)
+                    if data:
+                        sys.stdout.write(data.decode('utf-8', errors='ignore'))
+                        sys.stdout.flush()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Restore terminal settings
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+    debug_print('Exiting interactive mode')
+    # Clear any buffered input
+    while check_stdin_ready():
+        sys.stdin.readline()
 
 class BootHarness(object):
     def __init__(self, board, tty, filename, hyp_tty=None, hyp_filename=None):
@@ -87,6 +164,7 @@ class PanicBootHarness(BootHarness):
         super().__init__(board, tty, filename, hyp_tty, hyp_filename)
         self.boot_option = '2'
         self.fault_type = None  # Track what type of fault we detected
+        self.user_interrupted = False  # Track if user took control
 
     def boot(self):
         pass
@@ -107,14 +185,25 @@ class PanicBootHarness(BootHarness):
         timeout_total = 300  # Total timeout for detection
 
         while timeout_total > 0:
+            # Check for user input BEFORE expect (non-blocking)
+            if check_stdin_ready():
+                line = sys.stdin.readline()
+                if line:
+                    debug_print(f'User input detected: {repr(line)}')
+                    self.child.send(line)
+                    self.fault_type = 'user_interrupted'
+                    self.user_interrupted = True
+                    break
+
             idx = self.child.expect([
                 r'Kernel panic',                           # 0: Kernel panic
                 r'Unexpected global fault',                # 1: SMMU global fault
                 r'callbacks suppressed',                   # 2: SMMU callback suppression
                 r'Press \[ENTER\] to start bash',          # 3: Emergency bash prompt
                 r'nvgpu.*HS ucode boot failed',            # 4: nvgpu ACR failure
-                TIMEOUT,                                   # 5: Timeout
-                EOF                                        # 6: EOF
+                r'ubuntu@tegra-ubuntu:~\$',                # 5: Normal shell prompt (SUCCESS!)
+                TIMEOUT,                                   # 6: Timeout
+                EOF                                        # 7: EOF
             ], timeout=5)
 
             if idx == 0:
@@ -148,6 +237,11 @@ class PanicBootHarness(BootHarness):
                 time.sleep(1)
                 break
             elif idx == 5:
+                # Normal shell prompt - SUCCESS!
+                debug_print('Detected normal shell prompt - kernel booted successfully!')
+                self.fault_type = 'success'
+                break
+            elif idx == 6:
                 # Timeout - check what state we're in
                 timeout_total -= 5
                 if bash_prompt_seen:
@@ -163,7 +257,7 @@ class PanicBootHarness(BootHarness):
                     debug_print('No panic or SMMU faults detected within timeout')
                     self.fault_type = 'timeout'
                     break
-            elif idx == 6:
+            elif idx == 7:
                 debug_print('EOF reached')
                 if smmu_fault_count > 0:
                     self.fault_type = 'smmu_fault'
@@ -173,7 +267,11 @@ class PanicBootHarness(BootHarness):
                     self.fault_type = 'eof'
                 break
 
-        if self.fault_type == 'panic':
+        if self.fault_type == 'user_interrupted':
+            debug_print('User took control of the board')
+        elif self.fault_type == 'success':
+            debug_print('Kernel booted successfully to shell prompt')
+        elif self.fault_type == 'panic':
             debug_print('Collecting remaining panic output...')
         elif self.fault_type == 'smmu_fault':
             debug_print(f'Collected {smmu_fault_count} SMMU fault instances')

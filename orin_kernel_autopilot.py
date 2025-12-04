@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 
 import os
+import select
 import signal
 import sys
 import subprocess
@@ -8,6 +9,7 @@ import time
 import traceback
 import threading
 
+import serial
 from pathlib import Path
 
 import BoardControl
@@ -32,14 +34,16 @@ RESULTS_DIR = AUTOPILOT_DIR / "results"
 
 def cleanup():
     """Move any processing requests back to pending on shutdown"""
-    print("[AUTOPILOT] Cleaning up...", flush=True)
+    # Reset terminal scroll region
+    BootHarness.reset_status_line()
+    print("\nCleaning up...", flush=True)
     if PROCESSING_DIR.exists():
         for request_file in PROCESSING_DIR.glob("*.request"):
             try:
                 request_file.rename(PENDING_DIR / request_file.name)
-                print(f"[AUTOPILOT] Moved {request_file.name} back to pending", flush=True)
+                print(f"Moved {request_file.name} back to pending", flush=True)
             except Exception as e:
-                print(f"[AUTOPILOT] Error moving {request_file.name}: {e}", flush=True)
+                print(f"Error moving {request_file.name}: {e}", flush=True)
 
 def handle_signal(signum, frame):
     cleanup()
@@ -51,14 +55,20 @@ signal.signal(signal.SIGTERM, handle_signal)
 # Create directory structure
 for d in [PENDING_DIR, PROCESSING_DIR, COMPLETED_DIR, FAILED_DIR, RESULTS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
-    print(f"[AUTOPILOT] Created directory: {d}", flush=True)
 
-print(f"[AUTOPILOT] Autopilot service started", flush=True)
-print(f"[AUTOPILOT] Watching for requests in: {PENDING_DIR}", flush=True)
-print(f"[AUTOPILOT] Results will be written to: {RESULTS_DIR}", flush=True)
+# Initialize status line (row 1 fixed, rows 2-N scroll)
+BootHarness.init_status_line()
+
+def status(msg):
+    """Update the status line."""
+    BootHarness.set_status(f'[AUTOPILOT] {msg}')
+
+status('Service started')
+print(f"Watching: {PENDING_DIR}", flush=True)
+print(f"Results:  {RESULTS_DIR}", flush=True)
 
 # === STARTUP: Boot to ready state ===
-print(f"[AUTOPILOT] Booting board to ready state...", flush=True)
+status('Booting board to ready state...')
 board = BoardControl.BoardControlLocal()
 ready = BootHarness.ReadyBootHarness(
     board,
@@ -68,14 +78,24 @@ ready = BootHarness.ReadyBootHarness(
     None
 )
 ready.run()
-print(f"[AUTOPILOT] Board is ready, waiting for requests...", flush=True)
+status('Waiting for requests...')
 
 while True:
     # Find pending requests (oldest first)
     requests = sorted(PENDING_DIR.glob("*.request"))
 
     if not requests:
-        # No pending requests, sleep and check again
+        # Check for user input while waiting (interactive mode)
+        if BootHarness.check_stdin_ready():
+            line = sys.stdin.readline()
+            if line:
+                status('Interactive mode (Ctrl+C to exit)')
+                # Create serial connection for interactive mode
+                ser = serial.Serial('/dev/ttyACM0', 115200, timeout=0.2)
+                ser.write(line.encode('utf-8'))  # Forward the initial input
+                BootHarness.enter_interactive_mode(ser)
+                ser.close()
+                status('Waiting for requests...')
         time.sleep(1)
         continue
 
@@ -83,16 +103,15 @@ while True:
     request_file = requests[0]
     timestamp = request_file.stem
 
-    print(f"\n[AUTOPILOT] ========================================", flush=True)
-    print(f"[AUTOPILOT] Found new request: {timestamp}", flush=True)
-    print(f"[AUTOPILOT] ========================================", flush=True)
+    status(f'Processing request: {timestamp}')
+    print(f"\n=== New request: {timestamp} ===", flush=True)
 
     # Move to processing directory (atomic operation)
     processing_file = PROCESSING_DIR / request_file.name
     try:
         request_file.rename(processing_file)
     except Exception as e:
-        print(f"[AUTOPILOT] ERROR: Failed to move request to processing: {e}", flush=True)
+        print(f"ERROR: Failed to move request to processing: {e}", flush=True)
         time.sleep(1)
         continue
 
@@ -101,18 +120,17 @@ while True:
     try:
         result_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        print(f"[AUTOPILOT] ERROR: Failed to create results directory: {e}", flush=True)
+        print(f"ERROR: Failed to create results directory: {e}", flush=True)
         processing_file.rename(FAILED_DIR / request_file.name)
         continue
 
-    print(f"[AUTOPILOT] Results will be saved to: {result_dir}", flush=True)
+    print(f"Results: {result_dir}/", flush=True)
 
     # Process the request
     try:
         # Read kernel version
         kernel_version = KERNEL_RELEASE_FILE.read_text().strip()
-        print(f"[AUTOPILOT] Kernel version: {kernel_version}", flush=True)
-        print(f"[AUTOPILOT] Kernel image: {KERNEL_IMAGE}", flush=True)
+        print(f"Kernel: {kernel_version}", flush=True)
 
         # Start centralized hyp logging ONCE - continues across both boot harnesses
         # This ensures we capture ALL hyp output including early boot after reboot
@@ -123,9 +141,8 @@ while True:
             daemon=True
         )
         hyp_log_thread.start()
-        print(f"[AUTOPILOT] Started centralized hyp logging to uarti.log", flush=True)
 
-        print(f"[AUTOPILOT] Starting kernel update harness...", flush=True)
+        status(f'{timestamp}: Uploading kernel...')
         seq = BootHarness.UpdateBootHarness(
             board,
             '/dev/ttyACM0',
@@ -136,9 +153,8 @@ while True:
             kernel_version
         )
         seq.run()
-        print(f"[AUTOPILOT] Kernel update completed", flush=True)
 
-        print(f"[AUTOPILOT] Starting panic boot harness...", flush=True)
+        status(f'{timestamp}: Booting test kernel...')
         seq = BootHarness.PanicBootHarness(
             board,
             '/dev/ttyACM0',
@@ -148,35 +164,41 @@ while True:
         )
         seq.run()
         fault_type = seq.fault_type
-        print(f"[AUTOPILOT] Panic boot harness completed (fault_type: {fault_type})", flush=True)
+        user_interrupted = seq.user_interrupted
+        print(f"Test result: {fault_type}", flush=True)
 
         # Stop centralized hyp logging
         hyp_stop_evt.set()
         hyp_log_thread.join(timeout=1.0)
-        print(f"[AUTOPILOT] Stopped centralized hyp logging", flush=True)
 
-        # === START RECOVERY IN BACKGROUND ===
-        print(f"[AUTOPILOT] Starting board recovery (parallel with log processing)...", flush=True)
+        # === CONDITIONAL RECOVERY ===
+        # If boot was successful or user interrupted, skip recovery - board is usable
+        # Otherwise, start recovery boot in background
         recovery_exception = [None]  # Mutable container for thread exception
+        recovery_thread = None
 
-        def recovery_thread_fn():
-            try:
-                ready = BootHarness.ReadyBootHarness(
-                    board,
-                    '/dev/ttyACM0',
-                    str(result_dir / 'recovery.log'),
-                    None,
-                    None
-                )
-                ready.run()
-            except Exception as e:
-                recovery_exception[0] = e
+        if fault_type in ('success', 'user_interrupted'):
+            status(f'{timestamp}: Processing logs...')
+        else:
+            status(f'{timestamp}: Recovery + processing logs...')
 
-        recovery_thread = threading.Thread(target=recovery_thread_fn, daemon=True)
-        recovery_thread.start()
+            def recovery_thread_fn():
+                try:
+                    ready = BootHarness.ReadyBootHarness(
+                        board,
+                        '/dev/ttyACM0',
+                        str(result_dir / 'recovery.log'),
+                        None,
+                        None
+                    )
+                    ready.run()
+                except Exception as e:
+                    recovery_exception[0] = e
+
+            recovery_thread = threading.Thread(target=recovery_thread_fn, daemon=True)
+            recovery_thread.start()
 
         # === LOG FILTERING (parallel with recovery boot) ===
-        print(f"[AUTOPILOT] Filtering UART log (dropping pre-MB1 lines)...", flush=True)
         with open(result_dir / 'uart-raw.log', "rb") as fin, \
              open(result_dir / 'uart.log', "wb") as fout:
             subprocess.run(
@@ -186,7 +208,6 @@ while True:
                 check=True
             )
 
-        print(f"[AUTOPILOT] Filtering kernel log (dropping pre-kernel lines)...", flush=True)
         with open(result_dir / 'uart.log', "rb") as fin, \
              open(result_dir / 'kernel.log', "wb") as fout:
             subprocess.run(
@@ -196,7 +217,6 @@ while True:
                 check=True
             )
 
-        print(f"[AUTOPILOT] Filtering kernel panic log...", flush=True)
         with open(result_dir / 'kernel.log', "rb") as fin, \
              open(result_dir / 'panic.log', "wb") as fout:
             subprocess.run(
@@ -206,7 +226,6 @@ while True:
                 check=True
             )
 
-        print(f"[AUTOPILOT] Filtering hypervisor log...", flush=True)
         with open(result_dir / 'uarti.log', "rb") as fin, \
              open(result_dir / 'hyp.log', "wb") as fout:
             subprocess.run(
@@ -218,7 +237,6 @@ while True:
 
         # Extract SMMU faults if detected
         if fault_type == 'smmu_fault':
-            print(f"[AUTOPILOT] Extracting SMMU fault details...", flush=True)
             with open(result_dir / 'kernel.log', "rb") as fin, \
                  open(result_dir / 'smmu_faults.log', "wb") as fout:
                 subprocess.run(
@@ -230,7 +248,6 @@ while True:
 
         # Only disassemble if we have a panic (not for SMMU faults)
         if fault_type == 'panic':
-            print(f"[AUTOPILOT] Disassembling crash site...", flush=True)
             with open(result_dir / 'disassembly.log', "wb") as fout:
                 subprocess.run(
                     [SCRIPT_DIR / 'disasm_2nd_frame.py', str(result_dir / 'kernel.log')],
@@ -238,7 +255,6 @@ while True:
                     check=True
                 )
         else:
-            print(f"[AUTOPILOT] Skipping disassembly (no panic detected)", flush=True)
             # Create empty disassembly.log for consistency
             (result_dir / 'disassembly.log').write_text(
                 f"No disassembly available (fault_type: {fault_type})\n"
@@ -247,26 +263,25 @@ while True:
         # Success - move to completed (don't wait for recovery)
         processing_file.rename(COMPLETED_DIR / request_file.name)
 
-        print(f"\n[AUTOPILOT] ========================================", flush=True)
-        print(f"[AUTOPILOT] Request {timestamp} completed successfully!", flush=True)
-        print(f"[AUTOPILOT] Fault type: {fault_type}", flush=True)
-        print(f"[AUTOPILOT] ========================================", flush=True)
-        print(f"[AUTOPILOT] Results location: {result_dir}/", flush=True)
-        print(f"[AUTOPILOT]   - Full kernel log: kernel.log", flush=True)
-        print(f"[AUTOPILOT]   - Panic message:   panic.log", flush=True)
-        print(f"[AUTOPILOT]   - Hypervisor log:  hyp.log", flush=True)
-        if fault_type == 'smmu_fault':
-            print(f"[AUTOPILOT]   - SMMU faults:    smmu_faults.log", flush=True)
-        if fault_type == 'panic':
-            print(f"[AUTOPILOT]   - Disassembly:    disassembly.log", flush=True)
-        print(f"[AUTOPILOT] ========================================\n", flush=True)
+        print(f"\n=== {timestamp} completed: {fault_type} ===", flush=True)
+        print(f"Results: {result_dir}/", flush=True)
 
-        # === WAIT FOR RECOVERY TO COMPLETE ===
-        print(f"[AUTOPILOT] Waiting for board recovery...", flush=True)
-        recovery_thread.join()
-        if recovery_exception[0]:
-            raise recovery_exception[0]
-        print(f"[AUTOPILOT] Board recovered to ready state", flush=True)
+        # === WAIT FOR RECOVERY IF NEEDED ===
+        if recovery_thread:
+            status(f'{timestamp}: Waiting for recovery...')
+            recovery_thread.join()
+            if recovery_exception[0]:
+                raise recovery_exception[0]
+
+        # === ENTER INTERACTIVE MODE IF USER INTERRUPTED ===
+        if user_interrupted:
+            status('Interactive mode (Ctrl+C to exit)')
+            # Reopen serial for interactive use
+            ser = serial.Serial('/dev/ttyACM0', 115200, timeout=0.2)
+            BootHarness.enter_interactive_mode(ser)
+            ser.close()
+
+        status('Waiting for requests...')
 
     except Exception as e:
         # Failure - move to failed directory
@@ -279,17 +294,12 @@ while True:
         except NameError:
             pass  # hyp logging wasn't started yet
 
-        print(f"\n[AUTOPILOT] ========================================", flush=True)
-        print(f"[AUTOPILOT] Request {timestamp} FAILED", flush=True)
-        print(f"[AUTOPILOT] ========================================", flush=True)
-        print(f"[AUTOPILOT] Error: {e}", flush=True)
-        print(f"[AUTOPILOT] Traceback:", flush=True)
+        status(f'{timestamp}: FAILED - recovering...')
+        print(f"\n=== {timestamp} FAILED ===", flush=True)
+        print(f"Error: {e}", flush=True)
         traceback.print_exc()
-        print(f"[AUTOPILOT] Partial results may be in: {result_dir}/", flush=True)
-        print(f"[AUTOPILOT] ========================================\n", flush=True)
 
         # Try to recover even on failure
-        print(f"[AUTOPILOT] Attempting recovery after failure...", flush=True)
         recovery_log = str(result_dir / 'recovery.log') if result_dir.exists() else str(AUTOPILOT_DIR / 'recovery.log')
         recovery_exception = [None]
 
@@ -311,7 +321,7 @@ while True:
         recovery_thread.join()
 
         if recovery_exception[0]:
-            print(f"[AUTOPILOT] Recovery failed: {recovery_exception[0]}", flush=True)
-            print(f"[AUTOPILOT] Board may need manual intervention", flush=True)
+            status('Recovery FAILED - manual intervention needed')
+            print(f"Recovery failed: {recovery_exception[0]}", flush=True)
         else:
-            print(f"[AUTOPILOT] Recovery successful", flush=True)
+            status('Waiting for requests...')
