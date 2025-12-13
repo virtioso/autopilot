@@ -10,7 +10,7 @@ seL4 test flow:
 1. Boot to stock Jetson Linux
 2. Upload EFI binary via SCP to `/boot/efi/`
 3. Reboot and navigate UEFI menus to EFI Shell
-4. Run the binary and capture output until 5s quiescent
+4. Run the binary and capture output until 30s quiescent
 5. Filter log to strip bootloader/UEFI output
 6. Recover to stock Linux for next test
 

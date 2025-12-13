@@ -81,7 +81,7 @@ Submits the binary to the autopilot service, waits for test completion,
 and returns the console output. The test typically takes 1-3 minutes.
 
 The binary is uploaded to the target via SSH, then booted via UEFI.
-Console output is captured until quiescent (5 seconds no output).
+Console output is captured until quiescent (30 seconds no output).
 
 Use this for testing seL4 kernel/elfloader changes on real hardware.""",
         "inputSchema": {
