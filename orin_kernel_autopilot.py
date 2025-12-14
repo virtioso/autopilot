@@ -93,6 +93,21 @@ signal.signal(signal.SIGTERM, handle_signal)
 for d in [PENDING_DIR, PROCESSING_DIR, COMPLETED_DIR, FAILED_DIR, RESULTS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
+# === STARTUP CLEANUP: Fail any leftover pending requests from previous run ===
+# When autopilot is force-quit, pending requests remain. Mark them as failed.
+for stale_request in list(PENDING_DIR.glob("*.request")):
+    stale_timestamp = stale_request.stem
+    print(f"Found stale pending request: {stale_timestamp}", flush=True)
+
+    # Create results directory and write error
+    stale_results_dir = RESULTS_DIR / stale_timestamp
+    stale_results_dir.mkdir(parents=True, exist_ok=True)
+    (stale_results_dir / "error.txt").write_text("autopilot restarted\n")
+
+    # Move to failed
+    stale_request.rename(FAILED_DIR / stale_request.name)
+    print(f"  -> Marked as failed: autopilot restarted", flush=True)
+
 # Initialize status line (row 1 fixed, rows 2-N scroll)
 BootHarness.init_status_line()
 
