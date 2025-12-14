@@ -6,9 +6,17 @@ SeL4UploadOnlyHarness: Upload EFI binary when already at stock Linux (no reboot)
 SeL4RunHarness: Navigate UEFI menus and run EFI binary, capture output
 """
 
+import re
 import subprocess
 import time
 from pexpect import TIMEOUT, EOF
+
+# ANSI escape sequence pattern for stripping color codes
+ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
+
+def strip_ansi(text):
+    """Strip ANSI escape sequences from text."""
+    return ANSI_ESCAPE.sub('', text)
 
 import BootHarness
 from BootHarness import BootHarness as BaseBootHarness, debug_print
@@ -142,16 +150,24 @@ class SeL4RunHarness(BaseBootHarness):
         time.sleep(0.3)
         self.child.send('\r')      # Enter
 
-        # Wait for Shell prompt
+        # Wait for Shell prompt, handling startup.nsh delay
         debug_print('Waiting for UEFI Shell prompt')
-        idx = self.child.expect([
-            r'Shell>',
-            TIMEOUT,
-            EOF
-        ], timeout=30)
+        while True:
+            idx = self.child.expect([
+                r'Shell>',
+                r'Press ESC in \d+ seconds',  # startup.nsh prompt
+                TIMEOUT,
+                EOF
+            ], timeout=30)
 
-        if idx != 0:
-            raise RuntimeError('Failed to get Shell prompt')
+            if idx == 0:  # Got Shell> prompt
+                break
+            elif idx == 1:  # startup.nsh prompt - send space to skip
+                debug_print('Skipping startup.nsh delay')
+                self.child.send(' ')
+                # Continue loop to wait for Shell>
+            else:
+                raise RuntimeError('Failed to get Shell prompt')
 
         debug_print('Switching to fs3:')
         self.child.send('fs3:\r')
@@ -168,6 +184,16 @@ class SeL4RunHarness(BaseBootHarness):
 
         debug_print(f'Running {self.binary_name}')
         self.child.send(f'{self.binary_name}\r')
+
+        # Check for immediate error (binary not found)
+        idx = self.child.expect([
+            r'is not recognized as an internal or external command',
+            r'.+',  # Any other output (likely seL4 starting)
+            TIMEOUT,
+        ], timeout=2)
+
+        if idx == 0:
+            raise RuntimeError(f'Binary not found on target: {self.binary_name}')
 
         # Capture output until quiescent (30 seconds no output)
         debug_print('Capturing seL4 output (30s quiescent timeout)')

@@ -30,6 +30,7 @@ Configuration for Claude Code (~/.claude/settings.json):
 
 import json
 import sys
+from datetime import datetime
 from typing import Any
 
 # Import the sel4_client library
@@ -46,6 +47,7 @@ from sel4_client import (
     list_pending,
     list_completed,
     list_failed,
+    RESULTS_DIR,
 )
 
 # MCP Protocol implementation
@@ -237,11 +239,14 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         description = arguments.get("description", "")
         timeout = arguments.get("timeout", 300)
 
+        # Generate timestamped binary name to detect upload failures
+        binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
+
         # Submit the test
         try:
             request_id = submit_sel4_test(
                 binary_path=binary_path,
-                binary_name="sel4test.efi",
+                binary_name=binary_name,
                 description=description
             )
         except FileNotFoundError as e:
@@ -262,9 +267,16 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         # Get the log
         log = get_sel4_log(request_id)
 
+        # Check for error file if test failed
+        error_msg = ""
+        if result["status"] == "failed":
+            error_file = RESULTS_DIR / request_id / 'error.txt'
+            if error_file.exists():
+                error_msg = f"\nError: {error_file.read_text()}"
+
         response_text = f"""Test {result['status']}
 Request ID: {request_id}
-Binary: {binary_path}
+Binary: {binary_path}{error_msg}
 
 Console Output:
 {log}"""
@@ -353,12 +365,15 @@ Console Output:
         description = arguments.get("description", "")
         timeout_per_run = arguments.get("timeout", 300)
 
+        # Generate timestamped binary name to detect upload failures
+        binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
+
         # Submit the multi-run test
         try:
             request_id = submit_multi_run_test(
                 binary_path=binary_path,
                 run_count=run_count,
-                binary_name="sel4test.efi",
+                binary_name=binary_name,
                 test_type=test_type,
                 description=description
             )
@@ -385,11 +400,18 @@ Console Output:
             s = logs['summary']
             summary_text = f"Summary: {s.get('completed_runs', '?')}/{s.get('total_runs', '?')} runs completed"
 
+        # Check for top-level error file if test failed
+        error_msg = ""
+        if result["status"] == "failed":
+            error_file = RESULTS_DIR / request_id / 'error.txt'
+            if error_file.exists():
+                error_msg = f"\nError: {error_file.read_text()}"
+
         response_text = f"""Multi-run test {result['status']}
 Request ID: {request_id}
 Binary: {binary_path}
 Run count: {run_count}
-{summary_text}
+{summary_text}{error_msg}
 
 """
         for run in logs['runs']:

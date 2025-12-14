@@ -654,6 +654,10 @@ while True:
         # Failure - move to failed directory
         processing_file.rename(FAILED_DIR / request_file.name)
 
+        # Write error to results directory for client retrieval
+        if result_dir.exists():
+            (result_dir / 'error.txt').write_text(str(e))
+
         # Cleanup hyp logging if it was started
         try:
             hyp_stop_evt.set()
