@@ -195,14 +195,16 @@ class SeL4RunHarness(BaseBootHarness):
         if idx == 0:
             raise RuntimeError(f'Binary not found on target: {self.binary_name}')
 
-        # Capture output until quiescent (30 seconds no output)
-        debug_print('Capturing seL4 output (30s quiescent timeout)')
+        # Capture output until quiescent (30 seconds no output) or binary transfer complete
+        debug_print('Capturing seL4 output (30s quiescent timeout or binary transfer end)')
         self._capture_until_quiescent(timeout=30)
 
         self.stop()
 
     def _capture_until_quiescent(self, timeout=30):
-        """Read output until no data for `timeout` seconds."""
+        """Read output until no data for `timeout` seconds or binary transfer ends."""
+        BINARY_END_MARKER = '=== BINARY TRANSFER END ==='
+
         while True:
             idx = self.child.expect([
                 r'.+',      # Any output
@@ -210,10 +212,19 @@ class SeL4RunHarness(BaseBootHarness):
                 EOF
             ], timeout=timeout)
 
-            if idx == 1:  # Timeout - quiescent
+            if idx == 0:  # Got output
+                # Check if the binary transfer end marker is in recent output
+                if hasattr(self.child, 'after') and self.child.after:
+                    recent = self.child.after
+                    if isinstance(recent, bytes):
+                        recent = recent.decode('utf-8', errors='replace')
+                    if BINARY_END_MARKER in recent:
+                        debug_print('Binary transfer complete, capture done')
+                        break
+                # Continue capturing
+            elif idx == 1:  # Timeout - quiescent
                 debug_print('Output quiescent, capture complete')
                 break
             elif idx == 2:  # EOF
                 debug_print('EOF reached')
                 break
-            # idx == 0: got output, continue loop
