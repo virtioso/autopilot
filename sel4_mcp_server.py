@@ -2,13 +2,17 @@
 """
 seL4 Autopilot MCP Server
 
-An MCP (Model Context Protocol) server that provides tools for testing
-seL4 EFI binaries on NVIDIA Orin AGX hardware.
+An MCP (Model Context Protocol) server that provides tools for building and
+testing seL4 EFI binaries on NVIDIA Orin AGX hardware.
 
 Tools:
+- build_sel4test: Build sel4test for Orin AGX (clean build in Docker)
 - test_sel4_binary: Submit a binary, wait for completion, return results
+- test_sel4_multi_run: Run a binary N times for stress testing
 - check_sel4_test: Check status of a submitted test
 - get_sel4_log: Get the console output of a completed test
+- get_multi_run_logs: Get logs from a multi-run test
+- list_sel4_tests: List pending/completed/failed tests
 
 Usage:
     # Start the server
@@ -29,8 +33,12 @@ Configuration for Claude Code (~/.claude/settings.json):
 """
 
 import json
+import os
+import shutil
+import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 # Import the sel4_client library
@@ -227,6 +235,29 @@ Also includes the summary with completed/failed run counts.""",
             },
             "required": ["request_id"]
         }
+    },
+    {
+        "name": "build_sel4test",
+        "description": """Build sel4test for the Orin AGX platform.
+
+Performs a clean build of sel4test inside Docker. This ALWAYS removes any
+existing build directory, configures for the specified mode, and runs the
+full build.
+
+The build typically takes 3-5 minutes.
+
+Returns the path to the built binary on success.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["el1", "el2", "el2-ftrace"],
+                    "description": "Kernel mode: 'el2' for hypervisor mode (default), 'el1' for no hypervisor, 'el2-ftrace' for hypervisor with function tracing",
+                    "default": "el2"
+                }
+            }
+        }
     }
 ]
 
@@ -242,12 +273,22 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         # Generate timestamped binary name to detect upload failures
         binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
 
+        # Determine arm_hyp from build config
+        # Check orinagx_sel4test/.config if it exists
+        build_config_path = Path("/home/hlyytine/tii-sel4/orinagx_sel4test/.config")
+        arm_hyp = True  # Default to hypervisor mode
+        if build_config_path.exists():
+            config_text = build_config_path.read_text()
+            if "KernelArmHypervisorSupport=OFF" in config_text:
+                arm_hyp = False
+
         # Submit the test
         try:
             request_id = submit_sel4_test(
                 binary_path=binary_path,
                 binary_name=binary_name,
-                description=description
+                description=description,
+                build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'}
             )
         except FileNotFoundError as e:
             return {
@@ -264,13 +305,15 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                 "isError": False
             }
 
-        # Get the log
-        log = get_sel4_log(request_id)
+        # Return paths instead of full log content (logs can be huge with ftrace)
+        result_dir = RESULTS_DIR / request_id
+        sel4_log_path = result_dir / 'sel4.log'
+        uart_raw_path = result_dir / 'uart-raw.log'
 
         # Check for error file if test failed
         error_msg = ""
         if result["status"] == "failed":
-            error_file = RESULTS_DIR / request_id / 'error.txt'
+            error_file = result_dir / 'error.txt'
             if error_file.exists():
                 error_msg = f"\nError: {error_file.read_text()}"
 
@@ -278,8 +321,11 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
 Request ID: {request_id}
 Binary: {binary_path}{error_msg}
 
-Console Output:
-{log}"""
+Results directory: {result_dir}
+seL4 log: {sel4_log_path}
+Raw UART log: {uart_raw_path}
+
+Use get_sel4_log tool or read the files directly to view output."""
 
         return {
             "content": [{"type": "text", "text": response_text}],
@@ -309,19 +355,20 @@ Console Output:
         request_id = arguments["request_id"]
         raw = arguments.get("raw", False)
 
+        result_dir = RESULTS_DIR / request_id
         if raw:
-            log = get_raw_log(request_id)
+            log_path = result_dir / 'uart-raw.log'
         else:
-            log = get_sel4_log(request_id)
+            log_path = result_dir / 'sel4.log'
 
-        if not log:
+        if not log_path.exists():
             return {
-                "content": [{"type": "text", "text": f"No log found for request {request_id}"}],
+                "content": [{"type": "text", "text": f"No log found at {log_path}"}],
                 "isError": True
             }
 
         return {
-            "content": [{"type": "text", "text": log}],
+            "content": [{"type": "text", "text": f"Log file: {log_path}\n\nUse Read tool to view contents."}],
             "isError": False
         }
 
@@ -368,6 +415,17 @@ Console Output:
         # Generate timestamped binary name to detect upload failures
         binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
 
+        # Determine arm_hyp from build config (for seL4 tests)
+        build_config = None
+        if test_type == "sel4":
+            build_config_path = Path("/home/hlyytine/tii-sel4/orinagx_sel4test/.config")
+            arm_hyp = True  # Default to hypervisor mode
+            if build_config_path.exists():
+                config_text = build_config_path.read_text()
+                if "KernelArmHypervisorSupport=OFF" in config_text:
+                    arm_hyp = False
+            build_config = {'arm_hyp': arm_hyp, 'platform': 'orinagx'}
+
         # Submit the multi-run test
         try:
             request_id = submit_multi_run_test(
@@ -375,7 +433,8 @@ Console Output:
                 run_count=run_count,
                 binary_name=binary_name,
                 test_type=test_type,
-                description=description
+                description=description,
+                build_config=build_config
             )
         except FileNotFoundError as e:
             return {
@@ -393,7 +452,10 @@ Console Output:
                 "isError": False
             }
 
-        # Get logs and build response
+        # Return paths instead of full log content (logs can be huge with ftrace)
+        result_dir = RESULTS_DIR / request_id
+
+        # Get summary info
         logs = get_multi_run_logs(request_id)
         summary_text = ""
         if logs['summary']:
@@ -403,7 +465,7 @@ Console Output:
         # Check for top-level error file if test failed
         error_msg = ""
         if result["status"] == "failed":
-            error_file = RESULTS_DIR / request_id / 'error.txt'
+            error_file = result_dir / 'error.txt'
             if error_file.exists():
                 error_msg = f"\nError: {error_file.read_text()}"
 
@@ -413,23 +475,10 @@ Binary: {binary_path}
 Run count: {run_count}
 {summary_text}{error_msg}
 
-"""
-        for run in logs['runs']:
-            response_text += f"--- Run {run['run_number']} ---\n"
-            if 'error' in run:
-                response_text += f"Error: {run['error']}\n"
-            elif 'sel4_log' in run:
-                # Truncate long logs
-                log_text = run['sel4_log']
-                if len(log_text) > 3000:
-                    log_text = log_text[:3000] + "\n... (truncated)"
-                response_text += log_text + "\n"
-            elif 'kernel_log' in run:
-                log_text = run['kernel_log']
-                if len(log_text) > 3000:
-                    log_text = log_text[:3000] + "\n... (truncated)"
-                response_text += log_text + "\n"
-            response_text += "\n"
+Results directory: {result_dir}
+Individual run logs: {result_dir}/run_N/sel4.log
+
+Use get_multi_run_logs tool or read the files directly to view output."""
 
         return {
             "content": [{"type": "text", "text": response_text}],
@@ -438,33 +487,139 @@ Run count: {run_count}
 
     elif name == "get_multi_run_logs":
         request_id = arguments["request_id"]
-        logs = get_multi_run_logs(request_id)
+        result_dir = RESULTS_DIR / request_id
 
-        if not logs['runs']:
+        if not result_dir.exists():
             return {
-                "content": [{"type": "text", "text": f"No multi-run logs found for request {request_id}"}],
+                "content": [{"type": "text", "text": f"No results found for request {request_id}"}],
                 "isError": True
             }
 
-        response_text = ""
+        # Get summary info
+        logs = get_multi_run_logs(request_id)
+        response_text = f"Results directory: {result_dir}\n\n"
+
         if logs['summary']:
             s = logs['summary']
             response_text += f"Summary: {s.get('completed_runs', '?')}/{s.get('total_runs', '?')} runs completed, {s.get('failed_runs', '?')} failed\n\n"
 
+        response_text += "Run logs:\n"
         for run in logs['runs']:
-            response_text += f"=== Run {run['run_number']} ===\n"
+            run_num = run['run_number']
+            run_log = result_dir / f'run_{run_num}' / 'sel4.log'
             if 'error' in run:
-                response_text += f"Error: {run['error']}\n"
-            elif 'sel4_log' in run:
-                response_text += run['sel4_log'] + "\n"
-            elif 'kernel_log' in run:
-                response_text += run['kernel_log'] + "\n"
-            response_text += "\n"
+                response_text += f"  Run {run_num}: Error - {run['error']}\n"
+            else:
+                response_text += f"  Run {run_num}: {run_log}\n"
+
+        response_text += "\nUse Read tool to view log contents."
 
         return {
             "content": [{"type": "text", "text": response_text}],
             "isError": False
         }
+
+    elif name == "build_sel4test":
+        mode = arguments.get("mode", "el2")
+
+        # Configuration
+        workspace_root = Path("/home/hlyytine/tii-sel4")
+        build_dir = workspace_root / "orinagx_sel4test"
+        binary_path = build_dir / "images" / "sel4test-driver-image-arm-orinagx"
+
+        # Determine defconfig based on mode
+        if mode == "el2":
+            defconfig = "orinagx_defconfig"
+        elif mode == "el2-ftrace":
+            defconfig = "orinagx_ftrace_defconfig"
+        else:
+            defconfig = "orinagx_nohyp_defconfig"
+
+        build_log = []
+        build_log.append(f"Building sel4test in {mode} mode...")
+
+        try:
+            # Step 1: Always remove existing build directory for clean build
+            if build_dir.exists():
+                build_log.append(f"Removing existing build directory: {build_dir}")
+                shutil.rmtree(build_dir)
+
+            # Step 2: Run defconfig
+            build_log.append(f"Running: make {defconfig}")
+            result = subprocess.run(
+                ["make", defconfig],
+                cwd=str(workspace_root),
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            if result.returncode != 0:
+                return {
+                    "content": [{"type": "text", "text": f"Defconfig failed:\n{result.stderr}\n{result.stdout}"}],
+                    "isError": True
+                }
+            build_log.append("Defconfig completed successfully")
+
+            # Step 3: Build sel4test
+            build_log.append("Running: make sel4test (this may take several minutes)")
+            result = subprocess.run(
+                ["make", "sel4test"],
+                cwd=str(workspace_root),
+                capture_output=True,
+                text=True,
+                timeout=900  # 15 minute timeout
+            )
+
+            # Check for build errors
+            if result.returncode != 0:
+                # Include last 50 lines of output for debugging
+                stderr_lines = result.stderr.strip().split('\n')[-50:]
+                stdout_lines = result.stdout.strip().split('\n')[-50:]
+                return {
+                    "content": [{"type": "text", "text": f"Build failed (exit code {result.returncode}):\n\nstderr (last 50 lines):\n" + "\n".join(stderr_lines) + "\n\nstdout (last 50 lines):\n" + "\n".join(stdout_lines)}],
+                    "isError": True
+                }
+
+            # Step 4: Verify binary was created
+            if not binary_path.exists():
+                return {
+                    "content": [{"type": "text", "text": f"Build appeared to succeed but binary not found at: {binary_path}"}],
+                    "isError": True
+                }
+
+            # Get binary timestamp
+            mtime = datetime.fromtimestamp(binary_path.stat().st_mtime)
+            build_time = mtime.strftime("%Y-%m-%d %H:%M:%S")
+
+            build_log.append(f"Build completed successfully!")
+            build_log.append(f"Binary: {binary_path}")
+            build_log.append(f"Build time: {build_time}")
+
+            # Return success with structured result
+            result_json = {
+                "success": True,
+                "binary_path": str(binary_path),
+                "mode": mode,
+                "build_time": build_time
+            }
+
+            response_text = "\n".join(build_log) + f"\n\nResult:\n{json.dumps(result_json, indent=2)}"
+
+            return {
+                "content": [{"type": "text", "text": response_text}],
+                "isError": False
+            }
+
+        except subprocess.TimeoutExpired:
+            return {
+                "content": [{"type": "text", "text": "Build timed out after 15 minutes"}],
+                "isError": True
+            }
+        except Exception as e:
+            return {
+                "content": [{"type": "text", "text": f"Build failed with exception: {str(e)}"}],
+                "isError": True
+            }
 
     else:
         return {
