@@ -192,9 +192,16 @@ while True:
     request_type = request_data.get('type', 'linux')
     is_multi_run = request_data.get('multi_run', False)
     run_count = request_data.get('run_count', 1)
+    build_config = request_data.get('build_config')
     print(f"Request type: {request_type}", flush=True)
     if is_multi_run:
         print(f"Multi-run mode: {run_count} iterations", flush=True)
+
+    # Write build configuration to results directory
+    if build_config:
+        config_file = result_dir / 'config.json'
+        config_file.write_text(json.dumps(build_config, indent=2))
+        print(f"Build config: ARM_HYP={'ON' if build_config.get('arm_hyp') else 'OFF'}, platform={build_config.get('platform', 'unknown')}", flush=True)
 
     # Process the request
     try:
@@ -263,6 +270,14 @@ while True:
                             stdout=fout,
                             check=True
                         )
+
+                    # Extract ftrace if present (non-fatal)
+                    subprocess.run(
+                        [str(SCRIPT_DIR / 'extract_ftrace.py'),
+                         str(run_dir / 'sel4.log'),
+                         str(run_dir)],
+                        check=False
+                    )
 
                     completed_runs += 1
                     print(f"Run {run_num} completed", flush=True)
@@ -366,6 +381,14 @@ while True:
                     stdout=fout,
                     check=True
                 )
+
+            # Extract ftrace if present (non-fatal)
+            subprocess.run(
+                [str(SCRIPT_DIR / 'extract_ftrace.py'),
+                 str(result_dir / 'sel4.log'),
+                 str(result_dir)],
+                check=False
+            )
 
             # Success - move to completed (don't wait for recovery)
             processing_file.rename(COMPLETED_DIR / request_file.name)
