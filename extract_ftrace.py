@@ -227,6 +227,42 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
     meta_path.write_text(json.dumps(meta, indent=2))
 
     print(f"Extracted ftrace: {len(raw_data)} bytes, {len(raw_data)//2} entries", file=sys.stderr)
+
+    # Convert to indexed format using Rust tool (if available)
+    idx_path = output_dir / 'ftrace.idx'
+    indexer_paths = [
+        Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace-index-rs'),
+        Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace-index/target/release/ftrace-index'),
+    ]
+
+    indexer = None
+    for p in indexer_paths:
+        if p.exists():
+            indexer = p
+            break
+
+    if indexer:
+        import subprocess
+        try:
+            result = subprocess.run([
+                str(indexer),
+                '--binary', str(bin_path),
+                '--meta', str(meta_path),
+                '--output', str(idx_path),
+                '--build-index'
+            ], capture_output=True, text=True, timeout=60)
+
+            if result.returncode == 0:
+                print(f"Created indexed ftrace: {idx_path}", file=sys.stderr)
+            else:
+                print(f"Warning: Indexer failed: {result.stderr}", file=sys.stderr)
+        except subprocess.TimeoutExpired:
+            print("Warning: Indexer timed out", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: Could not run indexer: {e}", file=sys.stderr)
+    else:
+        print("Note: Rust indexer not found, skipping indexed format", file=sys.stderr)
+
     return True
 
 

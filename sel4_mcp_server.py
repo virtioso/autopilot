@@ -252,11 +252,58 @@ Returns the path to the built binary on success.""",
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["el1", "el2", "el2-ftrace"],
-                    "description": "Kernel mode: 'el2' for hypervisor mode (default), 'el1' for no hypervisor, 'el2-ftrace' for hypervisor with function tracing",
+                    "enum": ["el1", "el2", "el2-ftrace", "el2-ftrace-nocache"],
+                    "description": "Kernel mode: 'el2' for hypervisor mode (default), 'el1' for no hypervisor, 'el2-ftrace' for hypervisor with function tracing, 'el2-ftrace-nocache' for ftrace with data cache disabled (for debugging cache-related issues)",
                     "default": "el2"
                 }
             }
+        }
+    },
+    {
+        "name": "query_ftrace",
+        "description": """Query indexed ftrace data from a test run.
+
+Queries the indexed ftrace file (ftrace.idx) using the fast query tool.
+Only works if ftrace was enabled during the test (el2-ftrace mode).
+
+Supports:
+- Random access to specific events by index
+- Filtering by event type (KERNEL_ENTRY, KERNEL_EXIT, SAFE_PTE, etc.)
+- Context around specific events
+- Summary statistics""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "request_id": {
+                    "type": "string",
+                    "description": "Request ID from a previous test submission"
+                },
+                "event_index": {
+                    "type": "integer",
+                    "description": "Get specific event by index (O(1) access)"
+                },
+                "event_type": {
+                    "type": "string",
+                    "enum": ["KERNEL_ENTRY", "KERNEL_EXIT", "SAFE_PTE", "SYSCALL", "VSPACE", "THREAD", "INIT_PT", "CREATE_OBJ", "PT_MAP", "VMID"],
+                    "description": "Filter by event type"
+                },
+                "context": {
+                    "type": "integer",
+                    "description": "Show N events before/after event_index",
+                    "default": 0
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of events to return",
+                    "default": 50
+                },
+                "summary": {
+                    "type": "boolean",
+                    "description": "Show summary statistics only",
+                    "default": False
+                }
+            },
+            "required": ["request_id"]
         }
     }
 ]
@@ -309,6 +356,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         result_dir = RESULTS_DIR / request_id
         sel4_log_path = result_dir / 'sel4.log'
         uart_raw_path = result_dir / 'uart-raw.log'
+        ftrace_idx_path = result_dir / 'ftrace.idx'
 
         # Check for error file if test failed
         error_msg = ""
@@ -317,9 +365,23 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             if error_file.exists():
                 error_msg = f"\nError: {error_file.read_text()}"
 
+        # Check for ftrace data
+        ftrace_msg = ""
+        if ftrace_idx_path.exists():
+            ftrace_meta_path = result_dir / 'ftrace.idx.meta'
+            if ftrace_meta_path.exists():
+                try:
+                    meta = json.loads(ftrace_meta_path.read_text())
+                    record_count = meta.get('record_count', 0)
+                    ftrace_msg = f"\nFtrace: {record_count:,} events indexed - use query_ftrace tool to analyze"
+                except:
+                    ftrace_msg = "\nFtrace: indexed data available - use query_ftrace tool"
+        elif (result_dir / 'ftrace.bin').exists():
+            ftrace_msg = "\nFtrace: raw data available (not indexed)"
+
         response_text = f"""Test {result['status']}
 Request ID: {request_id}
-Binary: {binary_path}{error_msg}
+Binary: {binary_path}{error_msg}{ftrace_msg}
 
 Results directory: {result_dir}
 seL4 log: {sel4_log_path}
@@ -519,6 +581,67 @@ Use get_multi_run_logs tool or read the files directly to view output."""
             "isError": False
         }
 
+    elif name == "query_ftrace":
+        request_id = arguments["request_id"]
+        result_dir = RESULTS_DIR / request_id
+        idx_path = result_dir / 'ftrace.idx'
+
+        if not idx_path.exists():
+            # Check if ftrace.bin exists but wasn't indexed
+            bin_path = result_dir / 'ftrace.bin'
+            if bin_path.exists():
+                return {
+                    "content": [{"type": "text", "text": f"Ftrace data exists but not indexed.\nRun: ftrace-index-rs --binary {bin_path} --meta {result_dir/'ftrace.meta'} --output {idx_path} --build-index"}],
+                    "isError": True
+                }
+            return {
+                "content": [{"type": "text", "text": f"No ftrace data found for request {request_id}. Was ftrace enabled (el2-ftrace mode)?"}],
+                "isError": True
+            }
+
+        # Build query command
+        query_tool = Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace_indexed.py')
+        if not query_tool.exists():
+            return {
+                "content": [{"type": "text", "text": f"Query tool not found: {query_tool}"}],
+                "isError": True
+            }
+
+        cmd = ['python3', str(query_tool), str(idx_path)]
+
+        if arguments.get("summary", False):
+            cmd.append('--summary')
+        elif arguments.get("event_index") is not None:
+            cmd.extend(['--event', str(arguments["event_index"])])
+            if arguments.get("context", 0) > 0:
+                cmd.extend(['--context', str(arguments["context"])])
+        elif arguments.get("event_type"):
+            cmd.extend(['--type', arguments["event_type"]])
+            cmd.extend(['--limit', str(arguments.get("limit", 50))])
+        else:
+            # Default: show summary
+            cmd.append('--summary')
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            output = result.stdout
+            if result.returncode != 0:
+                output = f"Error: {result.stderr}\n{result.stdout}"
+            return {
+                "content": [{"type": "text", "text": output}],
+                "isError": result.returncode != 0
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "content": [{"type": "text", "text": "Query timed out after 30 seconds"}],
+                "isError": True
+            }
+        except Exception as e:
+            return {
+                "content": [{"type": "text", "text": f"Query failed: {str(e)}"}],
+                "isError": True
+            }
+
     elif name == "build_sel4test":
         mode = arguments.get("mode", "el2")
 
@@ -532,6 +655,8 @@ Use get_multi_run_logs tool or read the files directly to view output."""
             defconfig = "orinagx_defconfig"
         elif mode == "el2-ftrace":
             defconfig = "orinagx_ftrace_defconfig"
+        elif mode == "el2-ftrace-nocache":
+            defconfig = "orinagx_ftrace_nocache_defconfig"
         else:
             defconfig = "orinagx_nohyp_defconfig"
 
