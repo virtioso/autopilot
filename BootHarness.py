@@ -54,6 +54,41 @@ def log_port(dev, fname, stop_event, baud=115200):
                 continue
             f.write(data)
 
+
+def log_port_until_quiescent(dev, fname, quiescence_timeout=5, baud=115200):
+    """
+    Log a serial port to a file until no data for quiescence_timeout seconds.
+
+    Args:
+        dev: Serial device path (e.g., '/dev/ttyACM1')
+        fname: Output filename
+        quiescence_timeout: Seconds of no data before returning
+        baud: Baud rate
+
+    Returns:
+        True if quiescence reached, False on error
+    """
+    import time
+    last_data_time = time.time()
+
+    try:
+        ser = serial.Serial(dev, baudrate=baud, timeout=0.5)
+    except Exception as e:
+        debug_print(f'Failed to open {dev}: {e}')
+        return False
+
+    with ser, open(fname, 'ab', buffering=0) as f:
+        while True:
+            data = ser.read(1024)
+            if data:
+                f.write(data)
+                last_data_time = time.time()
+            else:
+                # Check for quiescence
+                if time.time() - last_data_time >= quiescence_timeout:
+                    debug_print(f'{dev} quiescent for {quiescence_timeout}s')
+                    return True
+
 def check_stdin_ready():
     """Check if stdin has data available (non-blocking)."""
     return select.select([sys.stdin], [], [], 0)[0]

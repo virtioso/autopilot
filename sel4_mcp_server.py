@@ -252,8 +252,8 @@ Returns the path to the built binary on success.""",
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["el1", "el2", "el2-ftrace", "el2-ftrace-nocache"],
-                    "description": "Kernel mode: 'el2' for hypervisor mode (default), 'el1' for no hypervisor, 'el2-ftrace' for hypervisor with function tracing, 'el2-ftrace-nocache' for ftrace with data cache disabled (for debugging cache-related issues)",
+                    "enum": ["el1", "el2", "el2-ras", "el2-ftrace", "el2-ftrace-nocache"],
+                    "description": "Kernel mode: 'el2' for hypervisor mode (default), 'el1' for no hypervisor, 'el2-ras' for RAS error logging without function tracing (lower overhead), 'el2-ftrace' for full function tracing, 'el2-ftrace-nocache' for ftrace with data cache disabled",
                     "default": "el2"
                 }
             }
@@ -301,6 +301,79 @@ Supports:
                     "type": "boolean",
                     "description": "Show summary statistics only",
                     "default": False
+                }
+            },
+            "required": ["request_id"]
+        }
+    },
+    {
+        "name": "build_vm_minimal",
+        "description": """Build vm_minimal CAmkES application for the Orin AGX platform.
+
+Performs a clean build of vm_minimal inside Docker. This ALWAYS removes any
+existing build directory, configures for the specified mode, and runs the
+full build.
+
+The build typically takes 5-10 minutes.
+
+Returns the path to the built capdl-loader binary on success.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["el1", "el2"],
+                    "description": "Kernel mode: 'el2' for hypervisor mode (default), 'el1' for no hypervisor",
+                    "default": "el2"
+                }
+            }
+        }
+    },
+    {
+        "name": "test_vm_minimal",
+        "description": """Test a vm_minimal capdl-loader binary on NVIDIA Orin AGX hardware.
+
+Submits the binary to the autopilot service, waits for test completion,
+and returns paths to the logs. Captures both seL4/capdl-loader output (ttyACM0)
+and VM console output (ttyACM1).
+
+The test waits for 5 seconds of no output on the VM console (ttyACM1)
+before considering the test complete.
+
+No success/failure criteria yet - just captures logs for analysis.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "binary_path": {
+                    "type": "string",
+                    "description": "Absolute path to the capdl-loader EFI binary (e.g., /home/hlyytine/tii-sel4/orinagx_vm_minimal/images/capdl-loader-image-arm-orinagx)"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional description of what's being tested",
+                    "default": ""
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Maximum time to wait for test in seconds (default: 300)",
+                    "default": 300
+                }
+            },
+            "required": ["binary_path"]
+        }
+    },
+    {
+        "name": "get_vm_logs",
+        "description": """Get logs from a vm_minimal test.
+
+Returns paths to both the seL4/capdl-loader log (sel4.log) and
+the VM console log (vm.log).""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "request_id": {
+                    "type": "string",
+                    "description": "Request ID from a vm_minimal test submission"
                 }
             },
             "required": ["request_id"]
@@ -653,6 +726,8 @@ Use get_multi_run_logs tool or read the files directly to view output."""
         # Determine defconfig based on mode
         if mode == "el2":
             defconfig = "orinagx_defconfig"
+        elif mode == "el2-ras":
+            defconfig = "orinagx_ras_defconfig"
         elif mode == "el2-ftrace":
             defconfig = "orinagx_ftrace_defconfig"
         elif mode == "el2-ftrace-nocache":
@@ -745,6 +820,200 @@ Use get_multi_run_logs tool or read the files directly to view output."""
                 "content": [{"type": "text", "text": f"Build failed with exception: {str(e)}"}],
                 "isError": True
             }
+
+    elif name == "build_vm_minimal":
+        mode = arguments.get("mode", "el2")
+
+        # Configuration
+        workspace_root = Path("/home/hlyytine/tii-sel4")
+        build_dir = workspace_root / "orinagx_vm_minimal"
+        binary_path = build_dir / "images" / "capdl-loader-image-arm-orinagx"
+
+        # Determine defconfig based on mode
+        if mode == "el2":
+            defconfig = "orinagx_defconfig"
+        else:
+            defconfig = "orinagx_nohyp_defconfig"
+
+        build_log = []
+        build_log.append(f"Building vm_minimal in {mode} mode...")
+
+        try:
+            # Step 1: Always remove existing build directory for clean build
+            if build_dir.exists():
+                build_log.append(f"Removing existing build directory: {build_dir}")
+                shutil.rmtree(build_dir)
+
+            # Step 2: Run defconfig
+            build_log.append(f"Running: make {defconfig}")
+            result = subprocess.run(
+                ["make", defconfig],
+                cwd=str(workspace_root),
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            if result.returncode != 0:
+                return {
+                    "content": [{"type": "text", "text": f"Defconfig failed:\n{result.stderr}\n{result.stdout}"}],
+                    "isError": True
+                }
+            build_log.append("Defconfig completed successfully")
+
+            # Step 3: Build vm_minimal
+            build_log.append("Running: make vm_minimal (this may take several minutes)")
+            result = subprocess.run(
+                ["make", "vm_minimal"],
+                cwd=str(workspace_root),
+                capture_output=True,
+                text=True,
+                timeout=1800  # 30 minute timeout (CAmkES builds take longer)
+            )
+
+            # Check for build errors
+            if result.returncode != 0:
+                # Include last 50 lines of output for debugging
+                stderr_lines = result.stderr.strip().split('\n')[-50:]
+                stdout_lines = result.stdout.strip().split('\n')[-50:]
+                return {
+                    "content": [{"type": "text", "text": f"Build failed (exit code {result.returncode}):\n\nstderr (last 50 lines):\n" + "\n".join(stderr_lines) + "\n\nstdout (last 50 lines):\n" + "\n".join(stdout_lines)}],
+                    "isError": True
+                }
+
+            # Step 4: Verify binary was created
+            if not binary_path.exists():
+                return {
+                    "content": [{"type": "text", "text": f"Build appeared to succeed but binary not found at: {binary_path}"}],
+                    "isError": True
+                }
+
+            # Get binary timestamp
+            mtime = datetime.fromtimestamp(binary_path.stat().st_mtime)
+            build_time = mtime.strftime("%Y-%m-%d %H:%M:%S")
+
+            build_log.append(f"Build completed successfully!")
+            build_log.append(f"Binary: {binary_path}")
+            build_log.append(f"Build time: {build_time}")
+
+            # Return success with structured result
+            result_json = {
+                "success": True,
+                "binary_path": str(binary_path),
+                "mode": mode,
+                "build_time": build_time
+            }
+
+            response_text = "\n".join(build_log) + f"\n\nResult:\n{json.dumps(result_json, indent=2)}"
+
+            return {
+                "content": [{"type": "text", "text": response_text}],
+                "isError": False
+            }
+
+        except subprocess.TimeoutExpired:
+            return {
+                "content": [{"type": "text", "text": "Build timed out after 30 minutes"}],
+                "isError": True
+            }
+        except Exception as e:
+            return {
+                "content": [{"type": "text", "text": f"Build failed with exception: {str(e)}"}],
+                "isError": True
+            }
+
+    elif name == "test_vm_minimal":
+        binary_path = arguments["binary_path"]
+        description = arguments.get("description", "")
+        timeout = arguments.get("timeout", 300)
+
+        # Generate timestamped binary name
+        binary_name = f"capdl-vm_minimal-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
+
+        # Determine arm_hyp from build config
+        build_config_path = Path("/home/hlyytine/tii-sel4/orinagx_vm_minimal/.config")
+        arm_hyp = True  # Default to hypervisor mode
+        if build_config_path.exists():
+            config_text = build_config_path.read_text()
+            if "KernelArmHypervisorSupport=OFF" in config_text:
+                arm_hyp = False
+
+        # Submit the test using vm_minimal type
+        try:
+            from sel4_client import submit_vm_minimal_test
+            request_id = submit_vm_minimal_test(
+                binary_path=binary_path,
+                binary_name=binary_name,
+                description=description,
+                build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'}
+            )
+        except FileNotFoundError as e:
+            return {
+                "content": [{"type": "text", "text": f"Error: {str(e)}"}],
+                "isError": True
+            }
+
+        # Wait for completion
+        result = wait_for_result(request_id, timeout=timeout)
+
+        if result["status"] == "timeout":
+            return {
+                "content": [{"type": "text", "text": f"Test timed out after {timeout}s. Request ID: {request_id}\nYou can check status later with check_sel4_test."}],
+                "isError": False
+            }
+
+        # Return paths to logs
+        result_dir = RESULTS_DIR / request_id
+        sel4_log_path = result_dir / 'sel4.log'
+        vm_log_path = result_dir / 'vm.log'
+
+        # Check for error file if test failed
+        error_msg = ""
+        if result["status"] == "failed":
+            error_file = result_dir / 'error.txt'
+            if error_file.exists():
+                error_msg = f"\nError: {error_file.read_text()}"
+
+        response_text = f"""Test {result['status']}
+Request ID: {request_id}
+Binary: {binary_path}{error_msg}
+
+Results directory: {result_dir}
+seL4/capdl-loader log: {sel4_log_path}
+VM console log: {vm_log_path}
+
+Use get_vm_logs tool or read the files directly to view output."""
+
+        return {
+            "content": [{"type": "text", "text": response_text}],
+            "isError": result["status"] == "failed"
+        }
+
+    elif name == "get_vm_logs":
+        request_id = arguments["request_id"]
+
+        result_dir = RESULTS_DIR / request_id
+        sel4_log_path = result_dir / 'sel4.log'
+        vm_log_path = result_dir / 'vm.log'
+
+        result_lines = []
+
+        if sel4_log_path.exists():
+            result_lines.append(f"seL4/capdl-loader log: {sel4_log_path}")
+        else:
+            result_lines.append(f"seL4/capdl-loader log: NOT FOUND")
+
+        if vm_log_path.exists():
+            result_lines.append(f"VM console log: {vm_log_path}")
+        else:
+            result_lines.append(f"VM console log: NOT FOUND")
+
+        result_lines.append("")
+        result_lines.append("Use Read tool to view contents.")
+
+        return {
+            "content": [{"type": "text", "text": "\n".join(result_lines)}],
+            "isError": False
+        }
 
     else:
         return {

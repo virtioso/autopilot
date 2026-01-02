@@ -78,11 +78,39 @@ def symbolize_address(addr, el, kernel_elf, app_elf):
         return {'function': '??', 'location': f'(error: {e})'}
 
 
+def read_build_config(logfile):
+    """Read config.json from the log file's directory or parent (for multi-run results).
+
+    For single-run results: results/<timestamp>/sel4.log -> config.json in same dir
+    For multi-run results: results/<timestamp>/run_N/sel4.log -> config.json in parent
+    """
+    # Try same directory first
+    config_file = logfile.parent / 'config.json'
+    if config_file.exists():
+        try:
+            return json.loads(config_file.read_text())
+        except (json.JSONDecodeError, Exception):
+            pass
+
+    # Try parent directory (for multi-run results)
+    config_file = logfile.parent.parent / 'config.json'
+    if config_file.exists():
+        try:
+            return json.loads(config_file.read_text())
+        except (json.JSONDecodeError, Exception):
+            pass
+
+    return None
+
+
 def parse_log(logfile):
     """Parse sel4.log and extract test results and RAS errors."""
+    build_config = read_build_config(logfile)
+
     stats = {
         'file': str(logfile),
         'timestamp': datetime.now().isoformat(),
+        'build_config': build_config,
         'iterations': 0,
         'total_iterations': 0,
         'tests': [],
@@ -94,6 +122,9 @@ def parse_log(logfile):
         'aci_count': 0,
         'unique_addrs': defaultdict(int),
         'elr_addresses': defaultdict(lambda: {'count': 0, 'el': None}),
+        # RAS operation tracking (for instrumented tests)
+        'errors_by_operation': defaultdict(int),  # REVOKE, CANCEL, BETWEEN, UNKNOWN
+        'operation_details': [],  # List of (operation, iteration_index, error_count)
     }
 
     current_test = None
@@ -101,6 +132,9 @@ def parse_log(logfile):
     current_elr = None
     current_spsr_el = None
     in_ras_block = False
+    # Track current RAS operation phase (None, 'REVOKE', 'CANCEL', 'BETWEEN')
+    current_ras_op = None
+    current_ras_op_index = None
 
     # Regex patterns
     re_iteration = re.compile(r'=== Stress iteration (\d+)/(\d+) ===')
@@ -112,6 +146,8 @@ def parse_log(logfile):
     re_addr = re.compile(r'ADDR\s*=\s*(0x[0-9a-fA-F]+)')
     re_status = re.compile(r'Status\s*=\s*(0x[0-9a-fA-F]+)')
     re_serr = re.compile(r'SERR\s*=\s*([^:]+)')
+    # RAS operation markers from instrumented tests
+    re_ras_op = re.compile(r'RAS_OP:(\w+)_(\w+):(\d+)')
 
     with open(logfile, 'r') as f:
         for line in f:
@@ -129,6 +165,9 @@ def parse_log(logfile):
                 current_test = m.group(1)
                 if current_test not in stats['tests']:
                     stats['tests'].append(current_test)
+                # Reset operation tracking when new test starts
+                current_ras_op = None
+                current_ras_op_index = None
                 continue
 
             # Track test results
@@ -137,6 +176,20 @@ def parse_log(logfile):
                 test_name = m.group(1)
                 result = m.group(2)
                 stats['test_results'][test_name][result] += 1
+                continue
+
+            # Track RAS operation markers (instrumented tests)
+            m = re_ras_op.search(line)
+            if m:
+                op_name = m.group(1)   # REVOKE or CANCEL
+                op_phase = m.group(2)  # START or END
+                op_index = int(m.group(3))
+                if op_phase == 'START':
+                    current_ras_op = op_name
+                    current_ras_op_index = op_index
+                elif op_phase == 'END':
+                    # Mark as BETWEEN operations (after END, before next START)
+                    current_ras_op = 'BETWEEN'
                 continue
 
             # Track ELR_EL3 (PC at interrupt)
@@ -164,6 +217,18 @@ def parse_log(logfile):
                 if current_test:
                     stats['errors_by_test'][current_test] += 1
                 stats['errors_by_iteration'][current_iteration] += 1
+
+                # Count by RAS operation (instrumented tests)
+                if current_ras_op:
+                    stats['errors_by_operation'][current_ras_op] += 1
+                    stats['operation_details'].append({
+                        'operation': current_ras_op,
+                        'index': current_ras_op_index,
+                        'iteration': current_iteration,
+                        'error_type': error_type,
+                    })
+                else:
+                    stats['errors_by_operation']['UNKNOWN'] += 1
 
                 # Record ELR if we have one
                 if current_elr is not None:
@@ -198,6 +263,15 @@ def generate_text_summary(stats, kernel_elf, app_elf, do_symbolize=True):
     lines.append("sel4.log Analysis")
     lines.append("=" * 60)
     lines.append(f"File: {stats['file']}")
+
+    # Build configuration
+    if stats['build_config']:
+        bc = stats['build_config']
+        arm_hyp = 'ON' if bc.get('arm_hyp') else 'OFF'
+        platform = bc.get('platform', 'unknown')
+        lines.append(f"Build: ARM_HYPERVISOR_SUPPORT={arm_hyp}, platform={platform}")
+    else:
+        lines.append("Build: (no config.json found)")
     lines.append("")
 
     # Test summary
@@ -255,6 +329,31 @@ def generate_text_summary(stats, kernel_elf, app_elf, do_symbolize=True):
             if test not in stats['errors_by_test']:
                 lines.append(f"  {test:{max_name_len}}: {0:5} ({0:5.1f}%)")
         lines.append("")
+
+    # Errors by operation (instrumented tests only)
+    if stats['errors_by_operation']:
+        lines.append("ERRORS BY OPERATION (instrumented)")
+        lines.append("-" * 40)
+        total_by_op = sum(stats['errors_by_operation'].values())
+        # Order: REVOKE, CANCEL, BETWEEN, UNKNOWN
+        op_order = ['REVOKE', 'CANCEL', 'BETWEEN', 'UNKNOWN']
+        for op in op_order:
+            count = stats['errors_by_operation'].get(op, 0)
+            if count > 0 or op in ['REVOKE', 'CANCEL']:
+                pct = 100 * count / total_by_op if total_by_op > 0 else 0
+                lines.append(f"  {op:10}: {count:5} ({pct:5.1f}%)")
+        lines.append("")
+        # Summary interpretation
+        revoke_count = stats['errors_by_operation'].get('REVOKE', 0)
+        cancel_count = stats['errors_by_operation'].get('CANCEL', 0)
+        if revoke_count > 0 or cancel_count > 0:
+            if revoke_count > cancel_count * 2:
+                lines.append("  >> REVOKE dominates - errors during capability revocation")
+            elif cancel_count > revoke_count * 2:
+                lines.append("  >> CANCEL dominates - errors during endpoint queue ops")
+            else:
+                lines.append("  >> Both operations trigger errors")
+            lines.append("")
 
     # Unique error addresses
     if stats['unique_addrs']:
@@ -344,6 +443,7 @@ def generate_json_output(stats, kernel_elf, app_elf, do_symbolize=True):
     return {
         'file': stats['file'],
         'timestamp': stats['timestamp'],
+        'build_config': stats['build_config'],
         'summary': {
             'iterations': total_iterations,
             'tests_per_iter': tests_per_iter,
@@ -359,6 +459,7 @@ def generate_json_output(stats, kernel_elf, app_elf, do_symbolize=True):
             'total': stats['scc_count'] + stats['aci_count'],
             'by_test': dict(stats['errors_by_test']),
             'by_iteration': errors_by_iter_list,
+            'by_operation': dict(stats['errors_by_operation']) if stats['errors_by_operation'] else None,
         },
         'unique_addrs': decoded_addrs,
         'elr_analysis': elr_analysis,

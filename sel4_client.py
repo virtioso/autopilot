@@ -41,7 +41,8 @@ def submit_sel4_test(
     binary_path: str,
     binary_name: str = 'sel4test.efi',
     description: str = '',
-    copy_to_staging: bool = True
+    copy_to_staging: bool = True,
+    build_config: dict = None
 ) -> str:
     """
     Submit a seL4 EFI binary for testing.
@@ -51,10 +52,23 @@ def submit_sel4_test(
         binary_name: Name to use for the binary on target (default: sel4test.efi)
         description: Optional description of the test
         copy_to_staging: If True, copy binary to staging area (default: True)
+        build_config: Build configuration dict with keys:
+            - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting (REQUIRED)
+            - platform (str): Platform name (e.g., 'orinagx')
+            - num_nodes (int): SMP core count (optional)
 
     Returns:
         timestamp: Request ID that can be used to check status/get results
+
+    Raises:
+        ValueError: If build_config is missing or lacks arm_hyp
     """
+    # Validate build_config
+    if build_config is None:
+        raise ValueError("build_config is required. Must specify arm_hyp (True/False)")
+    if 'arm_hyp' not in build_config:
+        raise ValueError("build_config must include 'arm_hyp' (True/False)")
+
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
     # Ensure directories exist
@@ -81,7 +95,8 @@ def submit_sel4_test(
         'binary_name': binary_name,
         'description': description,
         'submitted_at': timestamp,
-        'original_binary': str(binary_src)
+        'original_binary': str(binary_src),
+        'build_config': build_config
     }
 
     request_file = PENDING_DIR / f'{timestamp}.request'
@@ -96,7 +111,8 @@ def submit_multi_run_test(
     binary_name: str = 'sel4test.efi',
     test_type: str = 'sel4',
     description: str = '',
-    copy_to_staging: bool = True
+    copy_to_staging: bool = True,
+    build_config: dict = None
 ) -> str:
     """
     Submit a test for multiple boot iterations without re-uploading the binary.
@@ -108,10 +124,24 @@ def submit_multi_run_test(
         test_type: 'sel4' or 'linux' (default: sel4)
         description: Optional description of the test
         copy_to_staging: If True, copy binary to staging area (default: True)
+        build_config: Build configuration dict with keys:
+            - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting (REQUIRED for sel4)
+            - platform (str): Platform name (e.g., 'orinagx')
+            - num_nodes (int): SMP core count (optional)
 
     Returns:
         timestamp: Request ID that can be used to check status/get results
+
+    Raises:
+        ValueError: If build_config is missing or lacks arm_hyp (for sel4 tests)
     """
+    # Validate build_config for seL4 tests
+    if test_type == 'sel4':
+        if build_config is None:
+            raise ValueError("build_config is required for seL4 tests. Must specify arm_hyp (True/False)")
+        if 'arm_hyp' not in build_config:
+            raise ValueError("build_config must include 'arm_hyp' (True/False)")
+
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
     # Ensure directories exist
@@ -140,13 +170,111 @@ def submit_multi_run_test(
         'submitted_at': timestamp,
         'original_binary': str(binary_src),
         'multi_run': True,
-        'run_count': run_count
+        'run_count': run_count,
+        'build_config': build_config
     }
 
     request_file = PENDING_DIR / f'{timestamp}.request'
     request_file.write_text(json.dumps(request, indent=2))
 
     return timestamp
+
+
+def submit_vm_minimal_test(
+    binary_path: str,
+    binary_name: str = 'capdl-vm_minimal.efi',
+    description: str = '',
+    copy_to_staging: bool = True,
+    build_config: dict = None
+) -> str:
+    """
+    Submit a vm_minimal capdl-loader binary for testing.
+
+    This test type captures both seL4/capdl-loader output (ttyACM0) and
+    VM console output (ttyACM1). The test waits for 5 seconds of quiescence
+    on the VM console before completing.
+
+    Args:
+        binary_path: Path to the capdl-loader EFI binary to test
+        binary_name: Name to use for the binary on target
+        description: Optional description of the test
+        copy_to_staging: If True, copy binary to staging area (default: True)
+        build_config: Build configuration dict with keys:
+            - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting
+            - platform (str): Platform name (e.g., 'orinagx')
+
+    Returns:
+        timestamp: Request ID that can be used to check status/get results
+    """
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+
+    # Ensure directories exist
+    PENDING_DIR.mkdir(parents=True, exist_ok=True)
+    BINARIES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Resolve and validate binary path
+    binary_src = Path(binary_path).resolve()
+    if not binary_src.exists():
+        raise FileNotFoundError(f"Binary not found: {binary_src}")
+
+    # Determine binary path for request
+    if copy_to_staging:
+        staged_binary = BINARIES_DIR / binary_name
+        shutil.copy(binary_src, staged_binary)
+        request_binary_path = str(staged_binary)
+    else:
+        request_binary_path = str(binary_src)
+
+    # Create request file
+    request = {
+        'type': 'vm_minimal',
+        'binary_path': request_binary_path,
+        'binary_name': binary_name,
+        'description': description,
+        'submitted_at': timestamp,
+        'original_binary': str(binary_src),
+        'build_config': build_config or {'arm_hyp': True, 'platform': 'orinagx'}
+    }
+
+    request_file = PENDING_DIR / f'{timestamp}.request'
+    request_file.write_text(json.dumps(request, indent=2))
+
+    return timestamp
+
+
+def get_vm_logs(timestamp: str) -> dict:
+    """
+    Get logs from a vm_minimal test.
+
+    Args:
+        timestamp: Request ID from submit_vm_minimal_test()
+
+    Returns:
+        dict with:
+            - 'sel4_log': seL4/capdl-loader log content (or None if not found)
+            - 'vm_log': VM console log content (or None if not found)
+            - 'sel4_log_path': Path to seL4 log file
+            - 'vm_log_path': Path to VM log file
+    """
+    result_dir = RESULTS_DIR / timestamp
+
+    sel4_log_path = result_dir / 'sel4.log'
+    vm_log_path = result_dir / 'vm.log'
+
+    result = {
+        'sel4_log': None,
+        'vm_log': None,
+        'sel4_log_path': str(sel4_log_path),
+        'vm_log_path': str(vm_log_path),
+    }
+
+    if sel4_log_path.exists():
+        result['sel4_log'] = sel4_log_path.read_text()
+
+    if vm_log_path.exists():
+        result['vm_log'] = vm_log_path.read_text()
+
+    return result
 
 
 def get_multi_run_logs(timestamp: str) -> dict:
@@ -334,6 +462,13 @@ if __name__ == '__main__':
     submit_parser.add_argument('--name', default='sel4test.efi', help='Binary name on target')
     submit_parser.add_argument('--desc', default='', help='Description')
     submit_parser.add_argument('--wait', action='store_true', help='Wait for result')
+    # ARM_HYP configuration (mutually exclusive, one required)
+    hyp_group = submit_parser.add_mutually_exclusive_group(required=True)
+    hyp_group.add_argument('--arm-hyp', dest='arm_hyp', action='store_true',
+                           help='Built with ARM_HYPERVISOR_SUPPORT=ON')
+    hyp_group.add_argument('--no-arm-hyp', dest='arm_hyp', action='store_false',
+                           help='Built with ARM_HYPERVISOR_SUPPORT=OFF')
+    submit_parser.add_argument('--platform', default='orinagx', help='Platform name (default: orinagx)')
 
     # status command
     status_parser = subparsers.add_parser('status', help='Check test status')
@@ -358,17 +493,49 @@ if __name__ == '__main__':
     multi_parser.add_argument('--type', default='sel4', choices=['sel4', 'linux'], help='Test type')
     multi_parser.add_argument('--desc', default='', help='Description')
     multi_parser.add_argument('--wait', action='store_true', help='Wait for result')
+    # ARM_HYP configuration (required for sel4 tests)
+    multi_hyp_group = multi_parser.add_mutually_exclusive_group()
+    multi_hyp_group.add_argument('--arm-hyp', dest='arm_hyp', action='store_true', default=None,
+                                  help='Built with ARM_HYPERVISOR_SUPPORT=ON (required for sel4)')
+    multi_hyp_group.add_argument('--no-arm-hyp', dest='arm_hyp', action='store_false',
+                                  help='Built with ARM_HYPERVISOR_SUPPORT=OFF')
+    multi_parser.add_argument('--platform', default='orinagx', help='Platform name (default: orinagx)')
 
     # logs-multi command
     logs_multi_parser = subparsers.add_parser('logs-multi', help='Get multi-run logs')
     logs_multi_parser.add_argument('timestamp', help='Request timestamp')
     logs_multi_parser.add_argument('--summary', action='store_true', help='Show summary only')
 
+    # submit-vm command for vm_minimal tests
+    vm_parser = subparsers.add_parser('submit-vm', help='Submit vm_minimal test')
+    vm_parser.add_argument('binary_path', help='Path to capdl-loader EFI binary')
+    vm_parser.add_argument('--name', default='capdl-vm_minimal.efi', help='Binary name on target')
+    vm_parser.add_argument('--desc', default='', help='Description')
+    vm_parser.add_argument('--wait', action='store_true', help='Wait for result')
+    vm_parser.add_argument('--platform', default='orinagx', help='Platform name (default: orinagx)')
+
+    # vm-logs command
+    vm_logs_parser = subparsers.add_parser('vm-logs', help='Get vm_minimal logs')
+    vm_logs_parser.add_argument('timestamp', help='Request timestamp')
+    vm_logs_parser.add_argument('--sel4', action='store_true', help='Show seL4/capdl-loader log only')
+    vm_logs_parser.add_argument('--vm', action='store_true', help='Show VM console log only')
+
     args = parser.parse_args()
 
     if args.command == 'submit':
-        ts = submit_sel4_test(args.binary_path, args.name, args.desc)
+        build_config = {
+            'arm_hyp': args.arm_hyp,
+            'platform': args.platform
+        }
+        ts = submit_sel4_test(
+            args.binary_path,
+            binary_name=args.name,
+            description=args.desc,
+            build_config=build_config
+        )
         print(f"Submitted: {ts}")
+        print(f"  ARM_HYPERVISOR_SUPPORT: {'ON' if args.arm_hyp else 'OFF'}")
+        print(f"  Platform: {args.platform}")
         if args.wait:
             print("Waiting for result...")
             result = wait_for_result(ts)
@@ -409,14 +576,34 @@ if __name__ == '__main__':
                     print(f"  {ts}")
 
     elif args.command == 'submit-multi':
+        # Build config (required for sel4, optional for linux)
+        build_config = None
+        if args.type == 'sel4':
+            if args.arm_hyp is None:
+                parser.error("--arm-hyp or --no-arm-hyp is required for seL4 tests")
+            build_config = {
+                'arm_hyp': args.arm_hyp,
+                'platform': args.platform
+            }
+        elif args.arm_hyp is not None:
+            # Linux test with explicit arm_hyp (optional but allowed)
+            build_config = {
+                'arm_hyp': args.arm_hyp,
+                'platform': args.platform
+            }
+
         ts = submit_multi_run_test(
             args.binary_path,
             run_count=args.runs,
             binary_name=args.name,
             test_type=args.type,
-            description=args.desc
+            description=args.desc,
+            build_config=build_config
         )
         print(f"Submitted multi-run test: {ts} ({args.runs} runs)")
+        if build_config:
+            print(f"  ARM_HYPERVISOR_SUPPORT: {'ON' if build_config['arm_hyp'] else 'OFF'}")
+            print(f"  Platform: {build_config['platform']}")
         if args.wait:
             print("Waiting for result...")
             # Scale timeout for multiple runs
@@ -457,6 +644,55 @@ if __name__ == '__main__':
                     print(run['sel4_log'])
                 elif 'kernel_log' in run:
                     print(run['kernel_log'])
+
+    elif args.command == 'submit-vm':
+        build_config = {
+            'arm_hyp': True,  # vm_minimal always uses hypervisor mode
+            'platform': args.platform
+        }
+        ts = submit_vm_minimal_test(
+            args.binary_path,
+            binary_name=args.name,
+            description=args.desc,
+            build_config=build_config
+        )
+        print(f"Submitted vm_minimal test: {ts}")
+        print(f"  Platform: {args.platform}")
+        if args.wait:
+            print("Waiting for result...")
+            result = wait_for_result(ts)
+            print(f"Status: {result['status']}")
+            if result['status'] == 'completed':
+                logs = get_vm_logs(ts)
+                if logs['sel4_log']:
+                    print("\n=== seL4/capdl-loader output ===")
+                    print(logs['sel4_log'])
+                if logs['vm_log']:
+                    print("\n=== VM console output ===")
+                    print(logs['vm_log'])
+
+    elif args.command == 'vm-logs':
+        logs = get_vm_logs(args.timestamp)
+        if not logs['sel4_log'] and not logs['vm_log']:
+            print(f"No vm_minimal logs found for {args.timestamp}")
+        elif args.sel4:
+            if logs['sel4_log']:
+                print(logs['sel4_log'])
+            else:
+                print("No seL4 log available")
+        elif args.vm:
+            if logs['vm_log']:
+                print(logs['vm_log'])
+            else:
+                print("No VM log available")
+        else:
+            # Show both
+            if logs['sel4_log']:
+                print("=== seL4/capdl-loader output ===")
+                print(logs['sel4_log'])
+            if logs['vm_log']:
+                print("\n=== VM console output ===")
+                print(logs['vm_log'])
 
     else:
         parser.print_help()
