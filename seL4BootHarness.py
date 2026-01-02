@@ -28,6 +28,21 @@ TARGET_USER = 'root'
 TARGET_PATH = '/boot/efi'
 
 
+def cleanup_old_binaries():
+    """Remove old sel4test and capdl binaries from EFI partition."""
+    debug_print('Cleaning up old binaries from /boot/efi')
+    try:
+        subprocess.run([
+            'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10',
+            f'{TARGET_USER}@{TARGET_IP}',
+            'rm -f /boot/efi/sel4test-* /boot/efi/capdl-*'
+        ], check=True, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        debug_print('Warning: cleanup timed out, continuing anyway')
+    except subprocess.CalledProcessError as e:
+        debug_print(f'Warning: cleanup failed: {e}, continuing anyway')
+
+
 def scp_upload(binary_path, binary_name):
     """Upload binary to target via SCP."""
     debug_print(f'Uploading {binary_name} via SCP')
@@ -70,6 +85,7 @@ class SeL4UploadHarness(BaseBootHarness):
         if idx != 0:
             raise RuntimeError('Failed to reach shell prompt for upload')
 
+        cleanup_old_binaries()
         scp_upload(self.binary_path, self.binary_name)
         ssh_reboot()
         self.stop()
@@ -83,6 +99,7 @@ class SeL4UploadOnlyHarness:
         self.binary_name = binary_name
 
     def run(self):
+        cleanup_old_binaries()
         scp_upload(self.binary_path, self.binary_name)
         ssh_reboot()
 
@@ -227,4 +244,234 @@ class SeL4RunHarness(BaseBootHarness):
                 break
             elif idx == 2:  # EOF
                 debug_print('EOF reached')
+                break
+
+
+class VMMinimalRunHarness(BaseBootHarness):
+    """
+    Run a vm_minimal capdl-loader binary with dual UART capture.
+
+    Captures ttyACM0 (seL4/capdl-loader) and ttyACM1 (VM console).
+    Waits for sel4_boot_timeout for capdl-loader to finish booting,
+    then waits for vm_quiescence_timeout of inactivity on ttyACM1.
+    """
+
+    def __init__(self, board, tty, filename, vm_tty, vm_filename, binary_name,
+                 sel4_boot_timeout=60, vm_quiescence_timeout=5):
+        super().__init__(board, tty, filename, hyp_tty=None, hyp_filename=None)
+        self.binary_name = binary_name
+        self.vm_tty = vm_tty
+        self.vm_filename = vm_filename
+        self.sel4_boot_timeout = sel4_boot_timeout
+        self.vm_quiescence_timeout = vm_quiescence_timeout
+        self.vm_stop_event = None
+        self.vm_log_thread = None
+
+    def boot(self):
+        pass  # Board already rebooting from upload phase
+
+    def run(self):
+        import os
+        import threading
+
+        # Start VM console capture (ttyACM1) in background
+        self.vm_stop_event = threading.Event()
+        self.vm_log_thread = threading.Thread(
+            target=BootHarness.log_port,
+            args=(self.vm_tty, self.vm_filename, self.vm_stop_event),
+            daemon=True
+        )
+        self.vm_log_thread.start()
+
+        # Navigate UEFI and start binary (same as SeL4RunHarness)
+        self._navigate_uefi_and_start()
+
+        # Record file size AFTER binary starts - ignore any prior buffered data
+        try:
+            self.vm_baseline_size = os.path.getsize(self.vm_filename)
+        except FileNotFoundError:
+            self.vm_baseline_size = 0
+        debug_print(f'VM console baseline size: {self.vm_baseline_size} bytes (ignored)')
+
+        # Now wait for VM console (ttyACM1) to be quiescent
+        debug_print(f'Waiting for VM console quiescence ({self.vm_quiescence_timeout}s)...')
+        self._wait_for_vm_quiescence()
+
+        # Stop VM console capture
+        self.vm_stop_event.set()
+        self.vm_log_thread.join(timeout=2.0)
+
+        self.stop()
+
+    def _navigate_uefi_and_start(self):
+        """Navigate UEFI menus and start the binary."""
+        import time
+
+        # Wait for UEFI "Enter to continue boot"
+        debug_print('Waiting for UEFI prompt')
+        idx = self.child.expect([
+            r'Enter to continue boot\.',
+            r'Press ESCAPE for boot options',
+            TIMEOUT,
+            EOF
+        ], timeout=60)
+
+        if idx == 0 or idx == 1:
+            time.sleep(1)
+            debug_print('Sending ESC to enter UEFI menu')
+            self.child.send('\x1b')  # ESC
+        else:
+            raise RuntimeError(f'Failed to get UEFI prompt (idx={idx})')
+
+        # Wait for UEFI menu "Select Entry"
+        debug_print('Waiting for UEFI Select Entry')
+        idx = self.child.expect([
+            r'Select Entry',
+            TIMEOUT,
+            EOF
+        ], timeout=30)
+
+        if idx != 0:
+            raise RuntimeError('Failed to get UEFI Select Entry menu')
+
+        time.sleep(1)
+        debug_print('Navigating to Boot Manager (down, down, enter)')
+        self.child.send('\x1b[B')  # Down arrow
+        time.sleep(0.3)
+        self.child.send('\x1b[B')  # Down arrow
+        time.sleep(0.3)
+        self.child.send('\r')      # Enter
+
+        # Wait for Boot Manager "Esc=Exit"
+        debug_print('Waiting for Boot Manager menu')
+        idx = self.child.expect([
+            r'Esc=Exit',
+            TIMEOUT,
+            EOF
+        ], timeout=30)
+
+        if idx != 0:
+            raise RuntimeError('Failed to get Boot Manager menu')
+
+        time.sleep(1)
+        debug_print('Selecting UEFI Shell (up, enter)')
+        self.child.send('\x1b[A')  # Up arrow
+        time.sleep(0.3)
+        self.child.send('\r')      # Enter
+
+        # Wait for Shell prompt, handling startup.nsh delay
+        debug_print('Waiting for UEFI Shell prompt')
+        while True:
+            idx = self.child.expect([
+                r'Shell>',
+                r'Press ESC in \d+ seconds',  # startup.nsh prompt
+                TIMEOUT,
+                EOF
+            ], timeout=30)
+
+            if idx == 0:  # Got Shell> prompt
+                break
+            elif idx == 1:  # startup.nsh prompt - send space to skip
+                debug_print('Skipping startup.nsh delay')
+                self.child.send(' ')
+            else:
+                raise RuntimeError('Failed to get Shell prompt')
+
+        debug_print('Switching to fs3:')
+        self.child.send('fs3:\r')
+
+        # Wait for FS3 prompt
+        idx = self.child.expect([
+            r'FS3:\\>',
+            TIMEOUT,
+            EOF
+        ], timeout=10)
+
+        if idx != 0:
+            raise RuntimeError('Failed to switch to fs3:')
+
+        debug_print(f'Running {self.binary_name}')
+        self.child.send(f'{self.binary_name}\r')
+
+        # Check for immediate error (binary not found)
+        idx = self.child.expect([
+            r'is not recognized as an internal or external command',
+            r'.+',  # Any other output (likely seL4 starting)
+            TIMEOUT,
+        ], timeout=2)
+
+        if idx == 0:
+            raise RuntimeError(f'Binary not found on target: {self.binary_name}')
+
+    def _wait_for_vm_quiescence(self):
+        """Wait for VM console (ttyACM1) to be quiescent, while continuing to capture ttyACM0."""
+        import os
+        import re
+        import time
+
+        # Pattern to detect Linux kernel boot messages (e.g., "[    0.000000] Booting Linux")
+        LINUX_BOOT_PATTERN = re.compile(rb'\[\s*\d+\.\d+\]')
+
+        # Phase 1: Wait for Linux kernel to start booting on VM console
+        # This phase ends when we see Linux kernel messages OR timeout expires
+        # Only look at NEW data after baseline (ignore buffered data from before binary started)
+        debug_print(f'Phase 1: Waiting up to {self.sel4_boot_timeout}s for Linux kernel boot on VM console...')
+        boot_start_time = time.time()
+        vm_started = False
+        last_checked_size = self.vm_baseline_size  # Start from baseline, not 0
+
+        while time.time() - boot_start_time < self.sel4_boot_timeout:
+            # Continue capturing ttyACM0 output
+            try:
+                self.child.expect([r'.+', TIMEOUT], timeout=1)
+            except:
+                pass
+
+            # Check if VM console has NEW Linux kernel boot messages (after baseline)
+            try:
+                current_size = os.path.getsize(self.vm_filename)
+                if current_size > last_checked_size:
+                    # Read new content and check for Linux kernel messages
+                    with open(self.vm_filename, 'rb') as f:
+                        f.seek(last_checked_size)
+                        new_content = f.read()
+                    last_checked_size = current_size
+
+                    if LINUX_BOOT_PATTERN.search(new_content):
+                        debug_print('Linux kernel boot detected on VM console')
+                        vm_started = True
+                        break
+            except FileNotFoundError:
+                pass
+
+        if not vm_started:
+            debug_print(f'sel4_boot_timeout ({self.sel4_boot_timeout}s) expired, no Linux boot detected')
+
+        # Phase 2: Wait for VM console quiescence (only consider NEW data after baseline)
+        debug_print(f'Phase 2: Waiting for {self.vm_quiescence_timeout}s VM console quiescence...')
+        try:
+            last_vm_size = os.path.getsize(self.vm_filename)
+        except FileNotFoundError:
+            last_vm_size = self.vm_baseline_size
+        last_change_time = time.time()
+
+        while True:
+            # Continue capturing ttyACM0 output
+            try:
+                self.child.expect([r'.+', TIMEOUT], timeout=1)
+            except:
+                pass
+
+            # Check VM log file size to detect activity
+            try:
+                current_size = os.path.getsize(self.vm_filename)
+                if current_size != last_vm_size:
+                    last_vm_size = current_size
+                    last_change_time = time.time()
+            except FileNotFoundError:
+                pass
+
+            # Check for quiescence
+            if time.time() - last_change_time >= self.vm_quiescence_timeout:
+                debug_print(f'VM console quiescent for {self.vm_quiescence_timeout}s')
                 break

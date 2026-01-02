@@ -404,6 +404,114 @@ while True:
             board_state = 'stock_linux'  # Recovery complete
             status('Waiting for requests...')
 
+        elif request_type == 'vm_minimal':
+            # === VM_MINIMAL CAPDL-LOADER TEST FLOW ===
+            # Captures both ttyACM0 (seL4/capdl) and ttyACM1 (VM console)
+            # Phase 1: Wait up to 60s for capdl-loader to boot (until VM console produces output)
+            # Phase 2: Wait for 5 seconds of quiescence on ttyACM1 before stopping
+            binary_path = request_data.get('binary_path')
+            binary_name = request_data.get('binary_name', 'capdl-vm_minimal.efi')
+
+            if not binary_path:
+                raise ValueError("vm_minimal request missing 'binary_path'")
+
+            print(f"vm_minimal binary: {binary_path} -> {binary_name}", flush=True)
+
+            # Upload binary - skip boot if already at stock Linux
+            status(f'{timestamp}: Uploading vm_minimal binary...')
+            if board_state == 'stock_linux':
+                print("Board already at stock Linux, skipping boot", flush=True)
+                upload = seL4BootHarness.SeL4UploadOnlyHarness(
+                    binary_path,
+                    binary_name
+                )
+            else:
+                upload = seL4BootHarness.SeL4UploadHarness(
+                    board,
+                    '/dev/ttyACM0',
+                    str(result_dir / 'upload.log'),
+                    binary_path,
+                    binary_name
+                )
+            upload.run()
+            board_state = 'rebooting'
+
+            status(f'{timestamp}: Running vm_minimal (120s boot + 5s VM quiescence)...')
+
+            # Run using VMMinimalRunHarness which handles dual UART capture
+            # Phase 1: Wait up to 120s for capdl-loader boot (until VM console produces output)
+            # Phase 2: Wait for 5s of quiescence on ttyACM1
+            runner = seL4BootHarness.VMMinimalRunHarness(
+                board,
+                '/dev/ttyACM0',
+                str(result_dir / 'uart-raw.log'),
+                '/dev/ttyACM1',
+                str(result_dir / 'vm-uart-raw.log'),
+                binary_name,
+                sel4_boot_timeout=120,
+                vm_quiescence_timeout=5
+            )
+            runner.run()
+            board_state = 'unknown'
+
+            # === START ASYNC RECOVERY ===
+            status(f'{timestamp}: Recovery + filtering logs...')
+            recovery_exception = [None]
+
+            def recovery_thread_fn():
+                try:
+                    ready = BootHarness.ReadyBootHarness(
+                        board,
+                        '/dev/ttyACM0',
+                        str(result_dir / 'recovery.log'),
+                        None,
+                        None
+                    )
+                    ready.run()
+                except Exception as e:
+                    recovery_exception[0] = e
+
+            recovery_thread = threading.Thread(target=recovery_thread_fn, daemon=True)
+            recovery_thread.start()
+
+            # === FILTER LOGS (parallel with recovery) ===
+            # Filter seL4/capdl-loader log (ttyACM0)
+            with open(result_dir / 'uart-raw.log', "rb") as fin, \
+                 open(result_dir / 'sel4.log', "wb") as fout:
+                subprocess.run(
+                    [str(SCRIPT_DIR / 'filter_capdl_start.py')],
+                    stdin=fin,
+                    stdout=fout,
+                    check=True
+                )
+
+            # Filter VM console log (ttyACM1)
+            if (result_dir / 'vm-uart-raw.log').exists():
+                with open(result_dir / 'vm-uart-raw.log', "rb") as fin, \
+                     open(result_dir / 'vm.log', "wb") as fout:
+                    subprocess.run(
+                        [str(SCRIPT_DIR / 'filter_vm_console.py')],
+                        stdin=fin,
+                        stdout=fout,
+                        check=True
+                    )
+
+            # Success - move to completed
+            processing_file.rename(COMPLETED_DIR / request_file.name)
+            print(f"\n=== {timestamp} completed: vm_minimal test ===", flush=True)
+            print(f"Results: {result_dir}/", flush=True)
+            print(f"  sel4.log: seL4/capdl-loader output", flush=True)
+            print(f"  vm.log: VM console output", flush=True)
+
+            # === WAIT FOR RECOVERY ===
+            status(f'{timestamp}: Waiting for recovery...')
+            recovery_thread.join()
+            if recovery_exception[0]:
+                raise recovery_exception[0]
+
+            board_state = 'stock_linux'
+            status('Waiting for requests...')
+
         elif is_multi_run and request_type == 'linux':
             # === LINUX MULTI-RUN TEST FLOW ===
             kernel_version = KERNEL_RELEASE_FILE.read_text().strip()
