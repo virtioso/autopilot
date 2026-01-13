@@ -18,8 +18,8 @@ import BootHarness
 import seL4BootHarness
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-# Use SCRIPT_DIR as base (script is at ${WORKSPACE}/autopilot/)
-AUTOPILOT_DIR = SCRIPT_DIR
+# Use AUTOPILOT_DIR env var if set, otherwise use script directory
+AUTOPILOT_DIR = Path(os.environ.get('AUTOPILOT_DIR', str(SCRIPT_DIR)))
 
 # Target board IP for SSH
 TARGET_IP = '192.168.101.112'
@@ -449,7 +449,7 @@ while True:
                 str(result_dir / 'vm-uart-raw.log'),
                 binary_name,
                 sel4_boot_timeout=120,
-                vm_quiescence_timeout=5
+                vm_quiescence_timeout=90  # Wait for BPMP 60s timeout
             )
             runner.run()
             board_state = 'unknown'

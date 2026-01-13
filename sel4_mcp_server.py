@@ -42,7 +42,9 @@ from pathlib import Path
 from typing import Any
 
 # Import the sel4_client library
-sys.path.insert(0, '/home/hlyytine/pkvm/autopilot')
+# Use script directory to find sel4_client, not hardcoded path
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
 from sel4_client import (
     submit_sel4_test,
     submit_multi_run_test,
@@ -55,7 +57,7 @@ from sel4_client import (
     list_pending,
     list_completed,
     list_failed,
-    RESULTS_DIR,
+    get_paths,
 )
 
 # MCP Protocol implementation
@@ -80,6 +82,12 @@ def send_notification(method: str, params: Any = None):
     sys.stdout.write(json.dumps(notification) + "\n")
     sys.stdout.flush()
 
+
+# Common autopilot_dir property for all tools
+AUTOPILOT_DIR_PROP = {
+    "type": "string",
+    "description": "Override autopilot working directory (default: $AUTOPILOT_DIR or /home/hlyytine/pkvm/autopilot)"
+}
 
 # Tool definitions
 TOOLS = [
@@ -110,7 +118,8 @@ Use this for testing seL4 kernel/elfloader changes on real hardware.""",
                     "type": "integer",
                     "description": "Maximum time to wait for test in seconds (default: 300)",
                     "default": 300
-                }
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["binary_path"]
         }
@@ -126,7 +135,8 @@ Returns the current status: pending, processing, completed, failed, or not_found
                 "request_id": {
                     "type": "string",
                     "description": "Request ID (timestamp) from a previous test submission"
-                }
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["request_id"]
         }
@@ -147,7 +157,8 @@ Returns the filtered log (bootloader/UEFI stripped) showing only seL4 output."""
                     "type": "boolean",
                     "description": "If true, return raw UART output including bootloader",
                     "default": False
-                }
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["request_id"]
         }
@@ -174,7 +185,8 @@ Returns lists of pending, completed, and/or failed test request IDs.""",
                     "type": "boolean",
                     "description": "Include failed tests",
                     "default": False
-                }
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
             }
         }
     },
@@ -214,7 +226,8 @@ Use this for stress testing, detecting intermittent failures, or collecting boot
                     "type": "integer",
                     "description": "Maximum time per run in seconds (default: 300)",
                     "default": 300
-                }
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["binary_path"]
         }
@@ -231,7 +244,8 @@ Also includes the summary with completed/failed run counts.""",
                 "request_id": {
                     "type": "string",
                     "description": "Request ID from a multi-run test submission"
-                }
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["request_id"]
         }
@@ -301,7 +315,8 @@ Supports:
                     "type": "boolean",
                     "description": "Show summary statistics only",
                     "default": False
-                }
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["request_id"]
         }
@@ -357,7 +372,8 @@ No success/failure criteria yet - just captures logs for analysis.""",
                     "type": "integer",
                     "description": "Maximum time to wait for test in seconds (default: 300)",
                     "default": 300
-                }
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["binary_path"]
         }
@@ -374,7 +390,8 @@ the VM console log (vm.log).""",
                 "request_id": {
                     "type": "string",
                     "description": "Request ID from a vm_minimal test submission"
-                }
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["request_id"]
         }
@@ -384,6 +401,10 @@ the VM console log (vm.log).""",
 
 def handle_tool_call(name: str, arguments: dict) -> dict:
     """Handle a tool call and return the result."""
+
+    # Extract common autopilot_dir parameter
+    autopilot_dir = arguments.get("autopilot_dir")
+    paths = get_paths(autopilot_dir)
 
     if name == "test_sel4_binary":
         binary_path = arguments["binary_path"]
@@ -408,7 +429,8 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                 binary_path=binary_path,
                 binary_name=binary_name,
                 description=description,
-                build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'}
+                build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'},
+                autopilot_dir=autopilot_dir
             )
         except FileNotFoundError as e:
             return {
@@ -417,7 +439,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             }
 
         # Wait for completion
-        result = wait_for_result(request_id, timeout=timeout)
+        result = wait_for_result(request_id, timeout=timeout, autopilot_dir=autopilot_dir)
 
         if result["status"] == "timeout":
             return {
@@ -426,7 +448,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             }
 
         # Return paths instead of full log content (logs can be huge with ftrace)
-        result_dir = RESULTS_DIR / request_id
+        result_dir = paths['results'] / request_id
         sel4_log_path = result_dir / 'sel4.log'
         uart_raw_path = result_dir / 'uart-raw.log'
         ftrace_idx_path = result_dir / 'ftrace.idx'
@@ -469,14 +491,14 @@ Use get_sel4_log tool or read the files directly to view output."""
 
     elif name == "check_sel4_test":
         request_id = arguments["request_id"]
-        status = get_status(request_id)
+        status = get_status(request_id, autopilot_dir=autopilot_dir)
 
         response_text = f"Status: {status['status']}"
         if "result_dir" in status:
             response_text += f"\nResults directory: {status['result_dir']}"
 
         # Include request info if available
-        info = get_request_info(request_id)
+        info = get_request_info(request_id, autopilot_dir=autopilot_dir)
         if info:
             response_text += f"\nDescription: {info.get('description', 'N/A')}"
             response_text += f"\nOriginal binary: {info.get('original_binary', info.get('binary_path', 'N/A'))}"
@@ -490,7 +512,7 @@ Use get_sel4_log tool or read the files directly to view output."""
         request_id = arguments["request_id"]
         raw = arguments.get("raw", False)
 
-        result_dir = RESULTS_DIR / request_id
+        result_dir = paths['results'] / request_id
         if raw:
             log_path = result_dir / 'uart-raw.log'
         else:
@@ -515,19 +537,19 @@ Use get_sel4_log tool or read the files directly to view output."""
         result_lines = []
 
         if show_pending:
-            pending = list_pending()
+            pending = list_pending(autopilot_dir=autopilot_dir)
             if pending:
                 result_lines.append("Pending:")
                 result_lines.extend(f"  {ts}" for ts in pending[-10:])  # Last 10
 
         if show_completed:
-            completed = list_completed()
+            completed = list_completed(autopilot_dir=autopilot_dir)
             if completed:
                 result_lines.append("Completed:")
                 result_lines.extend(f"  {ts}" for ts in completed[-10:])  # Last 10
 
         if show_failed:
-            failed = list_failed()
+            failed = list_failed(autopilot_dir=autopilot_dir)
             if failed:
                 result_lines.append("Failed:")
                 result_lines.extend(f"  {ts}" for ts in failed[-10:])  # Last 10
@@ -569,7 +591,8 @@ Use get_sel4_log tool or read the files directly to view output."""
                 binary_name=binary_name,
                 test_type=test_type,
                 description=description,
-                build_config=build_config
+                build_config=build_config,
+                autopilot_dir=autopilot_dir
             )
         except FileNotFoundError as e:
             return {
@@ -579,7 +602,7 @@ Use get_sel4_log tool or read the files directly to view output."""
 
         # Wait for completion with scaled timeout
         total_timeout = timeout_per_run * run_count
-        result = wait_for_result(request_id, timeout=total_timeout)
+        result = wait_for_result(request_id, timeout=total_timeout, autopilot_dir=autopilot_dir)
 
         if result["status"] == "timeout":
             return {
@@ -588,10 +611,10 @@ Use get_sel4_log tool or read the files directly to view output."""
             }
 
         # Return paths instead of full log content (logs can be huge with ftrace)
-        result_dir = RESULTS_DIR / request_id
+        result_dir = paths['results'] / request_id
 
         # Get summary info
-        logs = get_multi_run_logs(request_id)
+        logs = get_multi_run_logs(request_id, autopilot_dir=autopilot_dir)
         summary_text = ""
         if logs['summary']:
             s = logs['summary']
@@ -622,7 +645,7 @@ Use get_multi_run_logs tool or read the files directly to view output."""
 
     elif name == "get_multi_run_logs":
         request_id = arguments["request_id"]
-        result_dir = RESULTS_DIR / request_id
+        result_dir = paths['results'] / request_id
 
         if not result_dir.exists():
             return {
@@ -631,7 +654,7 @@ Use get_multi_run_logs tool or read the files directly to view output."""
             }
 
         # Get summary info
-        logs = get_multi_run_logs(request_id)
+        logs = get_multi_run_logs(request_id, autopilot_dir=autopilot_dir)
         response_text = f"Results directory: {result_dir}\n\n"
 
         if logs['summary']:
@@ -656,7 +679,7 @@ Use get_multi_run_logs tool or read the files directly to view output."""
 
     elif name == "query_ftrace":
         request_id = arguments["request_id"]
-        result_dir = RESULTS_DIR / request_id
+        result_dir = paths['results'] / request_id
         idx_path = result_dir / 'ftrace.idx'
 
         if not idx_path.exists():
@@ -944,7 +967,8 @@ Use get_multi_run_logs tool or read the files directly to view output."""
                 binary_path=binary_path,
                 binary_name=binary_name,
                 description=description,
-                build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'}
+                build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'},
+                autopilot_dir=autopilot_dir
             )
         except FileNotFoundError as e:
             return {
@@ -953,7 +977,7 @@ Use get_multi_run_logs tool or read the files directly to view output."""
             }
 
         # Wait for completion
-        result = wait_for_result(request_id, timeout=timeout)
+        result = wait_for_result(request_id, timeout=timeout, autopilot_dir=autopilot_dir)
 
         if result["status"] == "timeout":
             return {
@@ -962,7 +986,7 @@ Use get_multi_run_logs tool or read the files directly to view output."""
             }
 
         # Return paths to logs
-        result_dir = RESULTS_DIR / request_id
+        result_dir = paths['results'] / request_id
         sel4_log_path = result_dir / 'sel4.log'
         vm_log_path = result_dir / 'vm.log'
 
@@ -991,7 +1015,7 @@ Use get_vm_logs tool or read the files directly to view output."""
     elif name == "get_vm_logs":
         request_id = arguments["request_id"]
 
-        result_dir = RESULTS_DIR / request_id
+        result_dir = paths['results'] / request_id
         sel4_log_path = result_dir / 'sel4.log'
         vm_log_path = result_dir / 'vm.log'
 

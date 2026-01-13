@@ -21,14 +21,63 @@ Usage:
 """
 
 import json
+import os
 import shutil
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# Directory paths
-AUTOPILOT_DIR = Path('/home/hlyytine/pkvm/autopilot')
+# Default autopilot directory (can be overridden via AUTOPILOT_DIR env var or function parameter)
+DEFAULT_AUTOPILOT_DIR = Path('/home/hlyytine/pkvm/autopilot')
+
+
+def get_autopilot_dir(override: str = None) -> Path:
+    """Get the autopilot working directory.
+
+    Priority order:
+    1. override parameter (if provided)
+    2. AUTOPILOT_DIR environment variable (if set)
+    3. Default: /home/hlyytine/pkvm/autopilot
+
+    Args:
+        override: Optional path to use instead of env var or default
+
+    Returns:
+        Path to the autopilot directory
+    """
+    if override:
+        return Path(override)
+    env_dir = os.environ.get('AUTOPILOT_DIR')
+    if env_dir:
+        return Path(env_dir)
+    return DEFAULT_AUTOPILOT_DIR
+
+
+def get_paths(autopilot_dir: str = None) -> dict:
+    """Get all autopilot paths derived from the base directory.
+
+    Args:
+        autopilot_dir: Optional override for the autopilot directory
+
+    Returns:
+        dict with keys: autopilot, pending, processing, completed, failed, results, binaries
+    """
+    base = get_autopilot_dir(autopilot_dir)
+    return {
+        'autopilot': base,
+        'pending': base / 'requests' / 'pending',
+        'processing': base / 'requests' / 'processing',
+        'completed': base / 'requests' / 'completed',
+        'failed': base / 'requests' / 'failed',
+        'results': base / 'results',
+        'binaries': base / 'binaries',
+    }
+
+
+# Legacy module-level paths for backward compatibility
+# These use the default/environment-based directory
+AUTOPILOT_DIR = get_autopilot_dir()
 PENDING_DIR = AUTOPILOT_DIR / 'requests' / 'pending'
 PROCESSING_DIR = AUTOPILOT_DIR / 'requests' / 'processing'
 COMPLETED_DIR = AUTOPILOT_DIR / 'requests' / 'completed'
@@ -42,7 +91,8 @@ def submit_sel4_test(
     binary_name: str = 'sel4test.efi',
     description: str = '',
     copy_to_staging: bool = True,
-    build_config: dict = None
+    build_config: dict = None,
+    autopilot_dir: str = None
 ) -> str:
     """
     Submit a seL4 EFI binary for testing.
@@ -56,6 +106,7 @@ def submit_sel4_test(
             - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting (REQUIRED)
             - platform (str): Platform name (e.g., 'orinagx')
             - num_nodes (int): SMP core count (optional)
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         timestamp: Request ID that can be used to check status/get results
@@ -69,11 +120,12 @@ def submit_sel4_test(
     if 'arm_hyp' not in build_config:
         raise ValueError("build_config must include 'arm_hyp' (True/False)")
 
+    paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
     # Ensure directories exist
-    PENDING_DIR.mkdir(parents=True, exist_ok=True)
-    BINARIES_DIR.mkdir(parents=True, exist_ok=True)
+    paths['pending'].mkdir(parents=True, exist_ok=True)
+    paths['binaries'].mkdir(parents=True, exist_ok=True)
 
     # Resolve and validate binary path
     binary_src = Path(binary_path).resolve()
@@ -82,7 +134,7 @@ def submit_sel4_test(
 
     # Determine binary path for request
     if copy_to_staging:
-        staged_binary = BINARIES_DIR / binary_name
+        staged_binary = paths['binaries'] / binary_name
         shutil.copy(binary_src, staged_binary)
         request_binary_path = str(staged_binary)
     else:
@@ -99,7 +151,7 @@ def submit_sel4_test(
         'build_config': build_config
     }
 
-    request_file = PENDING_DIR / f'{timestamp}.request'
+    request_file = paths['pending'] / f'{timestamp}.request'
     request_file.write_text(json.dumps(request, indent=2))
 
     return timestamp
@@ -112,7 +164,8 @@ def submit_multi_run_test(
     test_type: str = 'sel4',
     description: str = '',
     copy_to_staging: bool = True,
-    build_config: dict = None
+    build_config: dict = None,
+    autopilot_dir: str = None
 ) -> str:
     """
     Submit a test for multiple boot iterations without re-uploading the binary.
@@ -128,6 +181,7 @@ def submit_multi_run_test(
             - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting (REQUIRED for sel4)
             - platform (str): Platform name (e.g., 'orinagx')
             - num_nodes (int): SMP core count (optional)
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         timestamp: Request ID that can be used to check status/get results
@@ -142,11 +196,12 @@ def submit_multi_run_test(
         if 'arm_hyp' not in build_config:
             raise ValueError("build_config must include 'arm_hyp' (True/False)")
 
+    paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
     # Ensure directories exist
-    PENDING_DIR.mkdir(parents=True, exist_ok=True)
-    BINARIES_DIR.mkdir(parents=True, exist_ok=True)
+    paths['pending'].mkdir(parents=True, exist_ok=True)
+    paths['binaries'].mkdir(parents=True, exist_ok=True)
 
     # Resolve and validate binary path
     binary_src = Path(binary_path).resolve()
@@ -155,7 +210,7 @@ def submit_multi_run_test(
 
     # Determine binary path for request
     if copy_to_staging:
-        staged_binary = BINARIES_DIR / binary_name
+        staged_binary = paths['binaries'] / binary_name
         shutil.copy(binary_src, staged_binary)
         request_binary_path = str(staged_binary)
     else:
@@ -174,7 +229,7 @@ def submit_multi_run_test(
         'build_config': build_config
     }
 
-    request_file = PENDING_DIR / f'{timestamp}.request'
+    request_file = paths['pending'] / f'{timestamp}.request'
     request_file.write_text(json.dumps(request, indent=2))
 
     return timestamp
@@ -185,7 +240,8 @@ def submit_vm_minimal_test(
     binary_name: str = 'capdl-vm_minimal.efi',
     description: str = '',
     copy_to_staging: bool = True,
-    build_config: dict = None
+    build_config: dict = None,
+    autopilot_dir: str = None
 ) -> str:
     """
     Submit a vm_minimal capdl-loader binary for testing.
@@ -202,15 +258,17 @@ def submit_vm_minimal_test(
         build_config: Build configuration dict with keys:
             - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting
             - platform (str): Platform name (e.g., 'orinagx')
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         timestamp: Request ID that can be used to check status/get results
     """
+    paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
     # Ensure directories exist
-    PENDING_DIR.mkdir(parents=True, exist_ok=True)
-    BINARIES_DIR.mkdir(parents=True, exist_ok=True)
+    paths['pending'].mkdir(parents=True, exist_ok=True)
+    paths['binaries'].mkdir(parents=True, exist_ok=True)
 
     # Resolve and validate binary path
     binary_src = Path(binary_path).resolve()
@@ -219,7 +277,7 @@ def submit_vm_minimal_test(
 
     # Determine binary path for request
     if copy_to_staging:
-        staged_binary = BINARIES_DIR / binary_name
+        staged_binary = paths['binaries'] / binary_name
         shutil.copy(binary_src, staged_binary)
         request_binary_path = str(staged_binary)
     else:
@@ -236,18 +294,19 @@ def submit_vm_minimal_test(
         'build_config': build_config or {'arm_hyp': True, 'platform': 'orinagx'}
     }
 
-    request_file = PENDING_DIR / f'{timestamp}.request'
+    request_file = paths['pending'] / f'{timestamp}.request'
     request_file.write_text(json.dumps(request, indent=2))
 
     return timestamp
 
 
-def get_vm_logs(timestamp: str) -> dict:
+def get_vm_logs(timestamp: str, autopilot_dir: str = None) -> dict:
     """
     Get logs from a vm_minimal test.
 
     Args:
         timestamp: Request ID from submit_vm_minimal_test()
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         dict with:
@@ -256,7 +315,8 @@ def get_vm_logs(timestamp: str) -> dict:
             - 'sel4_log_path': Path to seL4 log file
             - 'vm_log_path': Path to VM log file
     """
-    result_dir = RESULTS_DIR / timestamp
+    paths = get_paths(autopilot_dir)
+    result_dir = paths['results'] / timestamp
 
     sel4_log_path = result_dir / 'sel4.log'
     vm_log_path = result_dir / 'vm.log'
@@ -277,19 +337,21 @@ def get_vm_logs(timestamp: str) -> dict:
     return result
 
 
-def get_multi_run_logs(timestamp: str) -> dict:
+def get_multi_run_logs(timestamp: str, autopilot_dir: str = None) -> dict:
     """
     Get all logs from a multi-run test.
 
     Args:
         timestamp: Request ID from submit_multi_run_test()
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         dict with:
             - 'runs': list of dicts with run_number, sel4_log/kernel_log, raw_log, error
             - 'summary': dict with total_runs, completed_runs, failed_runs (if available)
     """
-    result_dir = RESULTS_DIR / timestamp
+    paths = get_paths(autopilot_dir)
+    result_dir = paths['results'] / timestamp
     runs = []
 
     if not result_dir.exists():
@@ -332,37 +394,40 @@ def get_multi_run_logs(timestamp: str) -> dict:
     return {'runs': runs, 'summary': summary}
 
 
-def get_status(timestamp: str) -> dict:
+def get_status(timestamp: str, autopilot_dir: str = None) -> dict:
     """
     Get the current status of a test request.
 
     Args:
         timestamp: Request ID from submit_sel4_test()
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         dict with 'status' key: 'pending', 'processing', 'completed', 'failed', or 'not_found'
     """
+    paths = get_paths(autopilot_dir)
     request_name = f'{timestamp}.request'
 
-    if (COMPLETED_DIR / request_name).exists():
+    if (paths['completed'] / request_name).exists():
         return {
             'status': 'completed',
-            'result_dir': RESULTS_DIR / timestamp
+            'result_dir': paths['results'] / timestamp
         }
-    elif (FAILED_DIR / request_name).exists():
+    elif (paths['failed'] / request_name).exists():
         return {
             'status': 'failed',
-            'result_dir': RESULTS_DIR / timestamp
+            'result_dir': paths['results'] / timestamp
         }
-    elif (PROCESSING_DIR / request_name).exists():
+    elif (paths['processing'] / request_name).exists():
         return {'status': 'processing'}
-    elif (PENDING_DIR / request_name).exists():
+    elif (paths['pending'] / request_name).exists():
         return {'status': 'pending'}
     else:
         return {'status': 'not_found'}
 
 
-def wait_for_result(timestamp: str, timeout: int = 600, poll_interval: int = 5) -> dict:
+def wait_for_result(timestamp: str, timeout: int = 600, poll_interval: int = 5,
+                    autopilot_dir: str = None) -> dict:
     """
     Wait for test to complete and return results.
 
@@ -370,6 +435,7 @@ def wait_for_result(timestamp: str, timeout: int = 600, poll_interval: int = 5) 
         timestamp: Request ID from submit_sel4_test()
         timeout: Maximum time to wait in seconds (default: 600 = 10 minutes)
         poll_interval: How often to check status in seconds (default: 5)
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         dict with 'status' key: 'completed', 'failed', or 'timeout'
@@ -377,7 +443,7 @@ def wait_for_result(timestamp: str, timeout: int = 600, poll_interval: int = 5) 
     """
     start = time.time()
     while time.time() - start < timeout:
-        status = get_status(timestamp)
+        status = get_status(timestamp, autopilot_dir=autopilot_dir)
         if status['status'] in ('completed', 'failed'):
             return status
         time.sleep(poll_interval)
@@ -385,68 +451,95 @@ def wait_for_result(timestamp: str, timeout: int = 600, poll_interval: int = 5) 
     return {'status': 'timeout'}
 
 
-def get_sel4_log(timestamp: str) -> str:
+def get_sel4_log(timestamp: str, autopilot_dir: str = None) -> str:
     """
     Read the seL4 console output (filtered, bootloader stripped).
 
     Args:
         timestamp: Request ID from submit_sel4_test()
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         Filtered seL4 console output, or empty string if not available
     """
-    log_file = RESULTS_DIR / timestamp / 'sel4.log'
+    paths = get_paths(autopilot_dir)
+    log_file = paths['results'] / timestamp / 'sel4.log'
     if log_file.exists():
         return log_file.read_text()
     return ''
 
 
-def get_raw_log(timestamp: str) -> str:
+def get_raw_log(timestamp: str, autopilot_dir: str = None) -> str:
     """
     Read the raw UART output (includes bootloader/UEFI).
 
     Args:
         timestamp: Request ID from submit_sel4_test()
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         Raw UART output, or empty string if not available
     """
-    log_file = RESULTS_DIR / timestamp / 'uart-raw.log'
+    paths = get_paths(autopilot_dir)
+    log_file = paths['results'] / timestamp / 'uart-raw.log'
     if log_file.exists():
         return log_file.read_text()
     return ''
 
 
-def get_request_info(timestamp: str) -> Optional[dict]:
+def get_request_info(timestamp: str, autopilot_dir: str = None) -> Optional[dict]:
     """
     Get the original request metadata.
 
     Args:
         timestamp: Request ID from submit_sel4_test()
+        autopilot_dir: Optional override for autopilot working directory
 
     Returns:
         Request dict, or None if not found
     """
-    for directory in [COMPLETED_DIR, FAILED_DIR, PROCESSING_DIR, PENDING_DIR]:
+    paths = get_paths(autopilot_dir)
+    for directory in [paths['completed'], paths['failed'], paths['processing'], paths['pending']]:
         request_file = directory / f'{timestamp}.request'
         if request_file.exists():
             return json.loads(request_file.read_text())
     return None
 
 
-def list_pending() -> list:
-    """List all pending request timestamps."""
-    return sorted([f.stem for f in PENDING_DIR.glob('*.request')])
+def list_pending(autopilot_dir: str = None) -> list:
+    """List all pending request timestamps.
+
+    Args:
+        autopilot_dir: Optional override for autopilot working directory
+    """
+    paths = get_paths(autopilot_dir)
+    if not paths['pending'].exists():
+        return []
+    return sorted([f.stem for f in paths['pending'].glob('*.request')])
 
 
-def list_completed() -> list:
-    """List all completed request timestamps."""
-    return sorted([f.stem for f in COMPLETED_DIR.glob('*.request')])
+def list_completed(autopilot_dir: str = None) -> list:
+    """List all completed request timestamps.
+
+    Args:
+        autopilot_dir: Optional override for autopilot working directory
+    """
+    paths = get_paths(autopilot_dir)
+    if not paths['completed'].exists():
+        return []
+    return sorted([f.stem for f in paths['completed'].glob('*.request')])
 
 
-def list_failed() -> list:
-    """List all failed request timestamps."""
-    return sorted([f.stem for f in FAILED_DIR.glob('*.request')])
+def list_failed(autopilot_dir: str = None) -> list:
+    """List all failed request timestamps.
+
+    Args:
+        autopilot_dir: Optional override for autopilot working directory
+    """
+    paths = get_paths(autopilot_dir)
+    if not paths['failed'].exists():
+        return []
+    return sorted([f.stem for f in paths['failed'].glob('*.request')])
 
 
 # Command-line interface
