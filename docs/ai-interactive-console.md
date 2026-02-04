@@ -15,6 +15,20 @@ single or multiple UART consoles (e.g., VM0/VM1).
   - A session ID and transcript files
 - AI tools interact via MCP tools or the client helper functions.
 
+## Mandatory: Set AUTOPILOT_DIR
+
+Always set `AUTOPILOT_DIR` in your environment before using the client or MCP tools.
+This prevents tools from guessing the wrong directory.
+
+Example:
+
+```bash
+export AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot
+```
+
+If you need to reference the client library explicitly, use:
+`/home/hlyytine/tii-sel4/autopilot/sel4_client.py`
+
 ## Profiles
 
 Profiles live in `profiles/` and define prompts and login behavior.
@@ -167,4 +181,3 @@ results/<timestamp>/console/
 - Auto-login is best-effort based on profile regexes.
 - Idle timeout closes all sessions if no activity.
 - Output polling uses byte offsets; keep track of `new_offset`.
-
