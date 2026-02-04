@@ -18,7 +18,8 @@ single or multiple UART consoles (e.g., VM0/VM1).
 ## Mandatory: Set AUTOPILOT_DIR
 
 Always set `AUTOPILOT_DIR` in your environment before using the client or MCP tools.
-This prevents tools from guessing the wrong directory.
+This points to the **working directory** that contains the request/result queues
+and profiles, not the code location.
 
 Example:
 
@@ -26,8 +27,8 @@ Example:
 export AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot
 ```
 
-If you need to reference the client library explicitly, use:
-`/home/hlyytine/tii-sel4/autopilot/sel4_client.py`
+If you need to reference the client library explicitly, use the code location:
+`/home/hlyytine/pkvm/jetson-pkvm/autopilot/sel4_client.py`
 
 ## Profiles
 
