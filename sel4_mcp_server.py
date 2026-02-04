@@ -58,6 +58,11 @@ from sel4_client import (
     list_completed,
     list_failed,
     get_paths,
+    get_console_manifest,
+    open_console_session,
+    read_console_output,
+    send_console_command,
+    close_console_session,
 )
 
 # MCP Protocol implementation
@@ -394,6 +399,119 @@ the VM console log (vm.log).""",
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["request_id"]
+        }
+    },
+    {
+        "name": "list_console_sessions",
+        "description": """List interactive console sessions for a request.
+
+Returns session names, IDs, and log paths if available.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "request_id": {
+                    "type": "string",
+                    "description": "Request ID for a boot_interactive or interactive-enabled test"
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            },
+            "required": ["request_id"]
+        }
+    },
+    {
+        "name": "open_console_session",
+        "description": """Resolve a console session by name and return its session ID and current offset.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "request_id": {
+                    "type": "string",
+                    "description": "Request ID containing the console sessions"
+                },
+                "session_name": {
+                    "type": "string",
+                    "description": "Session name (e.g., vm0, vm1)"
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            },
+            "required": ["request_id", "session_name"]
+        }
+    },
+    {
+        "name": "send_console_command",
+        "description": """Send a command to a console session and wait for prompt (optional).""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Session ID from open_console_session"
+                },
+                "command": {
+                    "type": "string",
+                    "description": "Command text to send"
+                },
+                "append_newline": {
+                    "type": "boolean",
+                    "description": "Append newline to command (default: true)",
+                    "default": True
+                },
+                "wait_for_prompt": {
+                    "type": "boolean",
+                    "description": "Wait for prompt after sending (default: true)",
+                    "default": True
+                },
+                "prompt_override": {
+                    "type": "string",
+                    "description": "Optional prompt regex override"
+                },
+                "timeout_s": {
+                    "type": "integer",
+                    "description": "Timeout in seconds (default: 10)",
+                    "default": 10
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            },
+            "required": ["session_id", "command"]
+        }
+    },
+    {
+        "name": "read_console_output",
+        "description": """Read console output from a session log using byte offsets.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Session ID from open_console_session"
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Byte offset to read from"
+                },
+                "max_bytes": {
+                    "type": "integer",
+                    "description": "Maximum bytes to read (default: 4096)",
+                    "default": 4096
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            },
+            "required": ["session_id", "offset"]
+        }
+    },
+    {
+        "name": "close_console_session",
+        "description": """Close an interactive console session.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Session ID from open_console_session"
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            },
+            "required": ["session_id"]
         }
     }
 ]
@@ -1036,6 +1154,82 @@ Use get_vm_logs tool or read the files directly to view output."""
 
         return {
             "content": [{"type": "text", "text": "\n".join(result_lines)}],
+            "isError": False
+        }
+
+    elif name == "list_console_sessions":
+        request_id = arguments["request_id"]
+        manifest = get_console_manifest(request_id, autopilot_dir=autopilot_dir)
+        if not manifest:
+            return {
+                "content": [{"type": "text", "text": "No console sessions manifest found."}],
+                "isError": True
+            }
+        sessions = manifest.get("sessions", [])
+        lines = [f"Status: {manifest.get('status', 'unknown')}"]
+        for sess in sessions:
+            lines.append(f"- {sess.get('name')}: {sess.get('session_id')} ({sess.get('port')})")
+        return {
+            "content": [{"type": "text", "text": "\n".join(lines)}],
+            "isError": False
+        }
+
+    elif name == "open_console_session":
+        request_id = arguments["request_id"]
+        session_name = arguments["session_name"]
+        try:
+            info = open_console_session(request_id, session_name, autopilot_dir=autopilot_dir)
+        except Exception as e:
+            return {
+                "content": [{"type": "text", "text": f"Error: {e}"}],
+                "isError": True
+            }
+        return {
+            "content": [{"type": "text", "text": json.dumps(info, indent=2)}],
+            "isError": False
+        }
+
+    elif name == "send_console_command":
+        session_id = arguments["session_id"]
+        command = arguments["command"]
+        append_newline = arguments.get("append_newline", True)
+        wait_for_prompt = arguments.get("wait_for_prompt", True)
+        prompt_override = arguments.get("prompt_override")
+        timeout_s = arguments.get("timeout_s", 10)
+        result = send_console_command(
+            session_id=session_id,
+            command=command,
+            append_newline=append_newline,
+            wait_for_prompt=wait_for_prompt,
+            prompt_override=prompt_override,
+            timeout_s=timeout_s,
+            autopilot_dir=autopilot_dir
+        )
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
+            "isError": "error" in result
+        }
+
+    elif name == "read_console_output":
+        session_id = arguments["session_id"]
+        offset = arguments["offset"]
+        max_bytes = arguments.get("max_bytes", 4096)
+        result = read_console_output(
+            session_id=session_id,
+            offset=offset,
+            max_bytes=max_bytes,
+            autopilot_dir=autopilot_dir
+        )
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
+            "isError": False
+        }
+
+    elif name == "close_console_session":
+        session_id = arguments["session_id"]
+        close_console_session(session_id, autopilot_dir=autopilot_dir)
+        return {
+            "content": [{"type": "text", "text": f"Closed session {session_id}"}],
             "isError": False
         }
 

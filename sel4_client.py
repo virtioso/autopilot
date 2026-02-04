@@ -300,6 +300,68 @@ def submit_vm_minimal_test(
     return timestamp
 
 
+def submit_boot_interactive(
+    boot_target: str = "stock_linux",
+    binary_path: str = "",
+    binary_name: str = "sel4test.efi",
+    interactive: dict = None,
+    description: str = "",
+    copy_to_staging: bool = True,
+    build_config: dict = None,
+    autopilot_dir: str = None
+) -> str:
+    """
+    Submit a boot_interactive request that boots a target and opens console sessions.
+
+    Args:
+        boot_target: "stock_linux" or "efi" (any non-stock value uses EFI binary)
+        binary_path: EFI binary path (required for non-stock targets)
+        binary_name: EFI binary name on target
+        interactive: Interactive configuration dict (required)
+        description: Optional description
+        copy_to_staging: If True, copy binary to staging area
+        build_config: Optional build config metadata
+        autopilot_dir: Optional override for autopilot working directory
+    """
+    if interactive is None:
+        raise ValueError("interactive config is required")
+
+    paths = get_paths(autopilot_dir)
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+
+    paths['pending'].mkdir(parents=True, exist_ok=True)
+    paths['binaries'].mkdir(parents=True, exist_ok=True)
+
+    request_binary_path = ""
+    if boot_target != "stock_linux":
+        if not binary_path:
+            raise ValueError("binary_path required for non-stock boot targets")
+        binary_src = Path(binary_path).resolve()
+        if not binary_src.exists():
+            raise FileNotFoundError(f"Binary not found: {binary_src}")
+        if copy_to_staging:
+            staged_binary = paths['binaries'] / binary_name
+            shutil.copy(binary_src, staged_binary)
+            request_binary_path = str(staged_binary)
+        else:
+            request_binary_path = str(binary_src)
+
+    request = {
+        "type": "boot_interactive",
+        "boot_target": boot_target,
+        "binary_path": request_binary_path,
+        "binary_name": binary_name,
+        "description": description,
+        "submitted_at": timestamp,
+        "interactive": interactive,
+        "build_config": build_config
+    }
+
+    request_file = paths['pending'] / f"{timestamp}.request"
+    request_file.write_text(json.dumps(request, indent=2))
+    return timestamp
+
+
 def get_vm_logs(timestamp: str, autopilot_dir: str = None) -> dict:
     """
     Get logs from a vm_minimal test.
@@ -540,6 +602,110 @@ def list_failed(autopilot_dir: str = None) -> list:
     if not paths['failed'].exists():
         return []
     return sorted([f.stem for f in paths['failed'].glob('*.request')])
+
+
+def get_console_manifest(timestamp: str, autopilot_dir: str = None) -> Optional[dict]:
+    """Get console session manifest for an interactive request."""
+    paths = get_paths(autopilot_dir)
+    manifest_path = paths['results'] / timestamp / 'console' / 'sessions.json'
+    if not manifest_path.exists():
+        return None
+    return json.loads(manifest_path.read_text())
+
+
+def open_console_session(timestamp: str, session_name: str, autopilot_dir: str = None) -> dict:
+    """Resolve a session name to a session_id and return initial offset."""
+    manifest = get_console_manifest(timestamp, autopilot_dir=autopilot_dir)
+    if not manifest:
+        raise FileNotFoundError("Console sessions manifest not found")
+
+    for sess in manifest.get('sessions', []):
+        if sess.get('name') == session_name:
+            log_path = Path(sess['log_path'])
+            offset = log_path.stat().st_size if log_path.exists() else 0
+            return {
+                'session_id': sess['session_id'],
+                'offset': offset,
+                'log_path': sess['log_path']
+            }
+    raise ValueError(f"Session '{session_name}' not found")
+
+
+def read_console_output(session_id: str, offset: int, max_bytes: int = 4096,
+                        autopilot_dir: str = None) -> dict:
+    """Read console output from a session log using byte offsets."""
+    base = get_autopilot_dir(autopilot_dir)
+    session_log_path = None
+    meta_path = base / "runtime" / "console" / session_id / "meta.json"
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+            session_log_path = Path(meta.get("log_path", ""))
+        except Exception:
+            session_log_path = None
+    else:
+        manifest_paths = list((base / "results").glob("*/console/sessions.json"))
+        for mp in manifest_paths:
+            try:
+                data = json.loads(mp.read_text())
+                for sess in data.get("sessions", []):
+                    if sess.get("session_id") == session_id:
+                        session_log_path = Path(sess["log_path"])
+                        break
+            except Exception:
+                continue
+            if session_log_path:
+                break
+
+    if not session_log_path or not session_log_path.exists():
+        return {"output": "", "new_offset": offset}
+
+    with open(session_log_path, "rb") as f:
+        f.seek(offset)
+        data = f.read(max_bytes)
+    new_offset = offset + len(data)
+    return {"output": data.decode("utf-8", errors="replace"), "new_offset": new_offset}
+
+
+def send_console_command(session_id: str, command: str, append_newline: bool = True,
+                         wait_for_prompt: bool = True, prompt_override: str = None,
+                         timeout_s: int = 10, autopilot_dir: str = None) -> dict:
+    """Send a command to a console session and wait for the response."""
+    base = get_autopilot_dir(autopilot_dir)
+    runtime_dir = base / "runtime" / "console" / session_id
+    cmd_dir = runtime_dir / "cmd"
+    resp_dir = runtime_dir / "resp"
+    cmd_dir.mkdir(parents=True, exist_ok=True)
+    resp_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd_id = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    cmd_data = {
+        "cmd_id": cmd_id,
+        "command": command,
+        "append_newline": append_newline,
+        "wait_for_prompt": wait_for_prompt,
+        "prompt_override": prompt_override,
+        "timeout_s": timeout_s
+    }
+    cmd_path = cmd_dir / f"{cmd_id}.json"
+    cmd_path.write_text(json.dumps(cmd_data, indent=2))
+
+    deadline = time.time() + timeout_s + 5
+    resp_path = resp_dir / f"{cmd_id}.json"
+    while time.time() < deadline:
+        if resp_path.exists():
+            return json.loads(resp_path.read_text())
+        time.sleep(0.1)
+
+    return {"error": "timeout waiting for response", "cmd_id": cmd_id}
+
+
+def close_console_session(session_id: str, autopilot_dir: str = None) -> None:
+    """Request the console session to close."""
+    base = get_autopilot_dir(autopilot_dir)
+    runtime_dir = base / "runtime" / "console" / session_id
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    (runtime_dir / "close").write_text("close\n")
 
 
 # Command-line interface

@@ -115,6 +115,15 @@ class SeL4RunHarness(BaseBootHarness):
         pass  # Board already rebooting from upload phase
 
     def run(self):
+        self._navigate_and_start()
+
+        # Capture output until quiescent (30 seconds no output) or binary transfer complete
+        debug_print('Capturing seL4 output (30s quiescent timeout or binary transfer end)')
+        self._capture_until_quiescent(timeout=30)
+
+        self.stop()
+
+    def _navigate_and_start(self):
         # Wait for UEFI "Enter to continue boot"
         debug_print('Waiting for UEFI prompt')
         idx = self.child.expect([
@@ -182,7 +191,6 @@ class SeL4RunHarness(BaseBootHarness):
             elif idx == 1:  # startup.nsh prompt - send space to skip
                 debug_print('Skipping startup.nsh delay')
                 self.child.send(' ')
-                # Continue loop to wait for Shell>
             else:
                 raise RuntimeError('Failed to get Shell prompt')
 
@@ -212,10 +220,12 @@ class SeL4RunHarness(BaseBootHarness):
         if idx == 0:
             raise RuntimeError(f'Binary not found on target: {self.binary_name}')
 
-        # Capture output until quiescent (30 seconds no output) or binary transfer complete
-        debug_print('Capturing seL4 output (30s quiescent timeout or binary transfer end)')
-        self._capture_until_quiescent(timeout=30)
 
+class SeL4RunInteractiveHarness(SeL4RunHarness):
+    """Navigate UEFI and run EFI binary, then return immediately for interactive use."""
+
+    def run(self):
+        self._navigate_and_start()
         self.stop()
 
     def _capture_until_quiescent(self, timeout=30):
@@ -404,13 +414,15 @@ class VMMinimalRunHarness(BaseBootHarness):
             raise RuntimeError(f'Binary not found on target: {self.binary_name}')
 
     def _wait_for_vm_quiescence(self):
-        """Wait for VM console (ttyACM1) to be quiescent, while continuing to capture ttyACM0."""
+        """Wait for BINARY TRANSFER END marker on ttyACM0, while capturing both consoles."""
         import os
         import re
         import time
 
         # Pattern to detect Linux kernel boot messages (e.g., "[    0.000000] Booting Linux")
         LINUX_BOOT_PATTERN = re.compile(rb'\[\s*\d+\.\d+\]')
+        # Marker indicating binary transfer is complete (appears on ttyACM0)
+        BINARY_END_MARKER = '=== BINARY TRANSFER END ==='
 
         # Phase 1: Wait for Linux kernel to start booting on VM console
         # This phase ends when we see Linux kernel messages OR timeout expires
@@ -447,31 +459,21 @@ class VMMinimalRunHarness(BaseBootHarness):
         if not vm_started:
             debug_print(f'sel4_boot_timeout ({self.sel4_boot_timeout}s) expired, no Linux boot detected')
 
-        # Phase 2: Wait for VM console quiescence (only consider NEW data after baseline)
-        debug_print(f'Phase 2: Waiting for {self.vm_quiescence_timeout}s VM console quiescence...')
-        try:
-            last_vm_size = os.path.getsize(self.vm_filename)
-        except FileNotFoundError:
-            last_vm_size = self.vm_baseline_size
-        last_change_time = time.time()
+        # Phase 2: Wait for BINARY TRANSFER END marker on ttyACM0 (no timeout)
+        debug_print('Phase 2: Waiting for BINARY TRANSFER END marker on ttyACM0...')
 
         while True:
-            # Continue capturing ttyACM0 output
+            # Capture ttyACM0 output and check for end marker
             try:
-                self.child.expect([r'.+', TIMEOUT], timeout=1)
+                idx = self.child.expect([r'.+', TIMEOUT], timeout=1)
+                if idx == 0:  # Got output
+                    # Check if the binary transfer end marker is in recent output
+                    if hasattr(self.child, 'after') and self.child.after:
+                        recent = self.child.after
+                        if isinstance(recent, bytes):
+                            recent = recent.decode('utf-8', errors='replace')
+                        if BINARY_END_MARKER in recent:
+                            debug_print('BINARY TRANSFER END marker detected, capture complete')
+                            break
             except:
                 pass
-
-            # Check VM log file size to detect activity
-            try:
-                current_size = os.path.getsize(self.vm_filename)
-                if current_size != last_vm_size:
-                    last_vm_size = current_size
-                    last_change_time = time.time()
-            except FileNotFoundError:
-                pass
-
-            # Check for quiescence
-            if time.time() - last_change_time >= self.vm_quiescence_timeout:
-                debug_print(f'VM console quiescent for {self.vm_quiescence_timeout}s')
-                break

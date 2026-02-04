@@ -12,10 +12,12 @@ import threading
 
 import serial
 from pathlib import Path
+from typing import List, Dict
 
 import BoardControl
 import BootHarness
 import seL4BootHarness
+from console_sessions import ConsoleManager
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 # Use AUTOPILOT_DIR env var if set, otherwise use script directory
@@ -68,6 +70,7 @@ PROCESSING_DIR = AUTOPILOT_DIR / "requests" / "processing"
 COMPLETED_DIR = AUTOPILOT_DIR / "requests" / "completed"
 FAILED_DIR = AUTOPILOT_DIR / "requests" / "failed"
 RESULTS_DIR = AUTOPILOT_DIR / "results"
+PROFILES_DIR = AUTOPILOT_DIR / "profiles"
 
 def cleanup():
     """Move any processing requests back to pending on shutdown"""
@@ -90,7 +93,7 @@ signal.signal(signal.SIGINT, handle_signal)
 signal.signal(signal.SIGTERM, handle_signal)
 
 # Create directory structure
-for d in [PENDING_DIR, PROCESSING_DIR, COMPLETED_DIR, FAILED_DIR, RESULTS_DIR]:
+for d in [PENDING_DIR, PROCESSING_DIR, COMPLETED_DIR, FAILED_DIR, RESULTS_DIR, PROFILES_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # === STARTUP CLEANUP: Fail any leftover pending requests from previous run ===
@@ -110,6 +113,143 @@ for stale_request in list(PENDING_DIR.glob("*.request")):
 
 # Initialize status line (row 1 fixed, rows 2-N scroll)
 BootHarness.init_status_line()
+
+# Interactive console manager
+console_manager = ConsoleManager(AUTOPILOT_DIR)
+
+def write_console_manifest(result_dir: Path, sessions: List[Dict]) -> None:
+    console_dir = result_dir / "console"
+    console_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "request_id": result_dir.name,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "status": "active",
+        "sessions": sessions
+    }
+    (console_dir / "sessions.json").write_text(json.dumps(manifest, indent=2))
+
+def update_console_manifest_status(result_dir: Path, status_value: str) -> None:
+    manifest_path = result_dir / "console" / "sessions.json"
+    if not manifest_path.exists():
+        return
+    try:
+        data = json.loads(manifest_path.read_text())
+        data["status"] = status_value
+        manifest_path.write_text(json.dumps(data, indent=2))
+    except Exception:
+        pass
+
+def run_interactive_phase(result_dir: Path, interactive_cfg: dict) -> None:
+    sessions_cfg = interactive_cfg.get("sessions", [])
+    if not sessions_cfg:
+        raise ValueError("interactive.enabled set but no sessions configured")
+
+    console_dir = result_dir / "console"
+    console_dir.mkdir(parents=True, exist_ok=True)
+
+    sessions_meta = []
+    sessions = []
+    for sess in sessions_cfg:
+        name = sess.get("name")
+        port = sess.get("port")
+        profile_name = sess.get("profile", "linux-yocto")
+        if not name or not port:
+            raise ValueError("interactive session requires name and port")
+
+        session = console_manager.create_session(
+            request_id=result_dir.name,
+            name=name,
+            port=port,
+            profile_name=profile_name,
+            log_dir=console_dir
+        )
+        sessions.append(session)
+        sessions_meta.append({
+            "session_id": session.session_id,
+            "name": name,
+            "port": port,
+            "profile": profile_name,
+            "log_path": str(session.log_path),
+            "events_path": str(session.events_path)
+        })
+
+    write_console_manifest(result_dir, sessions_meta)
+
+    # Attempt auto-login per profile (best-effort)
+    for session in sessions:
+        try:
+            session.perform_login(timeout_s=60)
+        except Exception:
+            pass
+
+    idle_timeout = int(interactive_cfg.get("idle_timeout_s", 900))
+    last_activity = time.time()
+
+    try:
+        while True:
+            active_sessions = 0
+            for session in list(sessions):
+                runtime_dir = session.runtime_dir
+                close_flag = runtime_dir / "close"
+                if close_flag.exists():
+                    try:
+                        close_flag.unlink()
+                    except Exception:
+                        pass
+                    console_manager.close_session(session.session_id)
+                    sessions.remove(session)
+                    continue
+
+                cmd_dir = runtime_dir / "cmd"
+                resp_dir = runtime_dir / "resp"
+                if cmd_dir.exists():
+                    for cmd_file in sorted(cmd_dir.glob("*.json")):
+                        try:
+                            cmd_data = json.loads(cmd_file.read_text())
+                        except Exception as e:
+                            resp = {"error": f"invalid command file: {e}"}
+                            resp_path = resp_dir / f"{cmd_file.stem}.json"
+                            resp_path.write_text(json.dumps(resp, indent=2))
+                            cmd_file.unlink(missing_ok=True)
+                            continue
+
+                        cmd_id = cmd_data.get("cmd_id", cmd_file.stem)
+                        command = cmd_data.get("command", "")
+                        append_newline = cmd_data.get("append_newline", True)
+                        wait_for_prompt = cmd_data.get("wait_for_prompt", True)
+                        prompt_override = cmd_data.get("prompt_override")
+                        timeout_s = int(cmd_data.get("timeout_s", 10))
+
+                        result = session.send_command(
+                            command=command,
+                            append_newline=append_newline,
+                            wait_for_prompt=wait_for_prompt,
+                            prompt_regex=prompt_override,
+                            timeout_s=timeout_s
+                        )
+                        result["cmd_id"] = cmd_id
+                        resp_path = resp_dir / f"{cmd_id}.json"
+                        resp_path.write_text(json.dumps(result, indent=2))
+                        cmd_file.unlink(missing_ok=True)
+                        last_activity = time.time()
+
+                active_sessions += 1
+
+            if active_sessions == 0:
+                update_console_manifest_status(result_dir, "closed")
+                break
+
+            if idle_timeout > 0 and (time.time() - last_activity) > idle_timeout:
+                for session in list(sessions):
+                    console_manager.close_session(session.session_id)
+                    sessions.remove(session)
+                update_console_manifest_status(result_dir, "idle_timeout")
+                break
+
+            time.sleep(0.2)
+    finally:
+        for session in list(sessions):
+            console_manager.close_session(session.session_id)
 
 def status(msg):
     """Update the status line."""
@@ -205,7 +345,67 @@ while True:
 
     # Process the request
     try:
-        if is_multi_run and request_type == 'sel4':
+        if request_type == 'boot_interactive':
+            interactive_cfg = request_data.get('interactive', {})
+            if not interactive_cfg.get('enabled', False):
+                raise ValueError("boot_interactive requires interactive.enabled=true")
+
+            boot_target = request_data.get('boot_target', 'stock_linux')
+            binary_path = request_data.get('binary_path')
+            binary_name = request_data.get('binary_name', 'sel4test.efi')
+
+            if boot_target == 'stock_linux':
+                if board_state != 'stock_linux':
+                    status(f'{timestamp}: Booting to stock Linux...')
+                    ready = BootHarness.ReadyBootHarness(
+                        board,
+                        '/dev/ttyACM0',
+                        str(result_dir / 'recovery.log'),
+                        None,
+                        None
+                    )
+                    ready.run()
+                    board_state = 'stock_linux'
+            else:
+                if not binary_path:
+                    raise ValueError("boot_interactive for EFI requires 'binary_path'")
+
+                status(f'{timestamp}: Uploading EFI binary...')
+                if board_state == 'stock_linux':
+                    upload = seL4BootHarness.SeL4UploadOnlyHarness(
+                        binary_path,
+                        binary_name
+                    )
+                else:
+                    upload = seL4BootHarness.SeL4UploadHarness(
+                        board,
+                        '/dev/ttyACM0',
+                        str(result_dir / 'upload.log'),
+                        binary_path,
+                        binary_name
+                    )
+                upload.run()
+                board_state = 'rebooting'
+
+                status(f'{timestamp}: Booting EFI binary (interactive)...')
+                runner = seL4BootHarness.SeL4RunInteractiveHarness(
+                    board,
+                    '/dev/ttyACM0',
+                    str(result_dir / 'uart-raw.log'),
+                    binary_name
+                )
+                runner.run()
+                board_state = 'unknown'
+
+            status(f'{timestamp}: Interactive sessions active...')
+            run_interactive_phase(result_dir, interactive_cfg)
+
+            processing_file.rename(COMPLETED_DIR / request_file.name)
+            print(f"\n=== {timestamp} completed: boot_interactive ===", flush=True)
+            print(f"Results: {result_dir}/", flush=True)
+            status('Waiting for requests...')
+
+        elif is_multi_run and request_type == 'sel4':
             # === seL4 MULTI-RUN TEST FLOW ===
             binary_path = request_data.get('binary_path')
             binary_name = request_data.get('binary_name', 'sel4test.efi')

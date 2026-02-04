@@ -1,0 +1,17 @@
+{
+  "name": "linux-yocto",
+  "baud": 115200,
+  "login": {
+    "prompt": "login:",
+    "username": "root",
+    "password_prompt": "Password:",
+    "password": "",
+    "post_login_prompt": "root@.*:~#"
+  },
+  "shell": {
+    "prompt": "root@.*:~#"
+  },
+  "ready": {
+    "prompt": "login:"
+  }
+}
