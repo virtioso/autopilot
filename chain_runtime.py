@@ -283,7 +283,7 @@ class TUIManager:
     def emit_output(self, source: str, data: bytes) -> None:
         for win, src in self.window_map.items():
             if src == source and win == self.active_window:
-                self._print(data.decode("utf-8", errors="ignore"))
+                self._print(self._sanitize_output(data))
                 break
 
     def set_input_handler(self, handler) -> None:
@@ -315,6 +315,16 @@ class TUIManager:
 
     def _strip_ansi(self, text: str) -> str:
         return re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)
+
+    def _sanitize_output(self, data: bytes) -> str:
+        text = data.decode("utf-8", errors="ignore")
+        # Keep SGR (color) sequences, strip other CSI/OSC controls that can move cursor.
+        text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", lambda m: m.group(0) if m.group(0).endswith("m") else "", text)
+        # Remove OSC sequences (e.g., title changes)
+        text = re.sub(r"\x1b\].*?\x07", "", text)
+        # Remove save/restore cursor (ESC 7/8)
+        text = text.replace("\x1b7", "").replace("\x1b8", "")
+        return text
 
     def _init_status_line(self) -> None:
         if not self.enabled:
@@ -372,6 +382,8 @@ class ChainRunner:
         self.recorder = recorder
         self.event_queue: queue.Queue = ctx["event_queue"]
         self.cancel_flag = ctx["cancel_flag"]
+        self.ctx.setdefault("chain_name", self.ctx.get("profile", "-"))
+        self.ctx.setdefault("subchain_name", "-")
 
     def run(self) -> str:
         validate_chain(self.chain)
@@ -613,6 +625,7 @@ class ChainRunner:
         cancel_flag = threading.Event()
         sub_ctx = dict(self.ctx)
         sub_ctx["cancel_flag"] = cancel_flag
+        sub_ctx["subchain_name"] = name
         recorder = self.ctx["fork_recorders"].setdefault(
             name, ChainRecorder(self.ctx["result_dir"])
         )
@@ -724,5 +737,12 @@ class ChainRunner:
         input_state = "on" if tui.interactive_enabled else "off"
         request_id = self.ctx.get("request_id", "-")
         profile = self.ctx.get("profile", "-")
-        text = f"{extra} | req={request_id} profile={profile} | win={win} src={source} | input={input_state}"
+        chain_name = self.ctx.get("chain_name", "-")
+        subchain = self.ctx.get("subchain_name", "-")
+        start = self.ctx.get("request_start")
+        elapsed = f"{int(time.time() - start)}s" if start else "-"
+        text = (
+            f"{extra} | req={request_id} profile={profile} chain={chain_name} sub={subchain} "
+            f"| win={win} src={source} | input={input_state} | elapsed={elapsed}"
+        )
         tui.set_status(text)

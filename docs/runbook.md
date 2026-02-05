@@ -99,6 +99,7 @@ associated with the currently visible window.
 Autopilot renders a status line showing:
 - Current step name
 - Request ID and profile
+- Chain/subchain name and elapsed time
 - Active window and source
 - Interactive input state (on/off)
 
