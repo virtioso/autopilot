@@ -171,6 +171,9 @@ class SourceManager:
         self.sources: Dict[str, SourceBinding] = {}
         self.tty_to_source: Dict[str, str] = {}
 
+    def set_result_dir(self, result_dir: Path) -> None:
+        self.result_dir = result_dir
+
     def map_source(self, source: str, tty: str, log_rel: str, baud: int = 115200) -> None:
         if source in self.sources:
             self.sources[source].stop()
@@ -382,6 +385,8 @@ class ChainRunner:
             return self._step_join(step)
         if step_type == "analyze_logs":
             return self._step_analyze_logs(step)
+        if step_type == "interactive_console":
+            return self._step_interactive_console(step)
         raise ChainValidationError(f"unknown step type: {step_type}")
 
     def _simple_outcome(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -447,6 +452,9 @@ class ChainRunner:
             if event:
                 if event.kind == "abort":
                     self._handle_abort()
+                if event.kind == "exit":
+                    self.ctx["exit_flag"].set()
+                    raise AbortRun()
                 if event.kind in ("switch_window", "list_windows"):
                     self.ctx["tui"].handle_event(event)
             for outcome in outcomes:
@@ -558,6 +566,54 @@ class ChainRunner:
         cmd = step.get("command")
         if cmd:
             subprocess.run(cmd, check=True)
+        return self._simple_outcome(step)
+
+    def _step_interactive_console(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        console_manager = self.ctx.get("console_manager")
+        if not console_manager:
+            raise ValueError("console_manager not configured")
+        sessions_cfg = step.get("sessions", [])
+        if not sessions_cfg:
+            raise ValueError("interactive_console requires sessions")
+        console_dir = self.ctx["result_dir"] / "console"
+        console_dir.mkdir(parents=True, exist_ok=True)
+        sessions_meta = []
+        sessions = []
+        for sess in sessions_cfg:
+            name = sess.get("name")
+            port = sess.get("port")
+            profile_name = sess.get("profile", "linux-yocto")
+            if not name or not port:
+                raise ValueError("interactive session requires name and port")
+            session = console_manager.create_session(
+                request_id=self.ctx["request_id"],
+                name=name,
+                port=port,
+                profile_name=profile_name,
+                log_dir=console_dir
+            )
+            sessions.append(session)
+            sessions_meta.append({
+                "session_id": session.session_id,
+                "name": name,
+                "port": port,
+                "profile": profile_name,
+                "log_path": str(session.log_path),
+                "events_path": str(session.events_path),
+            })
+        manifest = {
+            "request_id": self.ctx["request_id"],
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "status": "active",
+            "sessions": sessions_meta,
+        }
+        (console_dir / "sessions.json").write_text(json.dumps(manifest, indent=2))
+        if step.get("auto_login", True):
+            for session in sessions:
+                try:
+                    session.perform_login(timeout_s=60)
+                except Exception:
+                    pass
         return self._simple_outcome(step)
 
     def _poll_event(self) -> Optional[Event]:
