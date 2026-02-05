@@ -28,7 +28,7 @@ export AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot
 ```
 
 If you need to reference the client library explicitly, use the code location:
-`/home/hlyytine/pkvm/jetson-pkvm/autopilot/sel4_client.py`
+`/home/hlyytine/pkvm/autopilot/sel4_client.py`
 
 ## Profiles
 

@@ -291,6 +291,8 @@ def validate_chain(chain: dict) -> None:
             for outcome in step["outcomes"]:
                 if "next" not in outcome:
                     raise ChainValidationError(f"step {name} outcome missing next")
+                if outcome["next"] not in steps:
+                    raise ChainValidationError(f"step {name} outcome target missing: {outcome['next']}")
         if "on_timeout" in step and step["on_timeout"] not in steps:
             raise ChainValidationError(f"step {name} on_timeout target missing")
 
