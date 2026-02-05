@@ -100,6 +100,9 @@ Interactive sessions end when the login prompt appears again (e.g. after
 typing `exit`). The chain only ends **after** a shell prompt has been seen,
 so the initial login banner does not terminate the session.
 
+On success, the interactive chains **fork a recovery boot** to return the
+board to stock Linux in the background while the run reports `pass`.
+
 ### Console Profiles
 
 - `ubuntu-22` is used for stock Ubuntu consoles.
