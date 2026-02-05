@@ -746,6 +746,8 @@ class ChainRunner:
         last_activity = time.time()
         exit_patterns = step.get("exit_patterns")
         if not hold_open:
+            manifest["status"] = "active"
+            (console_dir / "sessions.json").write_text(json.dumps(manifest, indent=2))
             return self._simple_outcome(step)
         active = True
         while active:

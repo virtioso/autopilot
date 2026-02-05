@@ -106,6 +106,9 @@ board to stock Linux in the background while the run reports `pass`.
 If `hold_open` is set to `false`, the interactive step returns immediately
 while leaving the session active for humans or AI tools.
 
+Stock Linux boot phases in other chains now invoke a **non-blocking**
+interactive step so a console is always available without slowing the flow.
+
 ### Console Profiles
 
 - `ubuntu-22` is used for stock Ubuntu consoles.

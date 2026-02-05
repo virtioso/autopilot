@@ -63,9 +63,21 @@
         "type": "wait_pattern",
         "timeout_s": 180,
         "outcomes": [
-          { "label": "prompt", "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:", "source": "tty0", "next": "upload_efi" }
+          { "label": "prompt", "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:", "source": "tty0", "next": "interactive_stock" }
         ],
         "on_timeout": "fail"
+      },
+      "interactive_stock": {
+        "type": "interactive_console",
+        "hold_open": false,
+        "exit_after_shell": false,
+        "sessions": [
+          { "name": "tty0", "port": "/dev/ttyACM0", "source": "tty0", "profile": "ubuntu-22" }
+        ],
+        "outcomes": [
+          { "label": "ok", "next": "upload_efi" }
+        ],
+        "on_timeout": "upload_efi"
       },
       "upload_efi": {
         "type": "upload_efi",
