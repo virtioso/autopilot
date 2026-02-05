@@ -742,8 +742,11 @@ class ChainRunner:
                     pass
         idle_timeout = int(step.get("idle_timeout_s", 900))
         exit_after_shell = step.get("exit_after_shell", True)
+        hold_open = step.get("hold_open", True)
         last_activity = time.time()
         exit_patterns = step.get("exit_patterns")
+        if not hold_open:
+            return self._simple_outcome(step)
         active = True
         while active:
             event = self._poll_event()

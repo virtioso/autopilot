@@ -103,6 +103,9 @@ so the initial login banner does not terminate the session.
 On success, the interactive chains **fork a recovery boot** to return the
 board to stock Linux in the background while the run reports `pass`.
 
+If `hold_open` is set to `false`, the interactive step returns immediately
+while leaving the session active for humans or AI tools.
+
 ### Console Profiles
 
 - `ubuntu-22` is used for stock Ubuntu consoles.

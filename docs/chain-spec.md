@@ -39,6 +39,10 @@ Common fields:
 - `on_error`: label to transition on exception (optional).
 - `outcomes`: list of outcomes (regex or action results).
 
+Interactive console fields:
+- `hold_open`: if false, create sessions and return immediately.
+- `exit_after_shell`: if true, only exit after a shell prompt was seen.
+
 Step-specific parameters vary by type.
 
 ## Outcome Definition
