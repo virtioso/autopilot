@@ -497,15 +497,17 @@ class ChainRunner:
     def _step_upload(self, step: dict, kind: str) -> Tuple[str, OutcomeMatch]:
         import subprocess
 
-        local_path = step.get("local_path")
+        local_path = self._resolve_value(step.get("local_path"))
         if not local_path:
             if kind == "kernel":
                 local_path = self.ctx.get("kernel_image")
+            else:
+                local_path = self.ctx.get("request", {}).get("binary_path")
         if not local_path:
             raise ValueError("upload step missing local_path")
         target_user = step.get("target_user", "root")
-        target_ip = step.get("target_ip", self.ctx.get("target_ip"))
-        target_path = step.get("target_path")
+        target_ip = self._resolve_value(step.get("target_ip")) or self.ctx.get("target_ip")
+        target_path = self._resolve_value(step.get("target_path"))
         if not target_path:
             raise ValueError("upload step missing target_path")
         subprocess.run([
@@ -520,7 +522,7 @@ class ChainRunner:
         method = step.get("method", "ssh")
         if method == "ssh":
             target_user = step.get("target_user", "root")
-            target_ip = step.get("target_ip", self.ctx.get("target_ip"))
+            target_ip = self._resolve_value(step.get("target_ip")) or self.ctx.get("target_ip")
             subprocess.run([
                 "ssh", "-o", "StrictHostKeyChecking=no",
                 f"{target_user}@{target_ip}", "reboot"
@@ -621,6 +623,11 @@ class ChainRunner:
             return self.event_queue.get_nowait()
         except queue.Empty:
             return None
+
+    def _resolve_value(self, value):
+        if isinstance(value, str):
+            return value.format(**self.ctx.get("request", {}), **self.ctx)
+        return value
 
     def _handle_abort(self) -> None:
         for fork in self.ctx["forks"].values():

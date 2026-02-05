@@ -1,0 +1,153 @@
+{
+  "name": "vm-qemu-virtio",
+  "chain": {
+    "entry": "map_tty0",
+    "steps": {
+      "map_tty0": {
+        "type": "map_source",
+        "source": "tty0",
+        "tty": "env:AUTOPILOT_TTY0",
+        "log": "console/tty0.jsonl",
+        "outcomes": [
+          { "label": "ok", "next": "map_tty1" }
+        ],
+        "on_timeout": "fail"
+      },
+      "map_tty1": {
+        "type": "map_source",
+        "source": "tty1",
+        "tty": "env:AUTOPILOT_TTY1",
+        "log": "console/tty1.jsonl",
+        "outcomes": [
+          { "label": "ok", "next": "window1" }
+        ],
+        "on_timeout": "fail"
+      },
+      "window1": {
+        "type": "map_window",
+        "window": 1,
+        "source": "tty0",
+        "title": "TTY0",
+        "outcomes": [
+          { "label": "ok", "next": "window2" }
+        ],
+        "on_timeout": "fail"
+      },
+      "window2": {
+        "type": "map_window",
+        "window": 2,
+        "source": "tty1",
+        "title": "TTY1",
+        "outcomes": [
+          { "label": "ok", "next": "relay_power" }
+        ],
+        "on_timeout": "fail"
+      },
+      "relay_power": {
+        "type": "relay",
+        "outcomes": [
+          { "label": "ok", "next": "boot_stock" }
+        ],
+        "on_timeout": "fail"
+      },
+      "boot_stock": {
+        "type": "boot_menu",
+        "source": "tty0",
+        "boot_option": "1",
+        "outcomes": [
+          { "label": "menu", "pattern": "Press any other key to boot default", "source": "tty0", "next": "wait_stock_prompt" }
+        ],
+        "on_timeout": "fail"
+      },
+      "wait_stock_prompt": {
+        "type": "wait_pattern",
+        "timeout_s": 180,
+        "outcomes": [
+          { "label": "prompt", "pattern": "root@driver-vm:~#", "source": "tty0", "next": "start_vm0" }
+        ],
+        "on_timeout": "fail"
+      },
+      "start_vm0": {
+        "type": "send_cmd",
+        "source": "tty0",
+        "cmd": "qemu-rnd-helper",
+        "outcomes": [
+          { "label": "ok", "next": "wait_vm0_login" }
+        ],
+        "on_timeout": "fail"
+      },
+      "wait_vm0_login": {
+        "type": "wait_pattern",
+        "timeout_s": 120,
+        "outcomes": [
+          { "label": "login", "pattern": "login:", "source": "tty0", "next": "send_vm0_root" }
+        ],
+        "on_timeout": "fail"
+      },
+      "send_vm0_root": {
+        "type": "send_cmd",
+        "source": "tty0",
+        "cmd": "root",
+        "outcomes": [
+          { "label": "ok", "next": "wait_vm0_shell" }
+        ],
+        "on_timeout": "fail"
+      },
+      "wait_vm0_shell": {
+        "type": "wait_pattern",
+        "timeout_s": 120,
+        "outcomes": [
+          { "label": "shell", "pattern": "root@.*:~#", "source": "tty0", "next": "map_vm1" }
+        ],
+        "on_timeout": "fail"
+      },
+      "map_vm1": {
+        "type": "map_source",
+        "source": "vm1",
+        "tty": "env:AUTOPILOT_TTY1",
+        "log": "console/vm1.jsonl",
+        "outcomes": [
+          { "label": "ok", "next": "window_vm1" }
+        ],
+        "on_timeout": "fail"
+      },
+      "window_vm1": {
+        "type": "map_window",
+        "window": 3,
+        "source": "vm1",
+        "title": "VM1",
+        "outcomes": [
+          { "label": "ok", "next": "wait_vm1_login" }
+        ],
+        "on_timeout": "fail"
+      },
+      "wait_vm1_login": {
+        "type": "wait_pattern",
+        "timeout_s": 120,
+        "outcomes": [
+          { "label": "login", "pattern": "login:", "source": "vm1", "next": "send_vm1_root" }
+        ],
+        "on_timeout": "fail"
+      },
+      "send_vm1_root": {
+        "type": "send_cmd",
+        "source": "vm1",
+        "cmd": "root",
+        "outcomes": [
+          { "label": "ok", "next": "wait_vm1_shell" }
+        ],
+        "on_timeout": "fail"
+      },
+      "wait_vm1_shell": {
+        "type": "wait_pattern",
+        "timeout_s": 120,
+        "outcomes": [
+          { "label": "shell", "pattern": "root@.*:~#", "source": "vm1", "next": "pass" }
+        ],
+        "on_timeout": "fail"
+      },
+      "pass": { "type": "pass" },
+      "fail": { "type": "fail" }
+    }
+  }
+}

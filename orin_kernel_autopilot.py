@@ -19,6 +19,7 @@ AUTOPILOT_DIR = Path(os.environ.get("AUTOPILOT_DIR", str(SCRIPT_DIR)))
 WORKSPACE = Path(os.environ.get("WORKSPACE", "/home/hlyytine/pkvm"))
 KERNEL_DIR = WORKSPACE / "Linux_for_Tegra/source/kernel/linux"
 KERNEL_IMAGE = KERNEL_DIR / "arch/arm64/boot/Image"
+KERNEL_RELEASE_FILE = KERNEL_DIR / "include/config/kernel.release"
 
 TARGET_IP = os.environ.get("AUTOPILOT_TARGET_IP", "192.168.101.112")
 DEFAULT_TTY0 = os.environ.get("AUTOPILOT_TTY0", "/dev/ttyACM0")
@@ -116,8 +117,10 @@ def main() -> None:
                 "cancel_flag": cancel_flag,
                 "result_dir": startup_dir,
                 "request_id": "startup",
+                "request": {},
                 "target_ip": TARGET_IP,
                 "kernel_image": KERNEL_IMAGE,
+                "kernel_release": KERNEL_RELEASE_FILE.read_text().strip() if KERNEL_RELEASE_FILE.exists() else "unknown",
                 "forks": {},
                 "fork_recorders": {},
                 "console_manager": console_manager,
@@ -200,8 +203,10 @@ def main() -> None:
             "cancel_flag": threading.Event(),
             "result_dir": result_dir,
             "request_id": timestamp,
+            "request": request_data,
             "target_ip": TARGET_IP,
             "kernel_image": KERNEL_IMAGE,
+            "kernel_release": KERNEL_RELEASE_FILE.read_text().strip() if KERNEL_RELEASE_FILE.exists() else "unknown",
             "forks": {},
             "fork_recorders": {},
             "console_manager": console_manager,

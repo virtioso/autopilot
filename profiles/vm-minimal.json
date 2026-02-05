@@ -1,0 +1,161 @@
+{
+  "name": "vm-minimal",
+  "chain": {
+    "entry": "map_tty0",
+    "steps": {
+      "map_tty0": {
+        "type": "map_source",
+        "source": "tty0",
+        "tty": "env:AUTOPILOT_TTY0",
+        "log": "console/tty0.jsonl",
+        "outcomes": [
+          { "label": "ok", "next": "map_tty1" }
+        ],
+        "on_timeout": "fail"
+      },
+      "map_tty1": {
+        "type": "map_source",
+        "source": "tty1",
+        "tty": "env:AUTOPILOT_TTY1",
+        "log": "console/tty1.jsonl",
+        "outcomes": [
+          { "label": "ok", "next": "window1" }
+        ],
+        "on_timeout": "fail"
+      },
+      "window1": {
+        "type": "map_window",
+        "window": 1,
+        "source": "tty0",
+        "title": "TTY0",
+        "outcomes": [
+          { "label": "ok", "next": "window2" }
+        ],
+        "on_timeout": "fail"
+      },
+      "window2": {
+        "type": "map_window",
+        "window": 2,
+        "source": "tty1",
+        "title": "TTY1",
+        "outcomes": [
+          { "label": "ok", "next": "relay_power" }
+        ],
+        "on_timeout": "fail"
+      },
+      "relay_power": {
+        "type": "relay",
+        "outcomes": [
+          { "label": "ok", "next": "boot_stock" }
+        ],
+        "on_timeout": "fail"
+      },
+      "boot_stock": {
+        "type": "boot_menu",
+        "source": "tty0",
+        "boot_option": "1",
+        "outcomes": [
+          { "label": "menu", "pattern": "Press any other key to boot default", "source": "tty0", "next": "wait_stock_prompt" }
+        ],
+        "on_timeout": "fail"
+      },
+      "wait_stock_prompt": {
+        "type": "wait_pattern",
+        "timeout_s": 180,
+        "outcomes": [
+          { "label": "prompt", "pattern": "ubuntu@tegra-ubuntu:~\\$", "source": "tty0", "next": "upload_efi" }
+        ],
+        "on_timeout": "fail"
+      },
+      "upload_efi": {
+        "type": "upload_efi",
+        "target_user": "root",
+        "target_ip": "{target_ip}",
+        "target_path": "/boot/efi/{binary_name}",
+        "outcomes": [
+          { "label": "ok", "next": "reboot_efi" }
+        ],
+        "on_timeout": "fail"
+      },
+      "reboot_efi": {
+        "type": "reboot",
+        "method": "ssh",
+        "target_user": "root",
+        "target_ip": "{target_ip}",
+        "outcomes": [
+          { "label": "ok", "next": "boot_efi" }
+        ],
+        "on_timeout": "fail"
+      },
+      "boot_efi": {
+        "type": "boot_menu",
+        "source": "tty0",
+        "boot_option": "2",
+        "outcomes": [
+          { "label": "menu", "pattern": "Press any other key to boot default", "source": "tty0", "next": "wait_capdl" }
+        ],
+        "on_timeout": "fail"
+      },
+      "wait_capdl": {
+        "type": "wait_pattern",
+        "timeout_s": 120,
+        "outcomes": [
+          { "label": "capdl", "pattern": "capdl-loader|ELF-loader", "source": "tty0", "next": "wait_vm_boot" }
+        ],
+        "on_timeout": "fork_recovery_fail"
+      },
+      "wait_vm_boot": {
+        "type": "wait_pattern",
+        "timeout_s": 120,
+        "outcomes": [
+          { "label": "vm", "pattern": "Booting Linux|login:", "source": "tty1", "next": "fork_recovery_pass" }
+        ],
+        "on_timeout": "fork_recovery_fail"
+      },
+      "fork_recovery_pass": {
+        "type": "fork",
+        "chain": "recovery_boot",
+        "outcomes": [
+          { "label": "started", "next": "pass" }
+        ],
+        "on_timeout": "pass"
+      },
+      "fork_recovery_fail": {
+        "type": "fork",
+        "chain": "recovery_boot",
+        "outcomes": [
+          { "label": "started", "next": "fail" }
+        ],
+        "on_timeout": "fail"
+      },
+      "pass": { "type": "pass" },
+      "fail": { "type": "fail" }
+    },
+    "subchains": {
+      "recovery_boot": {
+        "entry": "boot_stock",
+        "steps": {
+          "boot_stock": {
+            "type": "boot_menu",
+            "source": "tty0",
+            "boot_option": "1",
+            "outcomes": [
+              { "label": "menu", "pattern": "Press any other key to boot default", "source": "tty0", "next": "wait_prompt" }
+            ],
+            "on_timeout": "fail"
+          },
+          "wait_prompt": {
+            "type": "wait_pattern",
+            "timeout_s": 180,
+            "outcomes": [
+              { "label": "prompt", "pattern": "ubuntu@tegra-ubuntu:~\\$", "source": "tty0", "next": "pass" }
+            ],
+            "on_timeout": "fail"
+          },
+          "pass": { "type": "pass" },
+          "fail": { "type": "fail" }
+        }
+      }
+    }
+  }
+}

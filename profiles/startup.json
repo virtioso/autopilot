@@ -1,0 +1,50 @@
+{
+  "name": "startup",
+  "chain": {
+    "entry": "map_tty0",
+    "steps": {
+      "map_tty0": {
+        "type": "map_source",
+        "source": "tty0",
+        "tty": "env:AUTOPILOT_TTY0",
+        "log": "console/tty0.jsonl",
+        "outcomes": [
+          { "label": "ok", "next": "map_tty1" }
+        ],
+        "on_timeout": "fail"
+      },
+      "map_tty1": {
+        "type": "map_source",
+        "source": "tty1",
+        "tty": "env:AUTOPILOT_TTY1",
+        "log": "console/tty1.jsonl",
+        "outcomes": [
+          { "label": "ok", "next": "window1" }
+        ],
+        "on_timeout": "fail"
+      },
+      "window1": {
+        "type": "map_window",
+        "window": 1,
+        "source": "tty0",
+        "title": "TTY0",
+        "outcomes": [
+          { "label": "ok", "next": "window2" }
+        ],
+        "on_timeout": "fail"
+      },
+      "window2": {
+        "type": "map_window",
+        "window": 2,
+        "source": "tty1",
+        "title": "TTY1",
+        "outcomes": [
+          { "label": "ok", "next": "pass" }
+        ],
+        "on_timeout": "fail"
+      },
+      "pass": { "type": "pass" },
+      "fail": { "type": "fail" }
+    }
+  }
+}
