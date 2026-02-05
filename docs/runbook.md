@@ -1,186 +1,164 @@
 # Autopilot Runbook
 
-**Last Updated**: 2026-02-04
+**Last Updated**: 2026-02-05
 
-This runbook provides step-by-step operational and developer procedures for
-running the Autopilot service, submitting tests, collecting results, and
-troubleshooting. It also documents the planned interactive console workflow
-for AI tools.
+This runbook describes how to operate the Autopilot service and how the new
+chain-based execution model works, including startup mappings, recovery
+behavior, and the built-in TUI controls.
+
+## Quick Glossary
+
+- **Chain**: A labeled set of steps executed by the chain runner.
+- **Step**: A unit of work (boot menu, wait for prompt, upload, etc).
+- **Outcome**: A regex match (or action result) that routes to another step.
+- **Source**: Logical name for a UART or log stream (for matching and logging).
+- **Window**: A TUI view bound to a logical source.
 
 ## Prerequisites
 
 1. Target board reachable over SSH at `192.168.101.112`.
 2. UART devices present on host:
-   - `/dev/ttyACM0` (main console)
-   - `/dev/ttyACM1` (secondary console)
+   - `/dev/ttyACM0` (primary UART)
+   - `/dev/ttyACM1` (secondary UART)
 3. USB relay accessible for power/reset control (`usbrelay_py`).
 4. Python dependencies installed: `pexpect`, `pyserial`, `usbrelay_py`.
+5. Autopilot working directory exists (requests/results/runtime).
+
+## Directory Layout
+
+- Code: `/home/hlyytine/pkvm/autopilot`
+- Working dir: `${AUTOPILOT_DIR:-/home/hlyytine/tii-sel4/autopilot}`
+- Requests: `${AUTOPILOT_DIR}/requests`
+- Results: `${AUTOPILOT_DIR}/results`
+- Runtime state: `${AUTOPILOT_DIR}/runtime`
+- Profiles: `${AUTOPILOT_DIR}/profiles` (copied or symlinked)
 
 ## Start the Autopilot Daemon
 
-1. Open a terminal on the host.
-2. Start the service:
-
 ```bash
-cd /home/hlyytine/pkvm/jetson-pkvm/autopilot
-python3 orin_kernel_autopilot.py
+cd /home/hlyytine/pkvm/autopilot
+AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot python3 orin_kernel_autopilot.py
 ```
 
-3. Confirm it prints:
-   - `Watching: .../requests/pending`
-   - `Results:  .../results`
+Confirm it prints:
+- `Watching: .../requests/pending`
+- `Results:  .../results`
 
 ## Stop the Autopilot Daemon
 
 1. Press `Ctrl+C` in the running terminal.
 2. Autopilot will move any `processing` requests back to `pending`.
 
-## Submit a Linux Kernel Test (Single-Run)
+## Chain Model Overview
 
-1. Ensure the kernel image is built:
-   - `KERNEL_IMAGE` comes from `WORKSPACE/Linux_for_Tegra/source/kernel/linux/.../Image`.
-2. Create a request file:
+Each request is executed by a chain definition stored in a profile JSON.
+Chains are the **only** source of test logic.
+
+- Steps route to other steps by label.
+- Outcomes match regex patterns on a **source** (logical UART/log stream).
+- Timeouts are modeled per step with `on_timeout`.
+- Terminal steps are explicit: `pass` and `fail`.
+
+### Startup Chain (Runs Once at Launch)
+
+On daemon startup, a special chain runs to establish default mappings. It
+typically binds:
+
+- `/dev/ttyACM0` -> `tty0`
+- `/dev/ttyACM1` -> `tty1`
+- Window 1 -> `tty0`
+- Window 2 -> `tty1`
+
+This ensures the TUI has windows immediately.
+
+### Forked Recovery Boot
+
+During a test, Autopilot may start a **forked** recovery boot chain to return
+the board to stock Linux while log parsing continues. The main chain reports
+results immediately; the recovery runs in the background unless a join is
+explicitly requested.
+
+## TUI Controls (Screen-Like)
+
+Autopilot enables a built-in TUI if it is attached to a TTY.
+
+- `Ctrl-A` then `X`: exit the TUI (return to normal output or stop session).
+- `Ctrl-A` then `1..9`: switch to window N.
+- `Ctrl-A` then `W`: show window list (window number -> source).
+- `Ctrl-A` then `R`: abort the current test (user abort) and start recovery boot.
+
+If Autopilot is not running in a TTY, the TUI is disabled and keybindings are
+ignored.
+
+## Error Codes in chain.json
+
+`chain.json` includes a standard error code for each step failure:
+
+- `timeout`
+- `regex_miss`
+- `user_abort`
+- `exception`
+- `canceled`
+- `validation_error`
+
+## Submit a Request (Example)
+
+Requests reference a profile that contains a chain definition.
 
 ```bash
-cd /home/hlyytine/pkvm/jetson-pkvm/autopilot
+cd /home/hlyytine/tii-sel4/autopilot
 TS=$(date +%Y%m%d-%H%M%S)
 cat > requests/pending/${TS}.request <<'EOF'
 {
-  "type": "linux",
+  "profile": "linux-yocto",
   "description": "single-run kernel test"
 }
 EOF
 ```
 
-3. Wait for completion. Results are in `results/<timestamp>/`.
+Results appear in `results/<timestamp>/`.
 
-## Submit a Linux Kernel Test (Multi-Run)
+## Profile Chains (Where to Edit)
 
-```bash
-cd /home/hlyytine/pkvm/jetson-pkvm/autopilot
-TS=$(date +%Y%m%d-%H%M%S)
-cat > requests/pending/${TS}.request <<'EOF'
-{
-  "type": "linux",
-  "multi_run": true,
-  "run_count": 5,
-  "description": "multi-run kernel test"
-}
-EOF
-```
+Profiles live in `${AUTOPILOT_DIR}/profiles`. Each profile defines:
 
-Results will be in `results/<timestamp>/run_<n>/` plus `summary.json`.
+- `chain.entry`
+- `chain.steps`
+- optional `chain.subchains`
 
-## Submit a seL4 EFI Test (Single-Run)
-
-Using the client library/CLI:
-
-```bash
-cd /home/hlyytine/pkvm/jetson-pkvm/autopilot
-./sel4_client.py submit /path/to/sel4test.efi --name sel4test.efi --arm-hyp --wait
-```
-
-Or with a manual request file:
-
-```bash
-TS=$(date +%Y%m%d-%H%M%S)
-cat > requests/pending/${TS}.request <<'EOF'
-{
-  "type": "sel4",
-  "binary_path": "/absolute/path/to/sel4test.efi",
-  "binary_name": "sel4test.efi",
-  "description": "seL4 EFI test"
-}
-EOF
-```
-
-## Submit a seL4 EFI Test (Multi-Run)
-
-```bash
-./sel4_client.py submit-multi /path/to/sel4test.efi --runs 5 --type sel4 --arm-hyp --wait
-```
-
-## Submit a vm_minimal Test
-
-```bash
-./sel4_client.py submit-vm /path/to/capdl-vm_minimal.efi --wait
-```
-
-Results include:
-- `sel4.log` (capdl loader output)
-- `vm.log` (VM console output)
-
-## Check Status and Fetch Logs
-
-```bash
-# List requests
-./sel4_client.py list --pending --completed --failed
-
-# Check status
-./sel4_client.py status 20251212-143022
-
-# Fetch logs
-./sel4_client.py log 20251212-143022
-./sel4_client.py log 20251212-143022 --raw
-```
-
-## Planned: Interactive Console Sessions (AI Tools)
-
-This section documents planned behavior for interactive shell sessions. It is
-not implemented yet.
-
-### Concept
-- Autopilot boots a target (stock Linux or VM).
-- It opens one or more UART sessions.
-- AI tools (via MCP) send commands and poll output.
-- Transcripts are persisted in `results/<timestamp>/console/`.
-
-### Planned Request Format
-```json
-{
-  "type": "boot_interactive",
-  "boot_target": "stock_linux",
-  "interactive": {
-    "enabled": true,
-    "phase": "post_boot",
-    "sessions": [
-      { "name": "vm0", "port": "/dev/ttyACM0", "profile": "linux-yocto" },
-      { "name": "vm1", "port": "/dev/ttyACM1", "profile": "linux-yocto" }
-    ],
-    "idle_timeout_s": 900
-  }
-}
-```
-
-### Planned MCP Operations
-- `open_console_session`
-- `send_console_command`
-- `read_console_output`
-- `close_console_session`
-- `list_console_sessions`
+Example step types:
+- `relay`
+- `boot_menu`
+- `wait_pattern`
+- `upload_kernel`
+- `upload_efi`
+- `reboot`
+- `map_source`
+- `map_window`
+- `send_cmd`
+- `interactive_console`
+- `fork`, `join`
+- `pass`, `fail`
 
 ## Troubleshooting
 
-### UEFI Navigation Fails
-1. Inspect `uart-raw.log` for actual menu output.
-2. Confirm the expected UEFI prompts are unchanged.
+### Chain Validation Fails
+1. Check `chain.json` or stderr for validation errors.
+2. Verify all step labels referenced by `next`, `on_timeout`, or `on_error`.
+
+### Boot Menu Not Detected
+1. Inspect UART logs in `results/<timestamp>/uart-raw.log`.
+2. Verify the regex in the `boot_menu` step matches actual output.
 
 ### SSH Upload Fails
-1. Check SSH key auth: `ssh root@192.168.101.112 hostname`.
-2. Ensure network connectivity to target.
+1. Check SSH auth: `ssh root@192.168.101.112 hostname`.
+2. Confirm network connectivity and correct target IP.
 
-### UART Device Missing
-1. Check `ls /dev/ttyACM*`.
+### TTY Missing
+1. `ls /dev/ttyACM*`
 2. Replug USB serial adapters if needed.
 
-### Board Stuck or Unresponsive
-1. Power cycle using the USB relay.
-2. If still stuck, manual reset and re-run.
-
-## Recovery Procedure
-
-1. Stop autopilot.
-2. Power-cycle the board.
-3. Start autopilot again.
-4. Re-submit the failed request.
+### Recovery Boot Not Completing
+1. Verify recovery chain definition in the profile.
+2. Check `results/<timestamp>/chain.json` fork status.
 
