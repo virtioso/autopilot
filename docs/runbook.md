@@ -89,6 +89,10 @@ Autopilot enables a built-in TUI if it is attached to a TTY.
 - `Ctrl-A` then `1..9`: switch to window N.
 - `Ctrl-A` then `W`: show window list (window number -> source).
 - `Ctrl-A` then `R`: abort the current test (user abort) and start recovery boot.
+- `Ctrl-A` then `I`: toggle interactive input mode for the active window.
+
+When interactive input is enabled, keystrokes are sent to the **source**
+associated with the currently visible window.
 
 If Autopilot is not running in a TTY, the TUI is disabled and keybindings are
 ignored.

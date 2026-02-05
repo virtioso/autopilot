@@ -201,10 +201,12 @@ class TUIManager:
         self.enabled = sys.stdin.isatty()
         self.active_window = 1
         self.window_map: Dict[int, str] = {}
+        self.interactive_enabled = False
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._event_queue: Optional[queue.Queue] = None
+        self._input_handler = None
 
     def start(self, event_queue: queue.Queue) -> None:
         if not self.enabled:
@@ -225,6 +227,8 @@ class TUIManager:
                     continue
                 ch = sys.stdin.read(1)
                 if ch != "\x01":
+                    if self.interactive_enabled:
+                        self._send_input(ch)
                     continue
                 nxt = sys.stdin.read(1)
                 if nxt in ("x", "X"):
@@ -233,6 +237,10 @@ class TUIManager:
                     self._event_queue.put(Event("list_windows"))
                 elif nxt in ("r", "R"):
                     self._event_queue.put(Event("abort"))
+                elif nxt in ("i", "I"):
+                    self.interactive_enabled = not self.interactive_enabled
+                    state = "enabled" if self.interactive_enabled else "disabled"
+                    self._print(f"[TUI] interactive {state}\n")
                 elif nxt.isdigit():
                     self._event_queue.put(Event("switch_window", {"window": int(nxt)}))
         finally:
@@ -267,6 +275,18 @@ class TUIManager:
             if src == source and win == self.active_window:
                 self._print(data.decode("utf-8", errors="ignore"))
                 break
+
+    def set_input_handler(self, handler) -> None:
+        self._input_handler = handler
+
+    def _send_input(self, ch: str) -> None:
+        source = self.window_map.get(self.active_window)
+        if not source or not self._input_handler:
+            return
+        try:
+            self._input_handler(source, ch)
+        except Exception:
+            pass
 
     def _print(self, text: str) -> None:
         with self._lock:

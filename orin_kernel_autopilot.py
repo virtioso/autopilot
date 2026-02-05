@@ -97,6 +97,7 @@ def main() -> None:
     tui.start(event_queue)
 
     source_manager = SourceManager(RESULTS_DIR, tui=tui)
+    tui.set_input_handler(lambda source, ch: source_manager.get(source).write(ch) if source_manager.get(source) else None)
 
     print(f"Watching: {PENDING_DIR}", flush=True)
     print(f"Results:  {RESULTS_DIR}", flush=True)
