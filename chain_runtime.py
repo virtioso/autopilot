@@ -329,6 +329,9 @@ class ChainRunner:
             status = "ok"
             error_code = None
             error_message = None
+            if outcome and outcome.label == "timeout":
+                status = "timeout"
+                error_code = "timeout"
         except Exception as exc:
             next_step = step.get("on_error", step.get("on_timeout", "fail"))
             outcome = OutcomeMatch(
