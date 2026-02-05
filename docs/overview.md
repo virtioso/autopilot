@@ -1,174 +1,89 @@
 # Autopilot System Overview
 
-**Last Updated**: 2025-11-20
+**Last Updated**: 2026-02-05
 
 ## Purpose
 
-The Autopilot system provides automated kernel testing for the NVIDIA Jetson AGX Orin (Tegra234) platform. It enables rapid development iteration by automatically uploading kernel images to hardware, booting them, and collecting comprehensive logs including panic traces, hypervisor output, and SMMU fault information.
+Autopilot is a host-side orchestration service for automated boot testing on
+the NVIDIA Jetson AGX Orin (Tegra234). It executes **chain-based test flows**
+defined in profile JSON files, handles UART/SSH interactions, and produces
+structured results for humans and AI tools.
 
 ## Key Features
 
-- **Automated Kernel Upload**: Fetches latest kernel from build host via SSH
-- **Remote Boot Control**: Controls board power/reset via relay or remote SSH
-- **UART Monitoring**: Captures both kernel console (ttyACM0) and hypervisor debug output (ttyACM1/UARTI)
-- **Crash Detection**: Detects kernel panics, SMMU faults, and timeout conditions
-- **Log Processing**: Automatically filters and organizes logs for easy debugging
-- **Request Queue**: Directory-based queue system for submitting multiple tests
-- **Non-blocking**: Tests run asynchronously without manual intervention
-
-## Prerequisites
-
-### SSH Key Setup
-
-The autopilot system requires passwordless SSH access to the Tegra board for kernel upload:
-
-1. Ensure your SSH public key is in `/root/.ssh/authorized_keys` on the target
-2. Target IP: `192.168.101.112`
-3. Test with: `ssh root@192.168.101.112 hostname`
+- **Chain-Based Execution**: All test logic is defined in profile chains.
+- **Branching Outcomes**: Regex-driven outcomes route to next steps.
+- **Parallel Recovery**: Recovery boot can run in parallel with log parsing.
+- **UART Source Mapping**: Dynamic `map_source` ties tty devices to logical sources.
+- **Built-in TUI**: Screen-like hotkeys to switch windows and abort runs.
+- **Structured Results**: `chain.json` captures step-by-step outcomes and errors.
 
 ## Quick Start
 
-### Submit a Test Request
-
-After building a kernel:
+### Start Autopilot
 
 ```bash
-# Submit test request (creates timestamped request file)
-TIMESTAMP=$(date +%Y%m%d%H%M%S)
-touch ${WORKSPACE}/autopilot/requests/pending/${TIMESTAMP}.request
-
-# Wait for completion (~5 minutes)
-# Results appear in ${WORKSPACE}/autopilot/results/${TIMESTAMP}/
+cd /home/hlyytine/pkvm/autopilot
+AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot python3 orin_kernel_autopilot.py
 ```
 
-### Check Test Status
+### Submit a Request
+
+Requests are JSON files that specify a **profile**:
 
 ```bash
-# Check request queue status
-ls -la ${WORKSPACE}/autopilot/requests/*/
-
-# Monitor autopilot service logs
-journalctl -u autopilot -f
+cd /home/hlyytine/tii-sel4/autopilot
+TS=$(date +%Y%m%d-%H%M%S)
+cat > requests/pending/${TS}.request <<'EOF'
+{
+  "profile": "linux-kernel",
+  "description": "single-run kernel test"
+}
+EOF
 ```
 
-### View Results
+Results appear in `results/<timestamp>/`.
 
-```bash
-TIMESTAMP=20251120222200  # Your test timestamp
+## Chain Model (Summary)
 
-# Check what happened
-cat ${WORKSPACE}/autopilot/results/${TIMESTAMP}/panic.log    # Kernel panic details
-cat ${WORKSPACE}/autopilot/results/${TIMESTAMP}/hyp.log      # EL2 hypervisor logs
-cat ${WORKSPACE}/autopilot/results/${TIMESTAMP}/kernel.log   # Full kernel boot log
-cat ${WORKSPACE}/autopilot/results/${TIMESTAMP}/smmu_faults.log  # SMMU faults (if detected)
-```
+Each profile defines:
+- `chain.entry`: starting step label
+- `chain.steps`: dictionary of steps
+- `chain.subchains`: named subchains for `fork`
 
-## System Components
+Steps include `relay`, `boot_menu`, `wait_pattern`, `upload_*`, `reboot`,
+`map_source`, `map_window`, `fork`, and `join`. Terminal steps are explicit
+`pass` and `fail`.
 
-### Host System (192.168.101.100)
-- **Autopilot Service**: Python daemon monitoring request queue
-- **Kernel Build**: Build system produces kernel at `source/kernel/linux/arch/arm64/boot/Image`
-- **UART Access**: USB serial adapters connected to target board
-  - `/tmp/ttyACM0` → Target's main console (ttyTCU0)
-  - `/tmp/ttyACM1` → Target's UARTI (hypervisor debug output)
+## TUI Hotkeys
 
-### Target Hardware (192.168.101.112)
-- **Jetson AGX Orin**: Test platform running custom pKVM kernel
-- **SSH Access**: Root SSH with public key authentication
-- **Network**: Static IP 192.168.101.112
-- **Boot Configuration**: UEFI with extlinux boot menu (3 options)
+Autopilot enables a built-in TUI when attached to a TTY:
 
-### Boot Control (192.168.101.110)
-- **Remote Boot Server**: Controls board power via USB relay or GPIO
-- **SSH Access**: Autopilot calls `ssh 192.168.101.110 ./boot.sh normal`
-
-## Typical Workflow
-
-1. **Developer builds kernel** on host (192.168.101.100)
-2. **Submit test request**: Create `.request` file in pending directory
-3. **Autopilot detects request**: Moves to processing directory
-4. **Phase 1 - Upload**:
-   - Boots board into vanilla Jetson Linux (extlinux option 1)
-   - Waits for shell prompt (indicates SSH ready)
-   - Uploads kernel via SCP to `/boot/Image-${KVER}`
-   - Reboots target via SSH
-5. **Phase 2 - Test**:
-   - Boots board into test mode (extlinux option 2)
-   - Monitors kernel console for panics/faults
-   - Collects hypervisor debug output
-6. **Log Processing**:
-   - Filters panic messages
-   - Extracts hypervisor logs
-   - Disassembles crash site (if panic occurred)
-   - Analyzes SMMU faults (if detected)
-7. **Results Ready**: Request moved to completed directory
+- `Ctrl-A` then `1..9`: switch window
+- `Ctrl-A` then `W`: list windows
+- `Ctrl-A` then `X`: exit UI
+- `Ctrl-A` then `R`: abort run and start recovery boot
 
 ## Output Files
 
-Each test produces several log files in `results/${TIMESTAMP}/`:
+Each test produces:
 
-| File | Description | When Generated |
-|------|-------------|----------------|
-| `kernel.log` | Full kernel console output | Always |
-| `panic.log` | Filtered kernel panic/oops details | Always (empty if no panic) |
-| `hyp.log` | Filtered EL2 hypervisor debug output | Always |
-| `uarti.log` | Raw UART from UARTI (hypervisor) | Always |
-| `smmu_faults.log` | Detailed SMMU fault analysis | Only if SMMU faults detected |
-| `disassembly.log` | Disassembly of crash function | Only if kernel panic |
-| `kernel-update.log` | Log from kernel upload phase | Always |
-
-## Request Queue States
-
-Requests flow through directories representing their state:
-
-```
-requests/
-├── pending/          # Submitted requests waiting to be processed
-├── processing/       # Currently running test (max 1 at a time)
-├── completed/        # Successfully completed tests
-└── failed/           # Tests that encountered errors
-```
-
-## Error Handling
-
-- **Boot Fallthrough**: Retries up to 3 times if board falls through to HTTP boot
-- **Timeout Detection**: 60-second timeout for kernel panic/fault detection
-- **Signal Handling**: SIGINT/SIGTERM moves processing requests back to pending
-- **Partial Results**: Failed tests still produce whatever logs were collected
-
-## Performance
-
-- **Kernel Upload**: ~30 seconds (over 1 Gbps network)
-- **Boot Time**: ~30-40 seconds from power-on to kernel start
-- **Total Test Time**: ~5 minutes (including upload, 2 boots, log processing)
-- **Queue Throughput**: 1 test every 5 minutes (sequential processing)
+- `chain.json`: structured step results and errors
+- `console/<source>.jsonl`: UART transcripts for mapped sources
+- `uart-raw.log`, `kernel.log`, `sel4.log`, `vm.log`: filtered logs (if configured)
 
 ## Dependencies
 
-### Host System
-- Python 3 with libraries: `pexpect`, `pyserial`
-- SSH access to boot control server (192.168.101.110)
-- USB serial adapters for UART monitoring
+Host:
+- Python 3, `pexpect`, `pyserial`, `usbrelay_py`
+- SSH access to target (default IP `192.168.101.112`)
 
-### Target Hardware
-- UEFI firmware with extlinux boot support
-- SSH server running on boot with root access (public key auth)
-- Network connectivity (static IP: 192.168.101.112)
-
-### Boot Control Server
-- USB relay board (for BoardControlLocal) OR
-- Remote boot script accepting `normal` / `recovery` modes
-
-## Limitations
-
-- **Sequential Processing**: One test at a time (hardware limitation)
-- **Network Required**: Target must have network access to fetch kernel
-- **UART Required**: Relies on serial console for monitoring
-- **No DTB Upload**: Currently only supports kernel upload (not device trees)
+Target:
+- UEFI + extlinux boot menu
+- `/boot/efi` writable for EFI uploads
 
 ## See Also
 
-- [Architecture Details](architecture.md) - Technical implementation details
-- [Boot Sequence](boot-sequence.md) - How the boot menu and update cycle works
-- [Request Queue System](request-queue.md) - Queue implementation and file states
-- [Extending for DTB Support](extending-dtb-support.md) - Adding device tree upload capability
+- [Runbook](runbook.md) - Operational procedures and troubleshooting
+- [Architecture](architecture.md) - System diagrams and component details
+- [Chain Specification](chain-spec.md) - JSON schema and step definitions

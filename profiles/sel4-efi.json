@@ -35,7 +35,7 @@
         "source": "tty0",
         "boot_option": "1",
         "outcomes": [
-          { "label": "menu", "pattern": "Press any other key to boot default", "source": "tty0", "next": "wait_stock_prompt" }
+          { "label": "menu", "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot", "source": "tty0", "next": "wait_stock_prompt" }
         ],
         "on_timeout": "fail"
       },
@@ -43,7 +43,7 @@
         "type": "wait_pattern",
         "timeout_s": 180,
         "outcomes": [
-          { "label": "prompt", "pattern": "ubuntu@tegra-ubuntu:~\\$", "source": "tty0", "next": "upload_efi" }
+          { "label": "prompt", "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:", "source": "tty0", "next": "upload_efi" }
         ],
         "on_timeout": "fail"
       },
@@ -72,7 +72,7 @@
         "source": "tty0",
         "boot_option": "2",
         "outcomes": [
-          { "label": "menu", "pattern": "Press any other key to boot default", "source": "tty0", "next": "wait_sel4" }
+          { "label": "menu", "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot", "source": "tty0", "next": "wait_sel4" }
         ],
         "on_timeout": "fail"
       },
@@ -113,7 +113,7 @@
             "source": "tty0",
             "boot_option": "1",
             "outcomes": [
-              { "label": "menu", "pattern": "Press any other key to boot default", "source": "tty0", "next": "wait_prompt" }
+              { "label": "menu", "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot", "source": "tty0", "next": "wait_prompt" }
             ],
             "on_timeout": "fail"
           },
@@ -121,7 +121,7 @@
             "type": "wait_pattern",
             "timeout_s": 180,
             "outcomes": [
-              { "label": "prompt", "pattern": "ubuntu@tegra-ubuntu:~\\$", "source": "tty0", "next": "pass" }
+              { "label": "prompt", "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:", "source": "tty0", "next": "pass" }
             ],
             "on_timeout": "fail"
           },

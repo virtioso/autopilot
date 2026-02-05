@@ -55,7 +55,7 @@
         "source": "tty0",
         "boot_option": "1",
         "outcomes": [
-          { "label": "menu", "pattern": "Press any other key to boot default", "source": "tty0", "next": "wait_stock_prompt" }
+          { "label": "menu", "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot", "source": "tty0", "next": "wait_stock_prompt" }
         ],
         "on_timeout": "fail"
       },
@@ -63,7 +63,7 @@
         "type": "wait_pattern",
         "timeout_s": 180,
         "outcomes": [
-          { "label": "prompt", "pattern": "root@driver-vm:~#", "source": "tty0", "next": "start_vm0" }
+          { "label": "prompt", "pattern": "root@driver-vm:~#|driver-vm login:", "source": "tty0", "next": "start_vm0" }
         ],
         "on_timeout": "fail"
       },
@@ -80,7 +80,7 @@
         "type": "wait_pattern",
         "timeout_s": 120,
         "outcomes": [
-          { "label": "login", "pattern": "login:", "source": "tty0", "next": "send_vm0_root" }
+          { "label": "login", "pattern": "driver-vm login:|login:", "source": "tty0", "next": "send_vm0_root" }
         ],
         "on_timeout": "fail"
       },
@@ -125,7 +125,7 @@
         "type": "wait_pattern",
         "timeout_s": 120,
         "outcomes": [
-          { "label": "login", "pattern": "login:", "source": "vm1", "next": "send_vm1_root" }
+          { "label": "login", "pattern": "driver-vm login:|login:", "source": "vm1", "next": "send_vm1_root" }
         ],
         "on_timeout": "fail"
       },
