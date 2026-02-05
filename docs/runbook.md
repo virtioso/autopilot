@@ -97,7 +97,8 @@ associated with the currently visible window.
 ### Ending Interactive Sessions
 
 Interactive sessions end when the login prompt appears again (e.g. after
-typing `exit`). The chain resumes and typically marks the run as `pass`.
+typing `exit`). The chain only ends **after** a shell prompt has been seen,
+so the initial login banner does not terminate the session.
 
 ### Status Line
 

@@ -699,6 +699,7 @@ class ChainRunner:
                     "cmd_dir": cmd_dir,
                     "resp_dir": resp_dir,
                     "offset": 0,
+                    "seen_shell": False,
                 })
                 sessions_meta.append({
                     "session_id": f"{self.ctx['request_id']}-{name}",
@@ -736,9 +737,11 @@ class ChainRunner:
             for session in sessions:
                 try:
                     session.perform_login(timeout_s=60)
+                    session.seen_shell = True
                 except Exception:
                     pass
         idle_timeout = int(step.get("idle_timeout_s", 900))
+        exit_after_shell = step.get("exit_after_shell", True)
         last_activity = time.time()
         exit_patterns = step.get("exit_patterns")
         active = True
@@ -773,6 +776,8 @@ class ChainRunner:
                             binding, state["offset"], prompt, timeout_s
                         )
                         state["offset"] = new_offset
+                        if matched:
+                            state["seen_shell"] = True
                         resp = {"output": output, "new_offset": new_offset, "matched": matched}
                     else:
                         resp = {"output": "", "new_offset": binding._total_bytes, "matched": True}
@@ -782,7 +787,7 @@ class ChainRunner:
                     last_activity = time.time()
 
                 exit_regex = exit_patterns or state["profile"].login_prompt
-                if exit_regex:
+                if exit_regex and (state.get("seen_shell") or not exit_after_shell):
                     _, new_offset, matched = self._wait_for_binding_prompt(
                         state["binding"], state["offset"], exit_regex, 1
                     )
@@ -824,11 +829,12 @@ class ChainRunner:
 
                 exit_regex = exit_patterns or session.profile.login_prompt
                 if exit_regex:
-                    start_offset = session.get_offset()
-                    _, _, matched = session.wait_for_prompt(exit_regex, start_offset, 1)
-                    if matched:
-                        active = False
-                        break
+                    if getattr(session, "seen_shell", False) or not exit_after_shell:
+                        start_offset = session.get_offset()
+                        _, _, matched = session.wait_for_prompt(exit_regex, start_offset, 1)
+                        if matched:
+                            active = False
+                            break
 
             if not sessions and not session_states:
                 break
