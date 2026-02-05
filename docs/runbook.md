@@ -94,6 +94,11 @@ Autopilot enables a built-in TUI if it is attached to a TTY.
 When interactive input is enabled, keystrokes are sent to the **source**
 associated with the currently visible window.
 
+### Ending Interactive Sessions
+
+Interactive sessions end when the login prompt appears again (e.g. after
+typing `exit`). The chain resumes and typically marks the run as `pass`.
+
 ### Status Line
 
 Autopilot renders a status line showing:

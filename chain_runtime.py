@@ -13,6 +13,8 @@ from typing import Dict, List, Optional, Tuple
 
 import serial
 
+from console_sessions import load_profile
+
 
 class ChainValidationError(Exception):
     pass
@@ -668,28 +670,61 @@ class ChainRunner:
         console_dir.mkdir(parents=True, exist_ok=True)
         sessions_meta = []
         sessions = []
+        session_states = []
         for sess in sessions_cfg:
             name = sess.get("name")
             port = sess.get("port")
+            source = sess.get("source")
             profile_name = sess.get("profile", "linux-yocto")
             if not name or not port:
                 raise ValueError("interactive session requires name and port")
-            session = console_manager.create_session(
-                request_id=self.ctx["request_id"],
-                name=name,
-                port=port,
-                profile_name=profile_name,
-                log_dir=console_dir
-            )
-            sessions.append(session)
-            sessions_meta.append({
-                "session_id": session.session_id,
-                "name": name,
-                "port": port,
-                "profile": profile_name,
-                "log_path": str(session.log_path),
-                "events_path": str(session.events_path),
-            })
+            profile = load_profile(console_manager.profiles_dir, profile_name)
+            binding = None
+            if source:
+                binding = self.ctx["sources"].get(source)
+            if binding:
+                runtime_dir = console_manager.runtime_dir / f"{self.ctx['request_id']}-{name}"
+                runtime_dir.mkdir(parents=True, exist_ok=True)
+                cmd_dir = runtime_dir / "cmd"
+                resp_dir = runtime_dir / "resp"
+                cmd_dir.mkdir(parents=True, exist_ok=True)
+                resp_dir.mkdir(parents=True, exist_ok=True)
+                session_states.append({
+                    "mode": "binding",
+                    "name": name,
+                    "source": source,
+                    "binding": binding,
+                    "profile": profile,
+                    "runtime_dir": runtime_dir,
+                    "cmd_dir": cmd_dir,
+                    "resp_dir": resp_dir,
+                    "offset": 0,
+                })
+                sessions_meta.append({
+                    "session_id": f"{self.ctx['request_id']}-{name}",
+                    "name": name,
+                    "port": port,
+                    "profile": profile_name,
+                    "log_path": str(binding.log_path),
+                    "events_path": str(binding.log_path),
+                })
+            else:
+                session = console_manager.create_session(
+                    request_id=self.ctx["request_id"],
+                    name=name,
+                    port=port,
+                    profile_name=profile_name,
+                    log_dir=console_dir
+                )
+                sessions.append(session)
+                sessions_meta.append({
+                    "session_id": session.session_id,
+                    "name": name,
+                    "port": port,
+                    "profile": profile_name,
+                    "log_path": str(session.log_path),
+                    "events_path": str(session.events_path),
+                })
         manifest = {
             "request_id": self.ctx["request_id"],
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -703,7 +738,132 @@ class ChainRunner:
                     session.perform_login(timeout_s=60)
                 except Exception:
                     pass
+        idle_timeout = int(step.get("idle_timeout_s", 900))
+        last_activity = time.time()
+        exit_patterns = step.get("exit_patterns")
+        active = True
+        while active:
+            event = self._poll_event()
+            if event and event.kind == "abort":
+                self._handle_abort()
+            # Handle binding-based sessions
+            for state in list(session_states):
+                runtime_dir = state["runtime_dir"]
+                cmd_dir = state["cmd_dir"]
+                resp_dir = state["resp_dir"]
+                close_flag = runtime_dir / "close"
+                if close_flag.exists():
+                    close_flag.unlink(missing_ok=True)
+                    session_states.remove(state)
+                    continue
+                for cmd_file in sorted(cmd_dir.glob("*.json")):
+                    cmd_data = json.loads(cmd_file.read_text())
+                    cmd_id = cmd_data.get("cmd_id", cmd_file.stem)
+                    command = cmd_data.get("command", "")
+                    append_newline = cmd_data.get("append_newline", True)
+                    wait_for_prompt = cmd_data.get("wait_for_prompt", True)
+                    prompt_override = cmd_data.get("prompt_override")
+                    timeout_s = int(cmd_data.get("timeout_s", 10))
+                    binding = state["binding"]
+                    text = command + ("\n" if append_newline else "")
+                    binding.write(text)
+                    if wait_for_prompt:
+                        prompt = prompt_override or state["profile"].shell_prompt
+                        output, new_offset, matched = self._wait_for_binding_prompt(
+                            binding, state["offset"], prompt, timeout_s
+                        )
+                        state["offset"] = new_offset
+                        resp = {"output": output, "new_offset": new_offset, "matched": matched}
+                    else:
+                        resp = {"output": "", "new_offset": binding._total_bytes, "matched": True}
+                    resp["cmd_id"] = cmd_id
+                    (resp_dir / f"{cmd_id}.json").write_text(json.dumps(resp, indent=2))
+                    cmd_file.unlink(missing_ok=True)
+                    last_activity = time.time()
+
+                exit_regex = exit_patterns or state["profile"].login_prompt
+                if exit_regex:
+                    _, new_offset, matched = self._wait_for_binding_prompt(
+                        state["binding"], state["offset"], exit_regex, 1
+                    )
+                    state["offset"] = new_offset
+                    if matched:
+                        active = False
+                        break
+
+            # Handle console_manager sessions
+            for session in list(sessions):
+                runtime_dir = session.runtime_dir
+                close_flag = runtime_dir / "close"
+                if close_flag.exists():
+                    close_flag.unlink(missing_ok=True)
+                    console_manager.close_session(session.session_id)
+                    sessions.remove(session)
+                    continue
+                cmd_dir = runtime_dir / "cmd"
+                resp_dir = runtime_dir / "resp"
+                for cmd_file in sorted(cmd_dir.glob("*.json")):
+                    cmd_data = json.loads(cmd_file.read_text())
+                    cmd_id = cmd_data.get("cmd_id", cmd_file.stem)
+                    command = cmd_data.get("command", "")
+                    append_newline = cmd_data.get("append_newline", True)
+                    wait_for_prompt = cmd_data.get("wait_for_prompt", True)
+                    prompt_override = cmd_data.get("prompt_override")
+                    timeout_s = int(cmd_data.get("timeout_s", 10))
+                    result = session.send_command(
+                        command=command,
+                        append_newline=append_newline,
+                        wait_for_prompt=wait_for_prompt,
+                        prompt_regex=prompt_override,
+                        timeout_s=timeout_s
+                    )
+                    result["cmd_id"] = cmd_id
+                    (resp_dir / f"{cmd_id}.json").write_text(json.dumps(result, indent=2))
+                    cmd_file.unlink(missing_ok=True)
+                    last_activity = time.time()
+
+                exit_regex = exit_patterns or session.profile.login_prompt
+                if exit_regex:
+                    start_offset = session.get_offset()
+                    _, _, matched = session.wait_for_prompt(exit_regex, start_offset, 1)
+                    if matched:
+                        active = False
+                        break
+
+            if not sessions and not session_states:
+                break
+            if idle_timeout > 0 and (time.time() - last_activity) > idle_timeout:
+                active = False
+            time.sleep(0.2)
+
+        manifest["status"] = "closed"
+        (console_dir / "sessions.json").write_text(json.dumps(manifest, indent=2))
         return self._simple_outcome(step)
+
+    def _wait_for_binding_prompt(
+        self,
+        binding: SourceBinding,
+        offset: int,
+        prompt_regex: str,
+        timeout_s: int,
+    ) -> Tuple[str, int, bool]:
+        compiled = re.compile(prompt_regex, re.MULTILINE)
+        buffer = ""
+        deadline = time.time() + timeout_s
+        cursor = offset
+
+        while time.time() < deadline:
+            data, cursor = binding.read_since(cursor)
+            if data:
+                chunk = data.decode("utf-8", errors="ignore")
+                buffer += chunk
+                if len(buffer) > 65536:
+                    buffer = buffer[-65536:]
+                if compiled.search(buffer):
+                    return buffer, cursor, True
+            else:
+                time.sleep(0.1)
+        return buffer, cursor, False
 
     def _poll_event(self) -> Optional[Event]:
         try:

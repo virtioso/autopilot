@@ -50,7 +50,7 @@
       "interactive": {
         "type": "interactive_console",
         "sessions": [
-          { "name": "tty0", "port": "/dev/ttyACM0", "profile": "linux-yocto" }
+          { "name": "tty0", "port": "/dev/ttyACM0", "source": "tty0", "profile": "linux-yocto" }
         ],
         "outcomes": [
           { "label": "ok", "next": "pass" }
