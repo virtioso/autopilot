@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Optional
 
 # Default autopilot directory (can be overridden via AUTOPILOT_DIR env var or function parameter)
-DEFAULT_AUTOPILOT_DIR = Path('/home/hlyytine/pkvm/autopilot')
+DEFAULT_AUTOPILOT_DIR = Path('/home/hlyytine/tii-sel4/autopilot')
 
 
 def get_autopilot_dir(override: str = None) -> Path:
@@ -92,7 +92,8 @@ def submit_sel4_test(
     description: str = '',
     copy_to_staging: bool = True,
     build_config: dict = None,
-    autopilot_dir: str = None
+    autopilot_dir: str = None,
+    profile: str = 'sel4-efi'
 ) -> str:
     """
     Submit a seL4 EFI binary for testing.
@@ -107,6 +108,7 @@ def submit_sel4_test(
             - platform (str): Platform name (e.g., 'orinagx')
             - num_nodes (int): SMP core count (optional)
         autopilot_dir: Optional override for autopilot working directory
+        profile: Profile name that defines the chain to run
 
     Returns:
         timestamp: Request ID that can be used to check status/get results
@@ -142,6 +144,7 @@ def submit_sel4_test(
 
     # Create request file
     request = {
+        'profile': profile,
         'type': 'sel4',
         'binary_path': request_binary_path,
         'binary_name': binary_name,
@@ -165,7 +168,8 @@ def submit_multi_run_test(
     description: str = '',
     copy_to_staging: bool = True,
     build_config: dict = None,
-    autopilot_dir: str = None
+    autopilot_dir: str = None,
+    profile: str = None
 ) -> str:
     """
     Submit a test for multiple boot iterations without re-uploading the binary.
@@ -182,6 +186,7 @@ def submit_multi_run_test(
             - platform (str): Platform name (e.g., 'orinagx')
             - num_nodes (int): SMP core count (optional)
         autopilot_dir: Optional override for autopilot working directory
+        profile: Profile name to use (defaults based on test_type)
 
     Returns:
         timestamp: Request ID that can be used to check status/get results
@@ -216,8 +221,12 @@ def submit_multi_run_test(
     else:
         request_binary_path = str(binary_src)
 
+    if profile is None:
+        profile = 'sel4-efi-multi' if test_type == 'sel4' else 'linux-kernel-multi'
+
     # Create request file
     request = {
+        'profile': profile,
         'type': test_type,
         'binary_path': request_binary_path,
         'binary_name': binary_name,
@@ -241,7 +250,8 @@ def submit_vm_minimal_test(
     description: str = '',
     copy_to_staging: bool = True,
     build_config: dict = None,
-    autopilot_dir: str = None
+    autopilot_dir: str = None,
+    profile: str = 'vm-minimal'
 ) -> str:
     """
     Submit a vm_minimal capdl-loader binary for testing.
@@ -259,6 +269,7 @@ def submit_vm_minimal_test(
             - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting
             - platform (str): Platform name (e.g., 'orinagx')
         autopilot_dir: Optional override for autopilot working directory
+        profile: Profile name that defines the chain to run
 
     Returns:
         timestamp: Request ID that can be used to check status/get results
@@ -285,6 +296,7 @@ def submit_vm_minimal_test(
 
     # Create request file
     request = {
+        'profile': profile,
         'type': 'vm_minimal',
         'binary_path': request_binary_path,
         'binary_name': binary_name,
@@ -308,7 +320,8 @@ def submit_boot_interactive(
     description: str = "",
     copy_to_staging: bool = True,
     build_config: dict = None,
-    autopilot_dir: str = None
+    autopilot_dir: str = None,
+    profile: str = "boot-interactive"
 ) -> str:
     """
     Submit a boot_interactive request that boots a target and opens console sessions.
@@ -322,6 +335,7 @@ def submit_boot_interactive(
         copy_to_staging: If True, copy binary to staging area
         build_config: Optional build config metadata
         autopilot_dir: Optional override for autopilot working directory
+        profile: Profile name that defines the chain to run
     """
     if interactive is None:
         raise ValueError("interactive config is required")
@@ -347,6 +361,7 @@ def submit_boot_interactive(
             request_binary_path = str(binary_src)
 
     request = {
+        "profile": profile,
         "type": "boot_interactive",
         "boot_target": boot_target,
         "binary_path": request_binary_path,
@@ -720,6 +735,7 @@ if __name__ == '__main__':
     submit_parser.add_argument('binary_path', help='Path to EFI binary')
     submit_parser.add_argument('--name', default='sel4test.efi', help='Binary name on target')
     submit_parser.add_argument('--desc', default='', help='Description')
+    submit_parser.add_argument('--profile', default='sel4-efi', help='Profile name (default: sel4-efi)')
     submit_parser.add_argument('--wait', action='store_true', help='Wait for result')
     # ARM_HYP configuration (mutually exclusive, one required)
     hyp_group = submit_parser.add_mutually_exclusive_group(required=True)
@@ -751,6 +767,7 @@ if __name__ == '__main__':
     multi_parser.add_argument('--runs', type=int, default=5, help='Number of boot iterations')
     multi_parser.add_argument('--type', default='sel4', choices=['sel4', 'linux'], help='Test type')
     multi_parser.add_argument('--desc', default='', help='Description')
+    multi_parser.add_argument('--profile', default=None, help='Profile name override')
     multi_parser.add_argument('--wait', action='store_true', help='Wait for result')
     # ARM_HYP configuration (required for sel4 tests)
     multi_hyp_group = multi_parser.add_mutually_exclusive_group()
@@ -770,6 +787,7 @@ if __name__ == '__main__':
     vm_parser.add_argument('binary_path', help='Path to capdl-loader EFI binary')
     vm_parser.add_argument('--name', default='capdl-vm_minimal.efi', help='Binary name on target')
     vm_parser.add_argument('--desc', default='', help='Description')
+    vm_parser.add_argument('--profile', default='vm-minimal', help='Profile name (default: vm-minimal)')
     vm_parser.add_argument('--wait', action='store_true', help='Wait for result')
     vm_parser.add_argument('--platform', default='orinagx', help='Platform name (default: orinagx)')
 
@@ -790,7 +808,8 @@ if __name__ == '__main__':
             args.binary_path,
             binary_name=args.name,
             description=args.desc,
-            build_config=build_config
+            build_config=build_config,
+            profile=args.profile
         )
         print(f"Submitted: {ts}")
         print(f"  ARM_HYPERVISOR_SUPPORT: {'ON' if args.arm_hyp else 'OFF'}")
@@ -857,7 +876,8 @@ if __name__ == '__main__':
             binary_name=args.name,
             test_type=args.type,
             description=args.desc,
-            build_config=build_config
+            build_config=build_config,
+            profile=args.profile
         )
         print(f"Submitted multi-run test: {ts} ({args.runs} runs)")
         if build_config:
@@ -913,7 +933,8 @@ if __name__ == '__main__':
             args.binary_path,
             binary_name=args.name,
             description=args.desc,
-            build_config=build_config
+            build_config=build_config,
+            profile=args.profile
         )
         print(f"Submitted vm_minimal test: {ts}")
         print(f"  Platform: {args.platform}")
