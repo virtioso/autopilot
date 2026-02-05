@@ -884,7 +884,9 @@ class ChainRunner:
 
     def _resolve_value(self, value):
         if isinstance(value, str):
-            return value.format(**self.ctx.get("request", {}), **self.ctx)
+            format_ctx = dict(self.ctx)
+            format_ctx.update(self.ctx.get("request", {}))
+            return value.format(**format_ctx)
         return value
 
     def _handle_abort(self) -> None:
