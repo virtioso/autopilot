@@ -3,6 +3,7 @@ import os
 import queue
 import re
 import select
+import shutil
 import sys
 import threading
 import time
@@ -202,16 +203,21 @@ class TUIManager:
         self.active_window = 1
         self.window_map: Dict[int, str] = {}
         self.interactive_enabled = False
+        self.status_text = ""
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._event_queue: Optional[queue.Queue] = None
         self._input_handler = None
+        self._rows = 0
+        self._use_bottom = True
 
     def start(self, event_queue: queue.Queue) -> None:
         if not self.enabled:
             return
         self._event_queue = event_queue
+        self._rows = shutil.get_terminal_size((80, 24)).lines
+        self._init_status_line()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -241,10 +247,12 @@ class TUIManager:
                     self.interactive_enabled = not self.interactive_enabled
                     state = "enabled" if self.interactive_enabled else "disabled"
                     self._print(f"[TUI] interactive {state}\n")
+                    self.set_status(self.status_text)
                 elif nxt.isdigit():
                     self._event_queue.put(Event("switch_window", {"window": int(nxt)}))
         finally:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
+            self._reset_status_line()
 
     def stop(self) -> None:
         if not self.enabled:
@@ -256,12 +264,14 @@ class TUIManager:
     def bind_window(self, window: int, source: str, title: Optional[str] = None) -> None:
         self.window_map[window] = source
         self._print(f"[TUI] window {window} -> {source}{' (' + title + ')' if title else ''}\n")
+        self.set_status(self.status_text)
 
     def handle_event(self, event: Event) -> None:
         if event.kind == "switch_window":
             window = int(event.payload.get("window", 1))
             self.active_window = window
             self._print(f"[TUI] switched to window {window}\n")
+            self.set_status(self.status_text)
         elif event.kind == "list_windows":
             lines = ["[TUI] window list:"]
             for win in sorted(self.window_map.keys()):
@@ -279,6 +289,16 @@ class TUIManager:
     def set_input_handler(self, handler) -> None:
         self._input_handler = handler
 
+    def set_status(self, text: str) -> None:
+        if not self.enabled:
+            return
+        self.status_text = text
+        clean = self._strip_ansi(text)
+        max_len = max(0, shutil.get_terminal_size((80, 24)).columns - 1)
+        clean = clean[:max_len]
+        with self._lock:
+            self._render_status(clean)
+
     def _send_input(self, ch: str) -> None:
         source = self.window_map.get(self.active_window)
         if not source or not self._input_handler:
@@ -291,6 +311,34 @@ class TUIManager:
     def _print(self, text: str) -> None:
         with self._lock:
             sys.stdout.write(text)
+            sys.stdout.flush()
+
+    def _strip_ansi(self, text: str) -> str:
+        return re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)
+
+    def _init_status_line(self) -> None:
+        if not self.enabled:
+            return
+        if self._use_bottom and self._rows >= 2:
+            sys.stdout.write(f"\x1b[1;{self._rows - 1}r")
+        sys.stdout.flush()
+
+    def _reset_status_line(self) -> None:
+        if not self.enabled:
+            return
+        sys.stdout.write("\x1b[r")
+        sys.stdout.flush()
+
+    def _render_status(self, text: str) -> None:
+        if self._use_bottom and self._rows >= 1:
+            row = self._rows
+            sys.stdout.write("\x1b7")
+            sys.stdout.write(f"\x1b[{row};1H")
+            sys.stdout.write("\x1b[2K")
+            sys.stdout.write("\x1b[1;37;44m")
+            sys.stdout.write(text)
+            sys.stdout.write("\x1b[0m")
+            sys.stdout.write("\x1b8")
             sys.stdout.flush()
 
 
@@ -346,6 +394,7 @@ class ChainRunner:
 
     def _run_step(self, name: str, step: dict) -> Tuple[StepResult, str]:
         started = time.time()
+        self._set_status(f"step={name}")
         try:
             next_step, outcome = self._dispatch_step(name, step)
             status = "ok"
@@ -665,3 +714,13 @@ class ChainRunner:
             except Exception:
                 pass
         raise AbortRun()
+
+    def _set_status(self, extra: str) -> None:
+        tui = self.ctx.get("tui")
+        if not tui or not tui.enabled:
+            return
+        win = tui.active_window
+        source = tui.window_map.get(win, "-")
+        input_state = "on" if tui.interactive_enabled else "off"
+        text = f"{extra} | win={win} src={source} | input={input_state}"
+        tui.set_status(text)

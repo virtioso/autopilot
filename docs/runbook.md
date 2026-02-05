@@ -94,6 +94,15 @@ Autopilot enables a built-in TUI if it is attached to a TTY.
 When interactive input is enabled, keystrokes are sent to the **source**
 associated with the currently visible window.
 
+### Status Line
+
+Autopilot renders a status line showing:
+- Current step name
+- Active window and source
+- Interactive input state (on/off)
+
+The status line is rendered at the bottom of the terminal when possible.
+
 If Autopilot is not running in a TTY, the TUI is disabled and keybindings are
 ignored.
 
