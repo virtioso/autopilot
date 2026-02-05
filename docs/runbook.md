@@ -121,6 +121,24 @@ EOF
 
 Results appear in `results/<timestamp>/`.
 
+## Interactive EFI Sessions
+
+For EFI-based interactive sessions, use the `boot-interactive-efi` profile and
+provide `binary_path` and `binary_name` in the request:
+
+```bash
+TS=$(date +%Y%m%d-%H%M%S)
+cat > requests/pending/${TS}.request <<'EOF'
+{
+  "profile": "boot-interactive-efi",
+  "type": "boot_interactive",
+  "binary_path": "/absolute/path/to/sel4test.efi",
+  "binary_name": "sel4test.efi",
+  "description": "EFI interactive session"
+}
+EOF
+```
+
 ## Profile Chains (Where to Edit)
 
 Profiles live in `${AUTOPILOT_DIR}/profiles`. Each profile defines:
