@@ -722,5 +722,7 @@ class ChainRunner:
         win = tui.active_window
         source = tui.window_map.get(win, "-")
         input_state = "on" if tui.interactive_enabled else "off"
-        text = f"{extra} | win={win} src={source} | input={input_state}"
+        request_id = self.ctx.get("request_id", "-")
+        profile = self.ctx.get("profile", "-")
+        text = f"{extra} | req={request_id} profile={profile} | win={win} src={source} | input={input_state}"
         tui.set_status(text)
