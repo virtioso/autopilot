@@ -88,7 +88,7 @@
         "type": "interactive_console",
         "exit_after_shell": true,
         "sessions": [
-          { "name": "tty0", "port": "/dev/ttyACM0", "source": "tty0", "profile": "linux-yocto" }
+          { "name": "tty0", "port": "/dev/ttyACM0", "source": "tty0", "profile": "ubuntu-22" }
         ],
         "outcomes": [
           { "label": "ok", "next": "pass" }

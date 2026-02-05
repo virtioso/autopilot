@@ -1,0 +1,17 @@
+{
+  "name": "ubuntu-22",
+  "baud": 115200,
+  "login": {
+    "prompt": "tegra-ubuntu login:",
+    "username": "ubuntu",
+    "password_prompt": null,
+    "password": "",
+    "post_login_prompt": "ubuntu@tegra-ubuntu:~\\$"
+  },
+  "shell": {
+    "prompt": "ubuntu@tegra-ubuntu:~\\$"
+  },
+  "ready": {
+    "prompt": "tegra-ubuntu login:"
+  }
+}

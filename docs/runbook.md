@@ -100,6 +100,11 @@ Interactive sessions end when the login prompt appears again (e.g. after
 typing `exit`). The chain only ends **after** a shell prompt has been seen,
 so the initial login banner does not terminate the session.
 
+### Console Profiles
+
+- `ubuntu-22` is used for stock Ubuntu consoles.
+- `linux-yocto` is reserved for seL4 guest/Yocto consoles.
+
 ### Status Line
 
 Autopilot renders a status line showing:
