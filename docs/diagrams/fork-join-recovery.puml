@@ -1,0 +1,14 @@
+@startuml
+title Forked Recovery Boot
+
+start
+:run test chain;
+fork
+  :recovery_boot subchain;
+fork again
+  :parse logs;
+  :emit results;
+end fork
+stop
+
+@enduml

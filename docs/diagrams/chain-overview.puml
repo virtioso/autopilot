@@ -1,0 +1,22 @@
+@startuml
+title Autopilot Chain Overview
+
+actor Operator
+rectangle "Autopilot Daemon" {
+  component "Chain Runner" as runner
+  database "Profiles" as profiles
+  queue "Requests" as req
+  folder "Results" as results
+}
+
+Operator --> req : submit request
+runner --> profiles : load chain
+runner --> results : write logs + chain.json
+
+rectangle "Target Orin AGX" {
+  component "UART/SSH" as target
+}
+
+runner --> target : boot/upload/reboot
+
+@enduml

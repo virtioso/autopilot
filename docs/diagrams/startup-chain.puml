@@ -1,0 +1,11 @@
+@startuml
+title Startup Chain
+
+start
+:map_source ttyACM0 -> tty0;
+:map_source ttyACM1 -> tty1;
+:map_window 1 -> tty0;
+:map_window 2 -> tty1;
+stop
+
+@enduml

@@ -1,0 +1,15 @@
+@startuml
+title TUI Window Mapping
+
+actor Operator
+rectangle "Autopilot TUI" {
+  component "Window 1" as w1
+  component "Window 2" as w2
+  component "Window List" as wl
+}
+
+Operator --> w1 : Ctrl-A 1
+Operator --> w2 : Ctrl-A 2
+Operator --> wl : Ctrl-A W
+
+@enduml

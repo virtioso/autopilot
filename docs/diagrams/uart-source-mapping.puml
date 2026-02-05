@@ -1,0 +1,14 @@
+@startuml
+title UART Source Mapping
+
+rectangle "Chain Step: map_source" {
+  [ttyACM0] --> (source: tty0)
+  [ttyACM1] --> (source: tty1)
+}
+
+rectangle "Logging" {
+  (tty0) --> "results/<ts>/console/tty0.jsonl"
+  (tty1) --> "results/<ts>/console/tty1.jsonl"
+}
+
+@enduml

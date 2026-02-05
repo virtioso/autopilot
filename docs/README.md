@@ -1,6 +1,6 @@
 # Autopilot System Documentation
 
-**Last Updated**: 2026-02-04
+**Last Updated**: 2026-02-05
 
 This directory contains comprehensive documentation for the Autopilot automated kernel testing system for the NVIDIA Jetson AGX Orin (Tegra234) platform.
 
@@ -70,6 +70,18 @@ Step-by-step operational and developer procedures.
 ### 5. [AI Interactive Console Guide](ai-interactive-console.md)
 How AI tools (Codex/Claude Code) can interact with guest Linux consoles.
 
+---
+
+### 6. [Chain Specification](chain-spec.md)
+JSON schema and step definitions for the chain-based execution model.
+
+**Topics**:
+- Chain and step schema
+- Step types and examples
+- fork/join and map_source/map_window
+
+**Best for**: Authors of new profiles and test flows
+
 **Topics**:
 - boot_interactive request format
 - console sessions and profiles
@@ -80,7 +92,7 @@ How AI tools (Codex/Claude Code) can interact with guest Linux consoles.
 
 ---
 
-### 6. [Extending DTB Support](extending-dtb-support.md)
+### 7. [Extending DTB Support](extending-dtb-support.md)
 How to add device tree blob (DTB) upload capability to autopilot.
 
 **Topics**:

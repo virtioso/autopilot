@@ -1,55 +1,21 @@
 # Autopilot System Architecture
 
-**Last Updated**: 2026-02-04
+**Last Updated**: 2026-02-05
 
 ## Purpose
 
 Autopilot is a host-side orchestration service for automated boot testing on an
-NVIDIA Orin AGX target. It supports:
+NVIDIA Orin AGX target. It provides a chain-based state machine that drives
+boot sequences, uploads, and log collection, with parallel recovery and an
+interactive TUI for operators.
 
-- Linux kernel boot tests (single-run and multi-run)
-- seL4 EFI binary tests (single-run and multi-run)
-- vm_minimal tests with dual-UART capture
+## Architecture Overview (Chain-Based)
 
-It also provides a client library and an MCP server to make it easy for AI
-coding tools to submit tests and retrieve results.
-
-## System Diagram (Current)
-
-```
-Host PC (192.168.101.100)
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Autopilot daemon (orin_kernel_autopilot.py)                              │
-│ - Watches requests/pending/*.request                                    │
-│ - Processes one request at a time                                       │
-│ - Writes results/<timestamp>/                                           │
-│                                                                         │
-│ BootHarness + seL4BootHarness                                            │
-│ - UEFI/extlinux navigation via UART                                     │
-│ - Log capture and fault detection                                       │
-│                                                                         │
-│ BoardControl                                                            │
-│ - USB relay control via usbrelay_py                                     │
-│                                                                         │
-│ UART devices                                                            │
-│ - /dev/ttyACM0 (main console, ttyTCU0)                                   │
-│ - /dev/ttyACM1 (secondary console, UARTI or VM console)                  │
-│                                                                         │
-│ Client + MCP                                                            │
-│ - sel4_client.py                                                        │
-│ - sel4_mcp_server.py                                                    │
-└─────────────────────────────────────────────────────────────────────────┘
-                               │
-                         UART + SSH
-                               │
-                               ▼
-Target Orin AGX (192.168.101.112)
-┌─────────────────────────────────────────────────────────────────────────┐
-│ UEFI firmware + extlinux boot menu                                       │
-│ Stock Jetson Linux (SSH target)                                          │
-│ Test kernels and seL4 EFI binaries                                       │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+- Requests are JSON files that reference a **profile**.
+- Profiles define a **chain**: steps, outcomes, and optional subchains.
+- The chain runner executes steps and routes based on regex outcomes.
+- A forked recovery chain can run in parallel while logs are parsed.
+- UART sources are dynamically mapped at runtime via chain steps.
 
 ## Core Components
 
@@ -57,137 +23,72 @@ Target Orin AGX (192.168.101.112)
 
 **Responsibilities**
 - Polls `requests/pending/` for new requests.
-- Moves requests through: pending -> processing -> completed/failed.
-- Selects a flow based on request type:
-  - `linux` (single/multi-run)
-  - `sel4` (single/multi-run)
-  - `vm_minimal` (single-run)
-- Writes logs and summary artifacts into `results/<timestamp>/`.
+- Loads profile chains and runs them through the chain runner.
+- Writes results and `chain.json` into `results/<timestamp>/`.
+- Runs a startup chain on launch to establish default source/window mappings.
 
-**Key Paths**
-- Requests:
-  - `requests/pending/`
-  - `requests/processing/`
-  - `requests/completed/`
-  - `requests/failed/`
-- Results:
-  - `results/<timestamp>/`
-  - For multi-run: `results/<timestamp>/run_<n>/`
+### 2) Chain Runner
 
-### 2) Boot Harnesses
+**Key concepts**
+- **Step**: A unit of work such as `boot_menu`, `wait_pattern`, `upload_efi`.
+- **Outcome**: Regex match on a source, routes to the next step.
+- **Subchain**: A named chain launched via `fork` for parallel recovery.
 
-**`BootHarness.py`**
-- Common UART handling, status line, and pexpect-based pattern matching.
-- `ReadyBootHarness`: boot to stock Linux shell prompt.
-- `UpdateBootHarness`: SCP kernel image to target, then reboot.
-- `PanicBootHarness`: boot test kernel and detect panic/SMMU faults/success.
+**Data outputs**
+- `chain.json`: structured step results, outcomes, error codes, and log offsets.
 
-**`seL4BootHarness.py`**
-- `SeL4UploadHarness`: boot to stock Linux, SCP EFI binary to `/boot/efi/`.
-- `SeL4UploadOnlyHarness`: SCP EFI binary without rebooting first.
-- `SeL4RunHarness`: UEFI menu navigation -> EFI Shell -> run binary.
-- `VMMinimalRunHarness`: dual UART capture for VM console output.
+### 3) Boot Harnesses
 
-### 3) Board Control
+Low-level UART and boot control utilities are still used:
+- `BootHarness.py`
+- `seL4BootHarness.py`
 
-**`BoardControl.py`**
-- `BoardControlLocal` (default): uses `usbrelay_py` to toggle reset/recovery.
-- `BoardControlRemote`: SSH to a boot server (optional, not default).
+These provide serial handling and existing boot helpers, while control flow is
+now driven by chain steps.
 
-### 4) Client + MCP Integration
+### 4) Board Control
 
-**`sel4_client.py`**
-- API and CLI for submitting tests and retrieving logs.
+- `BoardControlLocal` (default): uses `usbrelay_py` to toggle power/reset.
+- `BoardControlRemote` (optional): SSH to a boot server.
 
-**`sel4_mcp_server.py`**
-- MCP server exposing test submission and log retrieval to AI tools.
+### 5) Client + MCP Integration
 
-## Data Flow (Current)
+- `sel4_client.py` provides CLI/API for submitting requests.
+- `sel4_mcp_server.py` exposes the same to AI tools.
 
-### Linux Test (Single-Run)
-1. Upload kernel via SCP to target.
-2. Reboot and boot test kernel.
-3. Detect panic/SMMU fault/success.
-4. Filter and store logs in `results/<ts>/`.
+## Diagrams
 
-### Linux Test (Multi-Run)
-1. Upload kernel once.
-2. Reboot N times (SSH reboot if available, otherwise hardware reset).
-3. Store logs per run in `results/<ts>/run_<n>/`.
-4. Write `summary.json`.
+PlantUML sources live in `docs/diagrams/`.
 
-### seL4 Test (Single-Run)
-1. SCP EFI binary to `/boot/efi/`.
-2. Reboot and navigate UEFI to EFI Shell.
-3. Run binary, capture UART output until quiescent.
-4. Filter logs and store in `results/<ts>/`.
+- `docs/diagrams/chain-overview.puml`
+- `docs/diagrams/uart-source-mapping.puml`
+- `docs/diagrams/fork-join-recovery.puml`
+- `docs/diagrams/tui-windows.puml`
+- `docs/diagrams/startup-chain.puml`
 
-### seL4 Test (Multi-Run)
-1. Upload once for run 1.
-2. Hardware reboot for runs 2..N.
-3. Store per-run logs and write `summary.json`.
+## Data Flow (New Model)
 
-### vm_minimal
-1. Upload EFI binary.
-2. Run with `VMMinimalRunHarness`.
-3. Capture:
-   - `/dev/ttyACM0` (seL4/capdl output)
-   - `/dev/ttyACM1` (VM console output)
-4. Filter to `sel4.log` and `vm.log`.
+1. Request is read from `requests/pending`.
+2. Profile chain is validated.
+3. Startup chain runs once (on daemon start).
+4. Main chain runs with optional forked recovery boot.
+5. Results are written to `results/<ts>/` and `chain.json` is finalized.
 
-## Results and Artifacts
+## Result Artifacts
 
-Single-run results:
-- `uart-raw.log` (raw UART)
-- `sel4.log` / `kernel.log` (filtered)
-- `hyp.log` (EL2 UARTI)
-- `panic.log`, `smmu_faults.log`, `disassembly.log` (conditional)
+Single-run output:
+- `uart-raw.log`
+- `kernel.log` / `sel4.log` / `vm.log` (filtered)
+- `chain.json` (structured step results)
+- `console/*.jsonl` (source logs when mapped)
 
-Multi-run results:
-- `results/<ts>/run_<n>/...`
-- `summary.json`
+## TUI Behavior
 
-## Planned: Interactive Console Sessions (AI-Driven)
+If Autopilot has a TTY:
+- `Ctrl-A` then `1..9` switches windows.
+- `Ctrl-A` then `W` shows window list.
+- `Ctrl-A` then `X` exits UI.
+- `Ctrl-A` then `R` aborts the current test and starts recovery.
 
-We plan to add a generic interactive console layer for AI tools that:
-- Opens UART sessions post-boot.
-- Auto-logins based on profile JSON (prompt regex + steps).
-- Allows line-based command execution with polling output.
-- Writes transcripts to `results/<ts>/console/`.
-
-The interactive phase will be available:
-- As part of a test flow (post-boot interactive phase).
-- As a dedicated `boot_interactive` request type.
-
-## Interfaces and Request Schema
-
-Current requests are JSON `.request` files in `requests/pending/`.
-
-Planned extension:
-```json
-{
-  "type": "boot_interactive",
-  "boot_target": "stock_linux",
-  "interactive": {
-    "enabled": true,
-    "phase": "post_boot",
-    "sessions": [
-      { "name": "vm0", "port": "/dev/ttyACM0", "profile": "linux-yocto" }
-    ]
-  }
-}
-```
-
-## Dependencies
-
-Host:
-- Python 3
-- `pexpect`, `pyserial`
-- `usbrelay_py`
-- SSH access to target
-
-Target:
-- UEFI boot menu
-- SSH server on stock Linux
-- `/boot/efi` writable for EFI uploads
+If no TTY is present, the UI is disabled.
 
