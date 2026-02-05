@@ -33,6 +33,9 @@ behavior, and the built-in TUI controls.
 - Runtime state: `${AUTOPILOT_DIR}/runtime`
 - Profiles: `${AUTOPILOT_DIR}/profiles` (copied or symlinked)
 
+Ensure profiles are synchronized from the code repo:
+`/home/hlyytine/pkvm/autopilot/profiles` -> `${AUTOPILOT_DIR}/profiles`.
+
 ## Start the Autopilot Daemon
 
 ```bash
@@ -161,4 +164,3 @@ Example step types:
 ### Recovery Boot Not Completing
 1. Verify recovery chain definition in the profile.
 2. Check `results/<timestamp>/chain.json` fork status.
-
