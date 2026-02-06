@@ -37,6 +37,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,10 @@ from sel4_client import (
     list_completed,
     list_failed,
     get_paths,
+    get_autopilot_status,
+    get_test_status,
+    cancel_test,
+    QueueNotEmptyError,
     get_console_manifest,
     open_console_session,
     read_console_output,
@@ -100,8 +105,7 @@ TOOLS = [
         "name": "test_sel4_binary",
         "description": """Test a seL4 EFI binary on NVIDIA Orin AGX hardware.
 
-Submits the binary to the autopilot service, waits for test completion,
-and returns the console output. The test typically takes 1-3 minutes.
+Submits the binary to the autopilot service and returns immediately.
 
 The binary is uploaded to the target via SSH, then booted via UEFI.
 Console output is captured until quiescent (30 seconds no output).
@@ -118,11 +122,6 @@ Use this for testing seL4 kernel/elfloader changes on real hardware.""",
                     "type": "string",
                     "description": "Optional description of what's being tested",
                     "default": ""
-                },
-                "timeout": {
-                    "type": "integer",
-                    "description": "Maximum time to wait for test in seconds (default: 300)",
-                    "default": 300
                 },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
@@ -226,11 +225,6 @@ Use this for stress testing, detecting intermittent failures, or collecting boot
                     "type": "string",
                     "description": "Optional description of what's being tested",
                     "default": ""
-                },
-                "timeout": {
-                    "type": "integer",
-                    "description": "Maximum time per run in seconds (default: 300)",
-                    "default": 300
                 },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
@@ -353,9 +347,7 @@ Returns the path to the built capdl-loader binary on success.""",
         "name": "test_vm_minimal",
         "description": """Test a vm_minimal capdl-loader binary on NVIDIA Orin AGX hardware.
 
-Submits the binary to the autopilot service, waits for test completion,
-and returns paths to the logs. Captures both seL4/capdl-loader output (ttyACM0)
-and VM console output (ttyACM1).
+Submits the binary to the autopilot service and returns immediately.
 
 The test waits for 5 seconds of no output on the VM console (ttyACM1)
 before considering the test complete.
@@ -373,14 +365,79 @@ No success/failure criteria yet - just captures logs for analysis.""",
                     "description": "Optional description of what's being tested",
                     "default": ""
                 },
-                "timeout": {
-                    "type": "integer",
-                    "description": "Maximum time to wait for test in seconds (default: 300)",
-                    "default": 300
-                },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["binary_path"]
+        }
+    },
+    {
+        "name": "autopilot_status",
+        "description": "Get queue summary and current running test status.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            }
+        }
+    },
+    {
+        "name": "get_test_status",
+        "description": "Get detailed status for a specific request.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "request_id": {
+                    "type": "string",
+                    "description": "Request ID (timestamp) from a previous test submission"
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            },
+            "required": ["request_id"]
+        }
+    },
+    {
+        "name": "wait_for_test",
+        "description": "Wait briefly for a test to complete (short-blocking, capped under 60s).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "request_id": {
+                    "type": "string",
+                    "description": "Request ID (timestamp) from a previous test submission"
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Total time to wait in seconds (default: 300)",
+                    "default": 300
+                },
+                "poll_interval": {
+                    "type": "integer",
+                    "description": "Polling interval in seconds (default: 1)",
+                    "default": 1
+                },
+                "max_block_s": {
+                    "type": "integer",
+                    "description": "Max time this tool call can block (default: 30)",
+                    "default": 30
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            },
+            "required": ["request_id"]
+        }
+    },
+    {
+        "name": "cancel_test",
+        "description": "Cancel a pending or running test (hard cancel).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "request_id": {
+                    "type": "string",
+                    "description": "Request ID (timestamp) to cancel"
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            },
+            "required": ["request_id"]
         }
     },
     {
@@ -527,7 +584,6 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
     if name == "test_sel4_binary":
         binary_path = arguments["binary_path"]
         description = arguments.get("description", "")
-        timeout = arguments.get("timeout", 300)
 
         # Generate timestamped binary name to detect upload failures
         binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
@@ -550,61 +606,35 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                 build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'},
                 autopilot_dir=autopilot_dir
             )
+        except QueueNotEmptyError as e:
+            payload = {
+                "error": "queue_not_empty",
+                "pending": e.pending,
+                "processing": e.processing,
+                "hint": "Investigate why a request is pending/processing (use autopilot_status/get_test_status).",
+            }
+            return {
+                "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+                "isError": True
+            }
         except FileNotFoundError as e:
             return {
                 "content": [{"type": "text", "text": f"Error: {str(e)}"}],
                 "isError": True
             }
 
-        # Wait for completion
-        result = wait_for_result(request_id, timeout=timeout, autopilot_dir=autopilot_dir)
-
-        if result["status"] == "timeout":
-            return {
-                "content": [{"type": "text", "text": f"Test timed out after {timeout}s. Request ID: {request_id}\nYou can check status later with check_sel4_test."}],
-                "isError": False
-            }
-
-        # Return paths instead of full log content (logs can be huge with ftrace)
         result_dir = paths['results'] / request_id
-        sel4_log_path = result_dir / 'sel4.log'
-        uart_raw_path = result_dir / 'uart-raw.log'
-        ftrace_idx_path = result_dir / 'ftrace.idx'
-
-        # Check for error file if test failed
-        error_msg = ""
-        if result["status"] == "failed":
-            error_file = result_dir / 'error.txt'
-            if error_file.exists():
-                error_msg = f"\nError: {error_file.read_text()}"
-
-        # Check for ftrace data
-        ftrace_msg = ""
-        if ftrace_idx_path.exists():
-            ftrace_meta_path = result_dir / 'ftrace.idx.meta'
-            if ftrace_meta_path.exists():
-                try:
-                    meta = json.loads(ftrace_meta_path.read_text())
-                    record_count = meta.get('record_count', 0)
-                    ftrace_msg = f"\nFtrace: {record_count:,} events indexed - use query_ftrace tool to analyze"
-                except:
-                    ftrace_msg = "\nFtrace: indexed data available - use query_ftrace tool"
-        elif (result_dir / 'ftrace.bin').exists():
-            ftrace_msg = "\nFtrace: raw data available (not indexed)"
-
-        response_text = f"""Test {result['status']}
-Request ID: {request_id}
-Binary: {binary_path}{error_msg}{ftrace_msg}
-
-Results directory: {result_dir}
-seL4 log: {sel4_log_path}
-Raw UART log: {uart_raw_path}
-
-Use get_sel4_log tool or read the files directly to view output."""
+        payload = {
+            "status": "submitted",
+            "request_id": request_id,
+            "binary_path": binary_path,
+            "binary_name": binary_name,
+            "result_dir": str(result_dir),
+        }
 
         return {
-            "content": [{"type": "text", "text": response_text}],
-            "isError": result["status"] == "failed"
+            "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+            "isError": False
         }
 
     elif name == "check_sel4_test":
@@ -680,12 +710,74 @@ Use get_sel4_log tool or read the files directly to view output."""
             "isError": False
         }
 
+    elif name == "autopilot_status":
+        status = get_autopilot_status(autopilot_dir=autopilot_dir)
+        return {
+            "content": [{"type": "text", "text": json.dumps(status, indent=2)}],
+            "isError": False
+        }
+
+    elif name == "get_test_status":
+        request_id = arguments["request_id"]
+        status = get_test_status(request_id, autopilot_dir=autopilot_dir)
+        return {
+            "content": [{"type": "text", "text": json.dumps(status, indent=2)}],
+            "isError": False
+        }
+
+    elif name == "wait_for_test":
+        request_id = arguments["request_id"]
+        timeout = int(arguments.get("timeout", 300))
+        poll_interval = int(arguments.get("poll_interval", 1))
+        max_block_s = int(arguments.get("max_block_s", 30))
+        start = time.time()
+        block_timeout = min(timeout, max_block_s)
+        result = wait_for_result(
+            request_id,
+            timeout=block_timeout,
+            poll_interval=poll_interval,
+            autopilot_dir=autopilot_dir
+        )
+
+        if result["status"] in ("completed", "failed"):
+            payload = {
+                "status": result["status"],
+                "request_id": request_id,
+                "result_dir": str(result.get("result_dir")) if result.get("result_dir") else None,
+                "elapsed_s": int(time.time() - start),
+            }
+            return {
+                "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+                "isError": result["status"] == "failed"
+            }
+
+        current = get_status(request_id, autopilot_dir=autopilot_dir)
+        remaining = max(timeout - int(time.time() - start), 0)
+        payload = {
+            "status": current.get("status", "processing"),
+            "request_id": request_id,
+            "elapsed_s": int(time.time() - start),
+            "remaining_s": remaining,
+            "next_poll_s": poll_interval,
+        }
+        return {
+            "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+            "isError": False
+        }
+
+    elif name == "cancel_test":
+        request_id = arguments["request_id"]
+        result = cancel_test(request_id, autopilot_dir=autopilot_dir)
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
+            "isError": False
+        }
+
     elif name == "test_sel4_multi_run":
         binary_path = arguments["binary_path"]
         run_count = arguments.get("run_count", 5)
         test_type = arguments.get("test_type", "sel4")
         description = arguments.get("description", "")
-        timeout_per_run = arguments.get("timeout", 300)
 
         # Generate timestamped binary name to detect upload failures
         binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
@@ -712,53 +804,37 @@ Use get_sel4_log tool or read the files directly to view output."""
                 build_config=build_config,
                 autopilot_dir=autopilot_dir
             )
+        except QueueNotEmptyError as e:
+            payload = {
+                "error": "queue_not_empty",
+                "pending": e.pending,
+                "processing": e.processing,
+                "hint": "Investigate why a request is pending/processing (use autopilot_status/get_test_status).",
+            }
+            return {
+                "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+                "isError": True
+            }
         except FileNotFoundError as e:
             return {
                 "content": [{"type": "text", "text": f"Error: {str(e)}"}],
                 "isError": True
             }
 
-        # Wait for completion with scaled timeout
-        total_timeout = timeout_per_run * run_count
-        result = wait_for_result(request_id, timeout=total_timeout, autopilot_dir=autopilot_dir)
-
-        if result["status"] == "timeout":
-            return {
-                "content": [{"type": "text", "text": f"Multi-run test timed out after {total_timeout}s. Request ID: {request_id}\nYou can check status later with check_sel4_test."}],
-                "isError": False
-            }
-
-        # Return paths instead of full log content (logs can be huge with ftrace)
         result_dir = paths['results'] / request_id
-
-        # Get summary info
-        logs = get_multi_run_logs(request_id, autopilot_dir=autopilot_dir)
-        summary_text = ""
-        if logs['summary']:
-            s = logs['summary']
-            summary_text = f"Summary: {s.get('completed_runs', '?')}/{s.get('total_runs', '?')} runs completed"
-
-        # Check for top-level error file if test failed
-        error_msg = ""
-        if result["status"] == "failed":
-            error_file = result_dir / 'error.txt'
-            if error_file.exists():
-                error_msg = f"\nError: {error_file.read_text()}"
-
-        response_text = f"""Multi-run test {result['status']}
-Request ID: {request_id}
-Binary: {binary_path}
-Run count: {run_count}
-{summary_text}{error_msg}
-
-Results directory: {result_dir}
-Individual run logs: {result_dir}/run_N/sel4.log
-
-Use get_multi_run_logs tool or read the files directly to view output."""
+        payload = {
+            "status": "submitted",
+            "request_id": request_id,
+            "binary_path": binary_path,
+            "binary_name": binary_name,
+            "run_count": run_count,
+            "test_type": test_type,
+            "result_dir": str(result_dir),
+        }
 
         return {
-            "content": [{"type": "text", "text": response_text}],
-            "isError": result["status"] == "failed"
+            "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+            "isError": False
         }
 
     elif name == "get_multi_run_logs":
@@ -1065,7 +1141,6 @@ Use get_multi_run_logs tool or read the files directly to view output."""
     elif name == "test_vm_minimal":
         binary_path = arguments["binary_path"]
         description = arguments.get("description", "")
-        timeout = arguments.get("timeout", 300)
 
         # Generate timestamped binary name
         binary_name = f"capdl-vm_minimal-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
@@ -1088,46 +1163,35 @@ Use get_multi_run_logs tool or read the files directly to view output."""
                 build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'},
                 autopilot_dir=autopilot_dir
             )
+        except QueueNotEmptyError as e:
+            payload = {
+                "error": "queue_not_empty",
+                "pending": e.pending,
+                "processing": e.processing,
+                "hint": "Investigate why a request is pending/processing (use autopilot_status/get_test_status).",
+            }
+            return {
+                "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+                "isError": True
+            }
         except FileNotFoundError as e:
             return {
                 "content": [{"type": "text", "text": f"Error: {str(e)}"}],
                 "isError": True
             }
 
-        # Wait for completion
-        result = wait_for_result(request_id, timeout=timeout, autopilot_dir=autopilot_dir)
-
-        if result["status"] == "timeout":
-            return {
-                "content": [{"type": "text", "text": f"Test timed out after {timeout}s. Request ID: {request_id}\nYou can check status later with check_sel4_test."}],
-                "isError": False
-            }
-
-        # Return paths to logs
         result_dir = paths['results'] / request_id
-        sel4_log_path = result_dir / 'sel4.log'
-        vm_log_path = result_dir / 'vm.log'
-
-        # Check for error file if test failed
-        error_msg = ""
-        if result["status"] == "failed":
-            error_file = result_dir / 'error.txt'
-            if error_file.exists():
-                error_msg = f"\nError: {error_file.read_text()}"
-
-        response_text = f"""Test {result['status']}
-Request ID: {request_id}
-Binary: {binary_path}{error_msg}
-
-Results directory: {result_dir}
-seL4/capdl-loader log: {sel4_log_path}
-VM console log: {vm_log_path}
-
-Use get_vm_logs tool or read the files directly to view output."""
+        payload = {
+            "status": "submitted",
+            "request_id": request_id,
+            "binary_path": binary_path,
+            "binary_name": binary_name,
+            "result_dir": str(result_dir),
+        }
 
         return {
-            "content": [{"type": "text", "text": response_text}],
-            "isError": result["status"] == "failed"
+            "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+            "isError": False
         }
 
     elif name == "get_vm_logs":
