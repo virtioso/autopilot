@@ -6,18 +6,19 @@ Helper library for AI agents (or humans) to submit seL4 EFI binary tests
 to the autopilot service and retrieve results.
 
 Usage:
-    from sel4_client import submit_sel4_test, wait_for_result, get_sel4_log
+    from sel4_client import submit_sel4_efi_test, wait_for_result, get_logs
 
-    timestamp = submit_sel4_test(
+    timestamp = submit_sel4_efi_test(
         binary_path='/path/to/sel4test-driver-image-arm-orinagx',
         binary_name='sel4test.efi',
-        description='Testing MMU enable with TCU debug'
+        description='Testing MMU enable with TCU debug',
+        profile='sel4test'
     )
 
     result = wait_for_result(timestamp)
     if result['status'] == 'completed':
-        log = get_sel4_log(timestamp)
-        print(f"seL4 output:\\n{log}")
+        logs = get_logs(timestamp)
+        print(logs)
 """
 
 import json
@@ -102,14 +103,14 @@ def ensure_queue_empty(autopilot_dir: str = None) -> None:
         raise QueueNotEmptyError(pending, processing)
 
 
-def submit_sel4_test(
+def submit_sel4_efi_test(
     binary_path: str,
     binary_name: str = 'sel4test.efi',
     description: str = '',
     copy_to_staging: bool = True,
     build_config: dict = None,
     autopilot_dir: str = None,
-    profile: str = 'sel4-efi'
+    profile: str = 'sel4test'
 ) -> str:
     """
     Submit a seL4 EFI binary for testing.
@@ -119,173 +120,7 @@ def submit_sel4_test(
         binary_name: Name to use for the binary on target (default: sel4test.efi)
         description: Optional description of the test
         copy_to_staging: If True, copy binary to staging area (default: True)
-        build_config: Build configuration dict with keys:
-            - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting (REQUIRED)
-            - platform (str): Platform name (e.g., 'orinagx')
-            - num_nodes (int): SMP core count (optional)
-        autopilot_dir: Optional override for autopilot working directory
-        profile: Profile name that defines the chain to run
-
-    Returns:
-        timestamp: Request ID that can be used to check status/get results
-
-    Raises:
-        ValueError: If build_config is missing or lacks arm_hyp
-    """
-    # Validate build_config
-    if build_config is None:
-        raise ValueError("build_config is required. Must specify arm_hyp (True/False)")
-    if 'arm_hyp' not in build_config:
-        raise ValueError("build_config must include 'arm_hyp' (True/False)")
-
-    ensure_queue_empty(autopilot_dir=autopilot_dir)
-    paths = get_paths(autopilot_dir)
-    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-
-    # Ensure directories exist
-    paths['pending'].mkdir(parents=True, exist_ok=True)
-    paths['binaries'].mkdir(parents=True, exist_ok=True)
-
-    # Resolve and validate binary path
-    binary_src = Path(binary_path).resolve()
-    if not binary_src.exists():
-        raise FileNotFoundError(f"Binary not found: {binary_src}")
-
-    # Determine binary path for request
-    if copy_to_staging:
-        staged_binary = paths['binaries'] / binary_name
-        shutil.copy(binary_src, staged_binary)
-        request_binary_path = str(staged_binary)
-    else:
-        request_binary_path = str(binary_src)
-
-    # Create request file
-    request = {
-        'profile': profile,
-        'type': 'sel4',
-        'binary_path': request_binary_path,
-        'binary_name': binary_name,
-        'description': description,
-        'submitted_at': timestamp,
-        'original_binary': str(binary_src),
-        'build_config': build_config
-    }
-
-    request_file = paths['pending'] / f'{timestamp}.request'
-    request_file.write_text(json.dumps(request, indent=2))
-
-    return timestamp
-
-
-def submit_multi_run_test(
-    binary_path: str,
-    run_count: int = 5,
-    binary_name: str = 'sel4test.efi',
-    test_type: str = 'sel4',
-    description: str = '',
-    copy_to_staging: bool = True,
-    build_config: dict = None,
-    autopilot_dir: str = None,
-    profile: str = None
-) -> str:
-    """
-    Submit a test for multiple boot iterations without re-uploading the binary.
-
-    Args:
-        binary_path: Path to the EFI binary (seL4) or kernel image (Linux)
-        run_count: Number of boot iterations (default: 5)
-        binary_name: Name to use for the binary on target (default: sel4test.efi)
-        test_type: 'sel4' or 'linux' (default: sel4)
-        description: Optional description of the test
-        copy_to_staging: If True, copy binary to staging area (default: True)
-        build_config: Build configuration dict with keys:
-            - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting (REQUIRED for sel4)
-            - platform (str): Platform name (e.g., 'orinagx')
-            - num_nodes (int): SMP core count (optional)
-        autopilot_dir: Optional override for autopilot working directory
-        profile: Profile name to use (defaults based on test_type)
-
-    Returns:
-        timestamp: Request ID that can be used to check status/get results
-
-    Raises:
-        ValueError: If build_config is missing or lacks arm_hyp (for sel4 tests)
-    """
-    # Validate build_config for seL4 tests
-    if test_type == 'sel4':
-        if build_config is None:
-            raise ValueError("build_config is required for seL4 tests. Must specify arm_hyp (True/False)")
-        if 'arm_hyp' not in build_config:
-            raise ValueError("build_config must include 'arm_hyp' (True/False)")
-
-    ensure_queue_empty(autopilot_dir=autopilot_dir)
-    paths = get_paths(autopilot_dir)
-    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-
-    # Ensure directories exist
-    paths['pending'].mkdir(parents=True, exist_ok=True)
-    paths['binaries'].mkdir(parents=True, exist_ok=True)
-
-    # Resolve and validate binary path
-    binary_src = Path(binary_path).resolve()
-    if not binary_src.exists():
-        raise FileNotFoundError(f"Binary not found: {binary_src}")
-
-    # Determine binary path for request
-    if copy_to_staging:
-        staged_binary = paths['binaries'] / binary_name
-        shutil.copy(binary_src, staged_binary)
-        request_binary_path = str(staged_binary)
-    else:
-        request_binary_path = str(binary_src)
-
-    if profile is None:
-        profile = 'sel4-efi-multi' if test_type == 'sel4' else 'linux-kernel-multi'
-
-    # Create request file
-    request = {
-        'profile': profile,
-        'type': test_type,
-        'binary_path': request_binary_path,
-        'binary_name': binary_name,
-        'description': description,
-        'submitted_at': timestamp,
-        'original_binary': str(binary_src),
-        'multi_run': True,
-        'run_count': run_count,
-        'build_config': build_config
-    }
-
-    request_file = paths['pending'] / f'{timestamp}.request'
-    request_file.write_text(json.dumps(request, indent=2))
-
-    return timestamp
-
-
-def submit_vm_minimal_test(
-    binary_path: str,
-    binary_name: str = 'capdl-vm_minimal.efi',
-    description: str = '',
-    copy_to_staging: bool = True,
-    build_config: dict = None,
-    autopilot_dir: str = None,
-    profile: str = 'vm-minimal'
-) -> str:
-    """
-    Submit a vm_minimal capdl-loader binary for testing.
-
-    This test type captures both seL4/capdl-loader output (ttyACM0) and
-    VM console output (ttyACM1). The test waits for 5 seconds of quiescence
-    on the VM console before completing.
-
-    Args:
-        binary_path: Path to the capdl-loader EFI binary to test
-        binary_name: Name to use for the binary on target
-        description: Optional description of the test
-        copy_to_staging: If True, copy binary to staging area (default: True)
-        build_config: Build configuration dict with keys:
-            - arm_hyp (bool): ARM_HYPERVISOR_SUPPORT setting
-            - platform (str): Platform name (e.g., 'orinagx')
+        build_config: Optional build configuration metadata
         autopilot_dir: Optional override for autopilot working directory
         profile: Profile name that defines the chain to run
 
@@ -316,19 +151,20 @@ def submit_vm_minimal_test(
     # Create request file
     request = {
         'profile': profile,
-        'type': 'vm_minimal',
         'binary_path': request_binary_path,
         'binary_name': binary_name,
         'description': description,
         'submitted_at': timestamp,
         'original_binary': str(binary_src),
-        'build_config': build_config or {'arm_hyp': True, 'platform': 'orinagx'}
+        'build_config': build_config
     }
 
     request_file = paths['pending'] / f'{timestamp}.request'
     request_file.write_text(json.dumps(request, indent=2))
 
     return timestamp
+
+
 
 
 def submit_boot_interactive(
@@ -382,7 +218,6 @@ def submit_boot_interactive(
 
     request = {
         "profile": profile,
-        "type": "boot_interactive",
         "boot_target": boot_target,
         "binary_path": request_binary_path,
         "binary_name": binary_name,
@@ -397,98 +232,6 @@ def submit_boot_interactive(
     return timestamp
 
 
-def get_vm_logs(timestamp: str, autopilot_dir: str = None) -> dict:
-    """
-    Get logs from a vm_minimal test.
-
-    Args:
-        timestamp: Request ID from submit_vm_minimal_test()
-        autopilot_dir: Optional override for autopilot working directory
-
-    Returns:
-        dict with:
-            - 'sel4_log': seL4/capdl-loader log content (or None if not found)
-            - 'vm_log': VM console log content (or None if not found)
-            - 'sel4_log_path': Path to seL4 log file
-            - 'vm_log_path': Path to VM log file
-    """
-    paths = get_paths(autopilot_dir)
-    result_dir = paths['results'] / timestamp
-
-    sel4_log_path = result_dir / 'sel4.log'
-    vm_log_path = result_dir / 'vm.log'
-
-    result = {
-        'sel4_log': None,
-        'vm_log': None,
-        'sel4_log_path': str(sel4_log_path),
-        'vm_log_path': str(vm_log_path),
-    }
-
-    if sel4_log_path.exists():
-        result['sel4_log'] = sel4_log_path.read_text()
-
-    if vm_log_path.exists():
-        result['vm_log'] = vm_log_path.read_text()
-
-    return result
-
-
-def get_multi_run_logs(timestamp: str, autopilot_dir: str = None) -> dict:
-    """
-    Get all logs from a multi-run test.
-
-    Args:
-        timestamp: Request ID from submit_multi_run_test()
-        autopilot_dir: Optional override for autopilot working directory
-
-    Returns:
-        dict with:
-            - 'runs': list of dicts with run_number, sel4_log/kernel_log, raw_log, error
-            - 'summary': dict with total_runs, completed_runs, failed_runs (if available)
-    """
-    paths = get_paths(autopilot_dir)
-    result_dir = paths['results'] / timestamp
-    runs = []
-
-    if not result_dir.exists():
-        return {'runs': [], 'summary': None}
-
-    # Look for numbered subdirectories (run_1, run_2, etc.)
-    for run_dir in sorted(result_dir.glob('run_*')):
-        try:
-            run_num = int(run_dir.name.split('_')[1])
-        except (IndexError, ValueError):
-            continue
-
-        run_data = {'run_number': run_num}
-
-        # Get sel4.log or kernel.log
-        if (run_dir / 'sel4.log').exists():
-            run_data['sel4_log'] = (run_dir / 'sel4.log').read_text()
-        elif (run_dir / 'kernel.log').exists():
-            run_data['kernel_log'] = (run_dir / 'kernel.log').read_text()
-
-        # Get raw log
-        if (run_dir / 'uart-raw.log').exists():
-            run_data['raw_log'] = (run_dir / 'uart-raw.log').read_text()
-
-        # Get error if present
-        if (run_dir / 'error.txt').exists():
-            run_data['error'] = (run_dir / 'error.txt').read_text()
-
-        runs.append(run_data)
-
-    # Get summary if available
-    summary = None
-    summary_file = result_dir / 'summary.json'
-    if summary_file.exists():
-        try:
-            summary = json.loads(summary_file.read_text())
-        except json.JSONDecodeError:
-            pass
-
-    return {'runs': runs, 'summary': summary}
 
 
 def get_status(timestamp: str, autopilot_dir: str = None) -> dict:
@@ -496,7 +239,7 @@ def get_status(timestamp: str, autopilot_dir: str = None) -> dict:
     Get the current status of a test request.
 
     Args:
-        timestamp: Request ID from submit_sel4_test()
+        timestamp: Request ID from submit_sel4_efi_test()
         autopilot_dir: Optional override for autopilot working directory
 
     Returns:
@@ -529,7 +272,7 @@ def wait_for_result(timestamp: str, timeout: int = 300, poll_interval: int = 1,
     Wait for test to complete and return results.
 
     Args:
-        timestamp: Request ID from submit_sel4_test()
+        timestamp: Request ID from submit_sel4_efi_test()
     timeout: Maximum time to wait in seconds (default: 300)
     poll_interval: How often to check status in seconds (default: 1)
         autopilot_dir: Optional override for autopilot working directory
@@ -548,40 +291,35 @@ def wait_for_result(timestamp: str, timeout: int = 300, poll_interval: int = 1,
     return {'status': 'timeout'}
 
 
-def get_sel4_log(timestamp: str, autopilot_dir: str = None) -> str:
+def get_logs(timestamp: str, autopilot_dir: str = None, include_contents: bool = False) -> dict:
     """
-    Read the seL4 console output (filtered, bootloader stripped).
+    List console logs for a request.
 
     Args:
-        timestamp: Request ID from submit_sel4_test()
+        timestamp: Request ID from submit_sel4_efi_test()
         autopilot_dir: Optional override for autopilot working directory
+        include_contents: If True, include file contents in response
 
     Returns:
-        Filtered seL4 console output, or empty string if not available
+        dict with console_dir and list of files (path, size, contents optional)
     """
     paths = get_paths(autopilot_dir)
-    log_file = paths['results'] / timestamp / 'sel4.log'
-    if log_file.exists():
-        return log_file.read_text()
-    return ''
-
-
-def get_raw_log(timestamp: str, autopilot_dir: str = None) -> str:
-    """
-    Read the raw UART output (includes bootloader/UEFI).
-
-    Args:
-        timestamp: Request ID from submit_sel4_test()
-        autopilot_dir: Optional override for autopilot working directory
-
-    Returns:
-        Raw UART output, or empty string if not available
-    """
-    paths = get_paths(autopilot_dir)
-    log_file = paths['results'] / timestamp / 'uart-raw.log'
-    if log_file.exists():
-        return log_file.read_text()
-    return ''
+    console_dir = paths['results'] / timestamp / 'console'
+    files = []
+    if console_dir.exists():
+        for path in sorted(console_dir.glob("*")):
+            if path.is_file():
+                entry = {
+                    "path": str(path),
+                    "size": path.stat().st_size,
+                }
+                if include_contents:
+                    entry["contents"] = path.read_text(errors="replace")
+                files.append(entry)
+    return {
+        "console_dir": str(console_dir),
+        "files": files,
+    }
 
 
 def get_request_info(timestamp: str, autopilot_dir: str = None) -> Optional[dict]:
@@ -589,7 +327,7 @@ def get_request_info(timestamp: str, autopilot_dir: str = None) -> Optional[dict
     Get the original request metadata.
 
     Args:
-        timestamp: Request ID from submit_sel4_test()
+        timestamp: Request ID from submit_sel4_efi_test()
         autopilot_dir: Optional override for autopilot working directory
 
     Returns:
@@ -696,7 +434,6 @@ def get_autopilot_status(autopilot_dir: str = None) -> dict:
         current.append({
             "request_id": request_id,
             "profile": req.get("profile"),
-            "type": req.get("type"),
             "description": req.get("description"),
             "submitted_at": req.get("submitted_at"),
             "binary_path": req.get("binary_path"),
@@ -885,10 +622,9 @@ if __name__ == '__main__':
     submit_parser.add_argument('binary_path', help='Path to EFI binary')
     submit_parser.add_argument('--name', default='sel4test.efi', help='Binary name on target')
     submit_parser.add_argument('--desc', default='', help='Description')
-    submit_parser.add_argument('--profile', default='sel4-efi', help='Profile name (default: sel4-efi)')
+    submit_parser.add_argument('--profile', default='sel4test', help='Profile name (default: sel4test)')
     submit_parser.add_argument('--wait', action='store_true', help='Wait for result')
-    # ARM_HYP configuration (mutually exclusive, one required)
-    hyp_group = submit_parser.add_mutually_exclusive_group(required=True)
+    hyp_group = submit_parser.add_mutually_exclusive_group(required=False)
     hyp_group.add_argument('--arm-hyp', dest='arm_hyp', action='store_true',
                            help='Built with ARM_HYPERVISOR_SUPPORT=ON')
     hyp_group.add_argument('--no-arm-hyp', dest='arm_hyp', action='store_false',
@@ -899,10 +635,10 @@ if __name__ == '__main__':
     status_parser = subparsers.add_parser('status', help='Check test status')
     status_parser.add_argument('timestamp', help='Request timestamp')
 
-    # log command
-    log_parser = subparsers.add_parser('log', help='Get test output')
+    # logs command
+    log_parser = subparsers.add_parser('logs', help='List console logs')
     log_parser.add_argument('timestamp', help='Request timestamp')
-    log_parser.add_argument('--raw', action='store_true', help='Show raw output')
+    log_parser.add_argument('--show', action='store_true', help='Show log contents')
 
     # list command
     list_parser = subparsers.add_parser('list', help='List requests')
@@ -910,51 +646,16 @@ if __name__ == '__main__':
     list_parser.add_argument('--completed', action='store_true', help='Show completed')
     list_parser.add_argument('--failed', action='store_true', help='Show failed')
 
-    # submit-multi command
-    multi_parser = subparsers.add_parser('submit-multi', help='Submit multi-run test')
-    multi_parser.add_argument('binary_path', help='Path to EFI binary')
-    multi_parser.add_argument('--name', default='sel4test.efi', help='Binary name on target')
-    multi_parser.add_argument('--runs', type=int, default=5, help='Number of boot iterations')
-    multi_parser.add_argument('--type', default='sel4', choices=['sel4', 'linux'], help='Test type')
-    multi_parser.add_argument('--desc', default='', help='Description')
-    multi_parser.add_argument('--profile', default=None, help='Profile name override')
-    multi_parser.add_argument('--wait', action='store_true', help='Wait for result')
-    # ARM_HYP configuration (required for sel4 tests)
-    multi_hyp_group = multi_parser.add_mutually_exclusive_group()
-    multi_hyp_group.add_argument('--arm-hyp', dest='arm_hyp', action='store_true', default=None,
-                                  help='Built with ARM_HYPERVISOR_SUPPORT=ON (required for sel4)')
-    multi_hyp_group.add_argument('--no-arm-hyp', dest='arm_hyp', action='store_false',
-                                  help='Built with ARM_HYPERVISOR_SUPPORT=OFF')
-    multi_parser.add_argument('--platform', default='orinagx', help='Platform name (default: orinagx)')
-
-    # logs-multi command
-    logs_multi_parser = subparsers.add_parser('logs-multi', help='Get multi-run logs')
-    logs_multi_parser.add_argument('timestamp', help='Request timestamp')
-    logs_multi_parser.add_argument('--summary', action='store_true', help='Show summary only')
-
-    # submit-vm command for vm_minimal tests
-    vm_parser = subparsers.add_parser('submit-vm', help='Submit vm_minimal test')
-    vm_parser.add_argument('binary_path', help='Path to capdl-loader EFI binary')
-    vm_parser.add_argument('--name', default='capdl-vm_minimal.efi', help='Binary name on target')
-    vm_parser.add_argument('--desc', default='', help='Description')
-    vm_parser.add_argument('--profile', default='vm-minimal', help='Profile name (default: vm-minimal)')
-    vm_parser.add_argument('--wait', action='store_true', help='Wait for result')
-    vm_parser.add_argument('--platform', default='orinagx', help='Platform name (default: orinagx)')
-
-    # vm-logs command
-    vm_logs_parser = subparsers.add_parser('vm-logs', help='Get vm_minimal logs')
-    vm_logs_parser.add_argument('timestamp', help='Request timestamp')
-    vm_logs_parser.add_argument('--sel4', action='store_true', help='Show seL4/capdl-loader log only')
-    vm_logs_parser.add_argument('--vm', action='store_true', help='Show VM console log only')
-
     args = parser.parse_args()
 
     if args.command == 'submit':
-        build_config = {
-            'arm_hyp': args.arm_hyp,
-            'platform': args.platform
-        }
-        ts = submit_sel4_test(
+        build_config = None
+        if args.arm_hyp is not None:
+            build_config = {
+                'arm_hyp': args.arm_hyp,
+                'platform': args.platform
+            }
+        ts = submit_sel4_efi_test(
             args.binary_path,
             binary_name=args.name,
             description=args.desc,
@@ -962,14 +663,19 @@ if __name__ == '__main__':
             profile=args.profile
         )
         print(f"Submitted: {ts}")
-        print(f"  ARM_HYPERVISOR_SUPPORT: {'ON' if args.arm_hyp else 'OFF'}")
-        print(f"  Platform: {args.platform}")
+        if build_config:
+            print(f"  ARM_HYPERVISOR_SUPPORT: {'ON' if build_config['arm_hyp'] else 'OFF'}")
+            print(f"  Platform: {build_config['platform']}")
         if args.wait:
             print("Waiting for result...")
             result = wait_for_result(ts)
             print(f"Status: {result['status']}")
             if result['status'] == 'completed':
-                print(get_sel4_log(ts))
+                logs = get_logs(ts, include_contents=True)
+                for entry in logs["files"]:
+                    print(f"\n=== {entry['path']} ===")
+                    if "contents" in entry:
+                        print(entry["contents"])
 
     elif args.command == 'status':
         result = get_status(args.timestamp)
@@ -977,11 +683,17 @@ if __name__ == '__main__':
         if 'result_dir' in result:
             print(f"Results: {result['result_dir']}")
 
-    elif args.command == 'log':
-        if args.raw:
-            print(get_raw_log(args.timestamp))
+    elif args.command == 'logs':
+        logs = get_logs(args.timestamp, include_contents=args.show)
+        if not logs["files"]:
+            print(f"No console logs found in {logs['console_dir']}")
         else:
-            print(get_sel4_log(args.timestamp))
+            print(f"Console logs in {logs['console_dir']}:")
+            for entry in logs["files"]:
+                print(f"  {entry['path']} ({entry['size']} bytes)")
+                if "contents" in entry:
+                    print(f"\n=== {entry['path']} ===")
+                    print(entry["contents"])
 
     elif args.command == 'list':
         if args.pending or not (args.completed or args.failed):
@@ -1002,127 +714,6 @@ if __name__ == '__main__':
                 print("Failed:")
                 for ts in failed:
                     print(f"  {ts}")
-
-    elif args.command == 'submit-multi':
-        # Build config (required for sel4, optional for linux)
-        build_config = None
-        if args.type == 'sel4':
-            if args.arm_hyp is None:
-                parser.error("--arm-hyp or --no-arm-hyp is required for seL4 tests")
-            build_config = {
-                'arm_hyp': args.arm_hyp,
-                'platform': args.platform
-            }
-        elif args.arm_hyp is not None:
-            # Linux test with explicit arm_hyp (optional but allowed)
-            build_config = {
-                'arm_hyp': args.arm_hyp,
-                'platform': args.platform
-            }
-
-        ts = submit_multi_run_test(
-            args.binary_path,
-            run_count=args.runs,
-            binary_name=args.name,
-            test_type=args.type,
-            description=args.desc,
-            build_config=build_config,
-            profile=args.profile
-        )
-        print(f"Submitted multi-run test: {ts} ({args.runs} runs)")
-        if build_config:
-            print(f"  ARM_HYPERVISOR_SUPPORT: {'ON' if build_config['arm_hyp'] else 'OFF'}")
-            print(f"  Platform: {build_config['platform']}")
-        if args.wait:
-            print("Waiting for result...")
-            # Scale timeout for multiple runs
-            result = wait_for_result(ts, timeout=300 * args.runs)
-            print(f"Status: {result['status']}")
-            if result['status'] == 'completed':
-                logs = get_multi_run_logs(ts)
-                if logs['summary']:
-                    s = logs['summary']
-                    print(f"Summary: {s.get('completed_runs', '?')}/{s.get('total_runs', '?')} runs completed")
-                for run in logs['runs']:
-                    print(f"\n--- Run {run['run_number']} ---")
-                    if 'error' in run:
-                        print(f"Error: {run['error']}")
-                    elif 'sel4_log' in run:
-                        print(run['sel4_log'][:2000])
-                    elif 'kernel_log' in run:
-                        print(run['kernel_log'][:2000])
-
-    elif args.command == 'logs-multi':
-        logs = get_multi_run_logs(args.timestamp)
-        if not logs['runs']:
-            print(f"No multi-run logs found for {args.timestamp}")
-        elif args.summary:
-            if logs['summary']:
-                s = logs['summary']
-                print(f"Total runs: {s.get('total_runs', '?')}")
-                print(f"Completed: {s.get('completed_runs', '?')}")
-                print(f"Failed: {s.get('failed_runs', '?')}")
-            else:
-                print(f"Found {len(logs['runs'])} runs (no summary available)")
-        else:
-            for run in logs['runs']:
-                print(f"\n=== Run {run['run_number']} ===")
-                if 'error' in run:
-                    print(f"Error: {run['error']}")
-                elif 'sel4_log' in run:
-                    print(run['sel4_log'])
-                elif 'kernel_log' in run:
-                    print(run['kernel_log'])
-
-    elif args.command == 'submit-vm':
-        build_config = {
-            'arm_hyp': True,  # vm_minimal always uses hypervisor mode
-            'platform': args.platform
-        }
-        ts = submit_vm_minimal_test(
-            args.binary_path,
-            binary_name=args.name,
-            description=args.desc,
-            build_config=build_config,
-            profile=args.profile
-        )
-        print(f"Submitted vm_minimal test: {ts}")
-        print(f"  Platform: {args.platform}")
-        if args.wait:
-            print("Waiting for result...")
-            result = wait_for_result(ts)
-            print(f"Status: {result['status']}")
-            if result['status'] == 'completed':
-                logs = get_vm_logs(ts)
-                if logs['sel4_log']:
-                    print("\n=== seL4/capdl-loader output ===")
-                    print(logs['sel4_log'])
-                if logs['vm_log']:
-                    print("\n=== VM console output ===")
-                    print(logs['vm_log'])
-
-    elif args.command == 'vm-logs':
-        logs = get_vm_logs(args.timestamp)
-        if not logs['sel4_log'] and not logs['vm_log']:
-            print(f"No vm_minimal logs found for {args.timestamp}")
-        elif args.sel4:
-            if logs['sel4_log']:
-                print(logs['sel4_log'])
-            else:
-                print("No seL4 log available")
-        elif args.vm:
-            if logs['vm_log']:
-                print(logs['vm_log'])
-            else:
-                print("No VM log available")
-        else:
-            # Show both
-            if logs['sel4_log']:
-                print("=== seL4/capdl-loader output ===")
-                print(logs['sel4_log'])
-            if logs['vm_log']:
-                print("\n=== VM console output ===")
-                print(logs['vm_log'])
 
     else:
         parser.print_help()

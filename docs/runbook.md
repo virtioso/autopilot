@@ -203,7 +203,7 @@ Example step types:
 2. Verify all step labels referenced by `next`, `on_timeout`, or `on_error`.
 
 ### Boot Menu Not Detected
-1. Inspect UART logs in `results/<timestamp>/uart-raw.log`.
+1. Inspect UART logs in `results/<timestamp>/console/` (profile-defined log names).
 2. Verify the regex in the `boot_menu` step matches actual output.
 
 ### SSH Upload Fails

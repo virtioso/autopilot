@@ -70,7 +70,7 @@ Each test produces:
 
 - `chain.json`: structured step results and errors
 - `console/<source>.jsonl`: UART transcripts for mapped sources
-- `uart-raw.log`, `kernel.log`, `sel4.log`, `vm.log`: filtered logs (if configured)
+- Additional log files under `console/` as defined by the profile chain (for example, filtered outputs created by `analyze_logs`)
 
 ## Dependencies
 

@@ -7,11 +7,9 @@ testing seL4 EFI binaries on NVIDIA Orin AGX hardware.
 
 Tools:
 - build_sel4test: Build sel4test for Orin AGX (clean build in Docker)
-- test_sel4_binary: Submit a binary, wait for completion, return results
-- test_sel4_multi_run: Run a binary N times for stress testing
+- test_sel4_efi: Submit a binary, wait for completion, return results
 - check_sel4_test: Check status of a submitted test
-- get_sel4_log: Get the console output of a completed test
-- get_multi_run_logs: Get logs from a multi-run test
+- get_logs: List console logs for a completed test
 - list_sel4_tests: List pending/completed/failed tests
 
 Usage:
@@ -47,14 +45,11 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from sel4_client import (
-    submit_sel4_test,
-    submit_multi_run_test,
+    submit_sel4_efi_test,
     wait_for_result,
     get_status,
-    get_sel4_log,
-    get_raw_log,
+    get_logs,
     get_request_info,
-    get_multi_run_logs,
     list_pending,
     list_completed,
     list_failed,
@@ -102,21 +97,24 @@ AUTOPILOT_DIR_PROP = {
 # Tool definitions
 TOOLS = [
     {
-        "name": "test_sel4_binary",
+        "name": "test_sel4_efi",
         "description": """Test a seL4 EFI binary on NVIDIA Orin AGX hardware.
 
 Submits the binary to the autopilot service and returns immediately.
 
 The binary is uploaded to the target via SSH, then booted via UEFI.
-Console output is captured until quiescent (30 seconds no output).
-
-Use this for testing seL4 kernel/elfloader changes on real hardware.""",
+Console output is captured according to the selected profile chain.""",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "binary_path": {
                     "type": "string",
                     "description": "Absolute path to the seL4 EFI binary (e.g., /home/hlyytine/tii-sel4/orinagx_sel4test/images/sel4test-driver-image-arm-orinagx)"
+                },
+                "profile": {
+                    "type": "string",
+                    "description": "Profile name that defines the chain to run",
+                    "default": "sel4test"
                 },
                 "description": {
                     "type": "string",
@@ -139,28 +137,6 @@ Returns the current status: pending, processing, completed, failed, or not_found
                 "request_id": {
                     "type": "string",
                     "description": "Request ID (timestamp) from a previous test submission"
-                },
-                "autopilot_dir": AUTOPILOT_DIR_PROP
-            },
-            "required": ["request_id"]
-        }
-    },
-    {
-        "name": "get_sel4_log",
-        "description": """Get the console output from a completed seL4 test.
-
-Returns the filtered log (bootloader/UEFI stripped) showing only seL4 output.""",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "request_id": {
-                    "type": "string",
-                    "description": "Request ID (timestamp) from a previous test submission"
-                },
-                "raw": {
-                    "type": "boolean",
-                    "description": "If true, return raw UART output including bootloader",
-                    "default": False
                 },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
@@ -195,54 +171,21 @@ Returns lists of pending, completed, and/or failed test request IDs.""",
         }
     },
     {
-        "name": "test_sel4_multi_run",
-        "description": """Test a seL4 or Linux binary with multiple boot iterations.
+        "name": "get_logs",
+        "description": """List console logs for a completed test.
 
-Uploads the binary once, then reboots the board N times to collect N boot logs.
-For Linux: uses SSH reboot if board boots successfully, else hardware reboot.
-For seL4: always uses hardware reboot after first run.
-
-Use this for stress testing, detecting intermittent failures, or collecting boot timing statistics.""",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "binary_path": {
-                    "type": "string",
-                    "description": "Absolute path to the EFI binary (seL4) or kernel image (Linux)"
-                },
-                "run_count": {
-                    "type": "integer",
-                    "description": "Number of boot iterations (default: 5)",
-                    "default": 5
-                },
-                "test_type": {
-                    "type": "string",
-                    "enum": ["sel4", "linux"],
-                    "description": "Test type: 'sel4' for seL4 binaries, 'linux' for kernel tests",
-                    "default": "sel4"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Optional description of what's being tested",
-                    "default": ""
-                },
-                "autopilot_dir": AUTOPILOT_DIR_PROP
-            },
-            "required": ["binary_path"]
-        }
-    },
-    {
-        "name": "get_multi_run_logs",
-        "description": """Get all logs from a multi-run test.
-
-Returns logs for each boot iteration, including any errors.
-Also includes the summary with completed/failed run counts.""",
+Returns paths (and optionally contents) for files under results/<id>/console/.""",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "request_id": {
                     "type": "string",
-                    "description": "Request ID from a multi-run test submission"
+                    "description": "Request ID (timestamp) from a previous test submission"
+                },
+                "include_contents": {
+                    "type": "boolean",
+                    "description": "If true, include file contents in the response",
+                    "default": False
                 },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
@@ -344,33 +287,6 @@ Returns the path to the built capdl-loader binary on success.""",
         }
     },
     {
-        "name": "test_vm_minimal",
-        "description": """Test a vm_minimal capdl-loader binary on NVIDIA Orin AGX hardware.
-
-Submits the binary to the autopilot service and returns immediately.
-
-The test waits for 5 seconds of no output on the VM console (ttyACM1)
-before considering the test complete.
-
-No success/failure criteria yet - just captures logs for analysis.""",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "binary_path": {
-                    "type": "string",
-                    "description": "Absolute path to the capdl-loader EFI binary (e.g., /home/hlyytine/tii-sel4/orinagx_vm_minimal/images/capdl-loader-image-arm-orinagx)"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Optional description of what's being tested",
-                    "default": ""
-                },
-                "autopilot_dir": AUTOPILOT_DIR_PROP
-            },
-            "required": ["binary_path"]
-        }
-    },
-    {
         "name": "autopilot_status",
         "description": "Get queue summary and current running test status.",
         "inputSchema": {
@@ -434,24 +350,6 @@ No success/failure criteria yet - just captures logs for analysis.""",
                 "request_id": {
                     "type": "string",
                     "description": "Request ID (timestamp) to cancel"
-                },
-                "autopilot_dir": AUTOPILOT_DIR_PROP
-            },
-            "required": ["request_id"]
-        }
-    },
-    {
-        "name": "get_vm_logs",
-        "description": """Get logs from a vm_minimal test.
-
-Returns paths to both the seL4/capdl-loader log (sel4.log) and
-the VM console log (vm.log).""",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "request_id": {
-                    "type": "string",
-                    "description": "Request ID from a vm_minimal test submission"
                 },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
@@ -581,8 +479,9 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
     autopilot_dir = arguments.get("autopilot_dir")
     paths = get_paths(autopilot_dir)
 
-    if name == "test_sel4_binary":
+    if name == "test_sel4_efi":
         binary_path = arguments["binary_path"]
+        profile = arguments.get("profile", "sel4test")
         description = arguments.get("description", "")
 
         # Generate timestamped binary name to detect upload failures
@@ -599,11 +498,12 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
 
         # Submit the test
         try:
-            request_id = submit_sel4_test(
+            request_id = submit_sel4_efi_test(
                 binary_path=binary_path,
                 binary_name=binary_name,
                 description=description,
                 build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'},
+                profile=profile,
                 autopilot_dir=autopilot_dir
             )
         except QueueNotEmptyError as e:
@@ -629,6 +529,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             "request_id": request_id,
             "binary_path": binary_path,
             "binary_name": binary_name,
+            "profile": profile,
             "result_dir": str(result_dir),
         }
 
@@ -653,27 +554,6 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
 
         return {
             "content": [{"type": "text", "text": response_text}],
-            "isError": False
-        }
-
-    elif name == "get_sel4_log":
-        request_id = arguments["request_id"]
-        raw = arguments.get("raw", False)
-
-        result_dir = paths['results'] / request_id
-        if raw:
-            log_path = result_dir / 'uart-raw.log'
-        else:
-            log_path = result_dir / 'sel4.log'
-
-        if not log_path.exists():
-            return {
-                "content": [{"type": "text", "text": f"No log found at {log_path}"}],
-                "isError": True
-            }
-
-        return {
-            "content": [{"type": "text", "text": f"Log file: {log_path}\n\nUse Read tool to view contents."}],
             "isError": False
         }
 
@@ -773,101 +653,12 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             "isError": False
         }
 
-    elif name == "test_sel4_multi_run":
-        binary_path = arguments["binary_path"]
-        run_count = arguments.get("run_count", 5)
-        test_type = arguments.get("test_type", "sel4")
-        description = arguments.get("description", "")
-
-        # Generate timestamped binary name to detect upload failures
-        binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
-
-        # Determine arm_hyp from build config (for seL4 tests)
-        build_config = None
-        if test_type == "sel4":
-            build_config_path = Path("/home/hlyytine/tii-sel4/orinagx_sel4test/.config")
-            arm_hyp = True  # Default to hypervisor mode
-            if build_config_path.exists():
-                config_text = build_config_path.read_text()
-                if "KernelArmHypervisorSupport=OFF" in config_text:
-                    arm_hyp = False
-            build_config = {'arm_hyp': arm_hyp, 'platform': 'orinagx'}
-
-        # Submit the multi-run test
-        try:
-            request_id = submit_multi_run_test(
-                binary_path=binary_path,
-                run_count=run_count,
-                binary_name=binary_name,
-                test_type=test_type,
-                description=description,
-                build_config=build_config,
-                autopilot_dir=autopilot_dir
-            )
-        except QueueNotEmptyError as e:
-            payload = {
-                "error": "queue_not_empty",
-                "pending": e.pending,
-                "processing": e.processing,
-                "hint": "Investigate why a request is pending/processing (use autopilot_status/get_test_status).",
-            }
-            return {
-                "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
-                "isError": True
-            }
-        except FileNotFoundError as e:
-            return {
-                "content": [{"type": "text", "text": f"Error: {str(e)}"}],
-                "isError": True
-            }
-
-        result_dir = paths['results'] / request_id
-        payload = {
-            "status": "submitted",
-            "request_id": request_id,
-            "binary_path": binary_path,
-            "binary_name": binary_name,
-            "run_count": run_count,
-            "test_type": test_type,
-            "result_dir": str(result_dir),
-        }
-
-        return {
-            "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
-            "isError": False
-        }
-
-    elif name == "get_multi_run_logs":
+    elif name == "get_logs":
         request_id = arguments["request_id"]
-        result_dir = paths['results'] / request_id
-
-        if not result_dir.exists():
-            return {
-                "content": [{"type": "text", "text": f"No results found for request {request_id}"}],
-                "isError": True
-            }
-
-        # Get summary info
-        logs = get_multi_run_logs(request_id, autopilot_dir=autopilot_dir)
-        response_text = f"Results directory: {result_dir}\n\n"
-
-        if logs['summary']:
-            s = logs['summary']
-            response_text += f"Summary: {s.get('completed_runs', '?')}/{s.get('total_runs', '?')} runs completed, {s.get('failed_runs', '?')} failed\n\n"
-
-        response_text += "Run logs:\n"
-        for run in logs['runs']:
-            run_num = run['run_number']
-            run_log = result_dir / f'run_{run_num}' / 'sel4.log'
-            if 'error' in run:
-                response_text += f"  Run {run_num}: Error - {run['error']}\n"
-            else:
-                response_text += f"  Run {run_num}: {run_log}\n"
-
-        response_text += "\nUse Read tool to view log contents."
-
+        include_contents = arguments.get("include_contents", False)
+        logs = get_logs(request_id, autopilot_dir=autopilot_dir, include_contents=include_contents)
         return {
-            "content": [{"type": "text", "text": response_text}],
+            "content": [{"type": "text", "text": json.dumps(logs, indent=2)}],
             "isError": False
         }
 
@@ -1137,89 +928,6 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                 "content": [{"type": "text", "text": f"Build failed with exception: {str(e)}"}],
                 "isError": True
             }
-
-    elif name == "test_vm_minimal":
-        binary_path = arguments["binary_path"]
-        description = arguments.get("description", "")
-
-        # Generate timestamped binary name
-        binary_name = f"capdl-vm_minimal-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
-
-        # Determine arm_hyp from build config
-        build_config_path = Path("/home/hlyytine/tii-sel4/orinagx_vm_minimal/.config")
-        arm_hyp = True  # Default to hypervisor mode
-        if build_config_path.exists():
-            config_text = build_config_path.read_text()
-            if "KernelArmHypervisorSupport=OFF" in config_text:
-                arm_hyp = False
-
-        # Submit the test using vm_minimal type
-        try:
-            from sel4_client import submit_vm_minimal_test
-            request_id = submit_vm_minimal_test(
-                binary_path=binary_path,
-                binary_name=binary_name,
-                description=description,
-                build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'},
-                autopilot_dir=autopilot_dir
-            )
-        except QueueNotEmptyError as e:
-            payload = {
-                "error": "queue_not_empty",
-                "pending": e.pending,
-                "processing": e.processing,
-                "hint": "Investigate why a request is pending/processing (use autopilot_status/get_test_status).",
-            }
-            return {
-                "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
-                "isError": True
-            }
-        except FileNotFoundError as e:
-            return {
-                "content": [{"type": "text", "text": f"Error: {str(e)}"}],
-                "isError": True
-            }
-
-        result_dir = paths['results'] / request_id
-        payload = {
-            "status": "submitted",
-            "request_id": request_id,
-            "binary_path": binary_path,
-            "binary_name": binary_name,
-            "result_dir": str(result_dir),
-        }
-
-        return {
-            "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
-            "isError": False
-        }
-
-    elif name == "get_vm_logs":
-        request_id = arguments["request_id"]
-
-        result_dir = paths['results'] / request_id
-        sel4_log_path = result_dir / 'sel4.log'
-        vm_log_path = result_dir / 'vm.log'
-
-        result_lines = []
-
-        if sel4_log_path.exists():
-            result_lines.append(f"seL4/capdl-loader log: {sel4_log_path}")
-        else:
-            result_lines.append(f"seL4/capdl-loader log: NOT FOUND")
-
-        if vm_log_path.exists():
-            result_lines.append(f"VM console log: {vm_log_path}")
-        else:
-            result_lines.append(f"VM console log: NOT FOUND")
-
-        result_lines.append("")
-        result_lines.append("Use Read tool to view contents.")
-
-        return {
-            "content": [{"type": "text", "text": "\n".join(result_lines)}],
-            "isError": False
-        }
 
     elif name == "list_console_sessions":
         request_id = arguments["request_id"]

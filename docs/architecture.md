@@ -77,8 +77,8 @@ PlantUML sources live in `docs/diagrams/`.
 ## Result Artifacts
 
 Single-run output:
-- `uart-raw.log`
-- `kernel.log` / `sel4.log` / `vm.log` (filtered)
+- `console/<source>.jsonl` (raw UART transcripts)
+- Additional logs under `console/` as defined by the profile chain
 - `chain.json` (structured step results)
 - `console/*.jsonl` (source logs when mapped)
 
@@ -91,4 +91,3 @@ If Autopilot has a TTY:
 - `Ctrl-A` then `R` aborts the current test and starts recovery.
 
 If no TTY is present, the UI is disabled.
-
