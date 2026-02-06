@@ -473,6 +473,8 @@ class ChainRunner:
             return self._step_upload(step, kind="efi")
         if step_type == "reboot":
             return self._step_reboot(step)
+        if step_type == "ssh_cmd":
+            return self._step_ssh_cmd(step)
         if step_type == "fork":
             return self._step_fork(step)
         if step_type == "join":
@@ -628,6 +630,28 @@ class ChainRunner:
             self.ctx["board"].boot(False)
         return self._simple_outcome(step)
 
+    def _step_ssh_cmd(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        import subprocess
+        self._check_cancel()
+        target_user = step.get("target_user", "root")
+        target_ip = self._resolve_value(step.get("target_ip")) or self.ctx.get("target_ip")
+        cmd = step.get("cmd")
+        if not cmd:
+            raise ValueError("ssh_cmd requires cmd")
+        timeout_s = step.get("timeout_s")
+        run_args = [
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            f"{target_user}@{target_ip}",
+            cmd,
+        ]
+        if timeout_s is None:
+            subprocess.run(run_args, check=True)
+        else:
+            subprocess.run(run_args, check=True, timeout=int(timeout_s))
+        return self._simple_outcome(step)
+
     def _step_fork(self, step: dict) -> Tuple[str, OutcomeMatch]:
         name = step["chain"]
         subchain = self.chain.get("subchains", {}).get(name)
@@ -665,6 +689,10 @@ class ChainRunner:
         import subprocess
         cmd = step.get("command")
         if cmd:
+            if isinstance(cmd, list):
+                cmd = [self._resolve_value(item) for item in cmd]
+            else:
+                cmd = self._resolve_value(cmd)
             subprocess.run(cmd, check=True)
         return self._simple_outcome(step)
 

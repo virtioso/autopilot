@@ -1,5 +1,5 @@
 {
-  "name": "sel4-efi-multi",
+  "name": "sel4test",
   "chain": {
     "entry": "map_tty0",
     "steps": {
@@ -7,7 +7,7 @@
         "type": "map_source",
         "source": "tty0",
         "tty": "env:AUTOPILOT_TTY0",
-        "log": "console/tty0.jsonl",
+        "log": "console/tty0.raw",
         "outcomes": [
           { "label": "ok", "next": "window1" }
         ],
@@ -55,9 +55,19 @@
           { "name": "tty0", "port": "/dev/ttyACM0", "source": "tty0", "profile": "ubuntu-22" }
         ],
         "outcomes": [
+          { "label": "ok", "next": "cleanup_efi" }
+        ],
+        "on_timeout": "cleanup_efi"
+      },
+      "cleanup_efi": {
+        "type": "ssh_cmd",
+        "target_user": "root",
+        "target_ip": "{target_ip}",
+        "cmd": "find /boot/efi -maxdepth 1 -type f -print -delete",
+        "outcomes": [
           { "label": "ok", "next": "upload_efi" }
         ],
-        "on_timeout": "upload_efi"
+        "on_timeout": "fail"
       },
       "upload_efi": {
         "type": "upload_efi",
@@ -92,8 +102,32 @@
         "type": "wait_pattern",
         "timeout_s": 180,
         "outcomes": [
-          { "label": "ok", "pattern": "seL4|ELF-loader", "source": "tty0", "next": "fork_recovery_pass" },
-          { "label": "panic", "pattern": "Kernel panic|panic", "source": "tty0", "next": "fork_recovery_fail" }
+          { "label": "ok", "pattern": "seL4|ELF-loader", "source": "tty0", "next": "filter_sel4_log_pass" },
+          { "label": "panic", "pattern": "Kernel panic|panic", "source": "tty0", "next": "filter_sel4_log_fail" }
+        ],
+        "on_timeout": "filter_sel4_log_fail"
+      },
+      "filter_sel4_log_pass": {
+        "type": "analyze_logs",
+        "command": [
+          "bash",
+          "-lc",
+          "/home/hlyytine/autopilot/filter_sel4_start.py \"{binary_name}\" < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\""
+        ],
+        "outcomes": [
+          { "label": "ok", "next": "fork_recovery_pass" }
+        ],
+        "on_timeout": "fork_recovery_fail"
+      },
+      "filter_sel4_log_fail": {
+        "type": "analyze_logs",
+        "command": [
+          "bash",
+          "-lc",
+          "/home/hlyytine/autopilot/filter_sel4_start.py \"{binary_name}\" < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\""
+        ],
+        "outcomes": [
+          { "label": "ok", "next": "fork_recovery_fail" }
         ],
         "on_timeout": "fork_recovery_fail"
       },

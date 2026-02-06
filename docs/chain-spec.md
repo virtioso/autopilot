@@ -64,6 +64,7 @@ Action steps:
 - `upload_kernel`
 - `upload_efi`
 - `reboot`
+- `ssh_cmd`
 - `map_source`
 - `map_window`
 - `send_cmd`
@@ -117,5 +118,20 @@ Terminal steps:
     { "label": "started", "next": "parse_results" }
   ],
   "on_timeout": "parse_results"
+}
+```
+
+## Example: ssh_cmd
+
+```json
+{
+  "type": "ssh_cmd",
+  "target_user": "root",
+  "target_ip": "{target_ip}",
+  "cmd": "find /boot/efi -maxdepth 1 -type f -print -delete",
+  "outcomes": [
+    { "label": "ok", "next": "upload_efi" }
+  ],
+  "on_timeout": "fail"
 }
 ```
