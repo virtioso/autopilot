@@ -1,0 +1,14 @@
+# Autopilot working-state directories
+/requests/
+/results/
+/binaries/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Runtime logs
+*.log
+
+# Local profiles or state overrides
+local-*.json
