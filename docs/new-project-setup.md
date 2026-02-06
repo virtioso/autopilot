@@ -34,6 +34,14 @@ Sync profiles from the code repo:
 cp -r ~/autopilot/profiles/* ~/tii-sel4/autopilot/profiles/
 ```
 
+### Optional: One-command initializer
+
+You can use the helper script to create the working directory and `.mcp.json`:
+
+```bash
+~/autopilot/scripts/new-project-init.sh ~/tii-sel4
+```
+
 ## Step 2: Set Environment Variables
 
 At minimum:
@@ -93,6 +101,25 @@ You are working in <project>. Autopilot is installed at ~/autopilot, and
 AUTOPILOT_DIR is ~/tii-sel4/autopilot. Prefer MCP tools if available; otherwise
 use the request/result queues under AUTOPILOT_DIR. Read the Autopilot docs in
 ~/autopilot/docs before making changes.
+```
+
+### Prompt Templates
+
+**Codex CLI (short)**
+
+```
+You are working in <project>. Autopilot code is in ~/autopilot and the working
+directory is AUTOPILOT_DIR=<project>/autopilot. Read ~/autopilot/docs/README.md
+and ~/autopilot/docs/runbook.md before changes. Prefer MCP; otherwise use the
+request/result queues under AUTOPILOT_DIR.
+```
+
+**Claude Code (short)**
+
+```
+Read ~/autopilot/AGENTS.md and ~/autopilot/docs/README.md first. Autopilot code
+is in ~/autopilot; AUTOPILOT_DIR=<project>/autopilot. Use MCP if available, else
+operate via the request/result queues.
 ```
 
 ## Notes
