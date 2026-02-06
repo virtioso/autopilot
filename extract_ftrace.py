@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Extract and decompress ftrace binary data from seL4 log.
+Extract and decompress ftrace binary data from a seL4 log.
 
-Reads sel4.log, extracts the binary transfer section, decodes base64,
+Reads a log file, extracts the binary transfer section, decodes base64,
 decompresses LZ4, and saves:
   - ftrace.bin: Raw decompressed ftrace entries (16-bit values)
   - ftrace.meta: JSON with header info and dictionary
 
 Usage:
-    extract_ftrace.py <sel4.log> <output_dir>
-    extract_ftrace.py <sel4.log>  # Writes to same directory as input
+    extract_ftrace.py <logfile> <output_dir>
+    extract_ftrace.py <logfile>  # Writes to same directory as input
 
 Exit codes:
     0: Success (ftrace extracted)
@@ -268,7 +268,7 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
 
 def main():
     if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <sel4.log> [output_dir]", file=sys.stderr)
+        print(f"Usage: {sys.argv[0]} <logfile> [output_dir]", file=sys.stderr)
         return 1
 
     log_path = Path(sys.argv[1])

@@ -29,13 +29,13 @@ TARGET_PATH = '/boot/efi'
 
 
 def cleanup_old_binaries():
-    """Remove old sel4test and capdl binaries from EFI partition."""
-    debug_print('Cleaning up old binaries from /boot/efi')
+    """Remove ordinary files from the EFI partition root."""
+    debug_print('Cleaning up /boot/efi (ordinary files only)')
     try:
         subprocess.run([
             'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10',
             f'{TARGET_USER}@{TARGET_IP}',
-            'rm -f /boot/efi/sel4test-* /boot/efi/capdl-*'
+            'find /boot/efi -maxdepth 1 -type f -print -delete'
         ], check=True, capture_output=True, text=True, timeout=30)
     except subprocess.TimeoutExpired:
         debug_print('Warning: cleanup timed out, continuing anyway')

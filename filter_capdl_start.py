@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Filter capdl-loader output, removing bootloader/UEFI noise.
 
-Usage: filter_capdl_start.py < uart-raw.log > sel4.log
+Usage: filter_capdl_start.py < input.log > output.log
 
 Filters ttyACM0 output to keep only seL4/capdl-loader output,
 stripping UEFI shell and bootloader noise.

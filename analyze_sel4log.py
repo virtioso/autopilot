@@ -3,8 +3,8 @@
 sel4log analyzer - RAS error statistics and symbolization for seL4 test logs.
 
 Usage:
-    ./analyze_sel4log.py <sel4.log> [--kernel <kernel.elf>] [--app <sel4test-driver>]
-    ./analyze_sel4log.py <sel4.log> --json-only
+    ./analyze_sel4log.py <logfile> [--kernel <kernel.elf>] [--app <sel4test-driver>]
+    ./analyze_sel4log.py <logfile> --json-only
 """
 
 import argparse
@@ -23,9 +23,9 @@ DEFAULT_APP = "/home/hlyytine/tii-sel4/orinagx_sel4test/apps/sel4test-driver/sel
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Analyze sel4.log files for RAS errors and test statistics"
+        description="Analyze seL4 log files for RAS errors and test statistics"
     )
-    parser.add_argument("logfile", help="Path to sel4.log file")
+    parser.add_argument("logfile", help="Path to the log file to analyze")
     parser.add_argument("--kernel", default=DEFAULT_KERNEL,
                         help=f"Path to kernel.elf (default: {DEFAULT_KERNEL})")
     parser.add_argument("--app", default=DEFAULT_APP,
@@ -79,10 +79,9 @@ def symbolize_address(addr, el, kernel_elf, app_elf):
 
 
 def read_build_config(logfile):
-    """Read config.json from the log file's directory or parent (for multi-run results).
+    """Read config.json from the log file's directory or parent.
 
-    For single-run results: results/<timestamp>/sel4.log -> config.json in same dir
-    For multi-run results: results/<timestamp>/run_N/sel4.log -> config.json in parent
+    This supports logs stored under results/<timestamp>/console/ or alongside config.json.
     """
     # Try same directory first
     config_file = logfile.parent / 'config.json'
@@ -92,7 +91,7 @@ def read_build_config(logfile):
         except (json.JSONDecodeError, Exception):
             pass
 
-    # Try parent directory (for multi-run results)
+    # Try parent directory (for logs stored under a subdirectory)
     config_file = logfile.parent.parent / 'config.json'
     if config_file.exists():
         try:
@@ -104,7 +103,7 @@ def read_build_config(logfile):
 
 
 def parse_log(logfile):
-    """Parse sel4.log and extract test results and RAS errors."""
+    """Parse a seL4 log and extract test results and RAS errors."""
     build_config = read_build_config(logfile)
 
     stats = {
@@ -260,7 +259,7 @@ def generate_text_summary(stats, kernel_elf, app_elf, do_symbolize=True):
     """Generate human-readable text summary."""
     lines = []
     lines.append("=" * 60)
-    lines.append("sel4.log Analysis")
+    lines.append("Log Analysis")
     lines.append("=" * 60)
     lines.append(f"File: {stats['file']}")
 

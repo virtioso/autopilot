@@ -2,7 +2,7 @@
 """
 Filter seL4 log: strip everything up to and including 'FS3:\\> <binary>' line.
 
-Usage: filter_sel4_start.py [binary_name] < uart-raw.log > sel4.log
+Usage: filter_sel4_start.py [binary_name] < input.log > output.log
 
 The filter removes all bootloader and UEFI menu output, keeping only
 the seL4 binary output that appears after the EFI shell command.

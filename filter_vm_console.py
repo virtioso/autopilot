@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Filter VM console output from ttyACM1.
 
-Usage: filter_vm_console.py < vm-uart-raw.log > vm.log
+Usage: filter_vm_console.py < input.log > output.log
 
 Filters ttyACM1 output to keep Linux kernel and userspace output,
 stripping any noise before Linux boot.
