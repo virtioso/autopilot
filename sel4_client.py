@@ -32,6 +32,13 @@ from typing import Optional
 DEFAULT_AUTOPILOT_DIR = Path('/home/hlyytine/tii-sel4/autopilot')
 
 
+class QueueNotEmptyError(RuntimeError):
+    def __init__(self, pending: list, processing: list):
+        super().__init__("queue_not_empty")
+        self.pending = pending
+        self.processing = processing
+
+
 def get_autopilot_dir(override: str = None) -> Path:
     """Get the autopilot working directory.
 
@@ -72,6 +79,7 @@ def get_paths(autopilot_dir: str = None) -> dict:
         'failed': base / 'requests' / 'failed',
         'results': base / 'results',
         'binaries': base / 'binaries',
+        'runtime': base / 'runtime',
     }
 
 
@@ -84,6 +92,14 @@ COMPLETED_DIR = AUTOPILOT_DIR / 'requests' / 'completed'
 FAILED_DIR = AUTOPILOT_DIR / 'requests' / 'failed'
 RESULTS_DIR = AUTOPILOT_DIR / 'results'
 BINARIES_DIR = AUTOPILOT_DIR / 'binaries'
+RUNTIME_DIR = AUTOPILOT_DIR / 'runtime'
+
+
+def ensure_queue_empty(autopilot_dir: str = None) -> None:
+    pending = list_pending(autopilot_dir=autopilot_dir)
+    processing = list_processing(autopilot_dir=autopilot_dir)
+    if pending or processing:
+        raise QueueNotEmptyError(pending, processing)
 
 
 def submit_sel4_test(
@@ -122,6 +138,7 @@ def submit_sel4_test(
     if 'arm_hyp' not in build_config:
         raise ValueError("build_config must include 'arm_hyp' (True/False)")
 
+    ensure_queue_empty(autopilot_dir=autopilot_dir)
     paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
@@ -201,6 +218,7 @@ def submit_multi_run_test(
         if 'arm_hyp' not in build_config:
             raise ValueError("build_config must include 'arm_hyp' (True/False)")
 
+    ensure_queue_empty(autopilot_dir=autopilot_dir)
     paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
@@ -274,6 +292,7 @@ def submit_vm_minimal_test(
     Returns:
         timestamp: Request ID that can be used to check status/get results
     """
+    ensure_queue_empty(autopilot_dir=autopilot_dir)
     paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
@@ -340,6 +359,7 @@ def submit_boot_interactive(
     if interactive is None:
         raise ValueError("interactive config is required")
 
+    ensure_queue_empty(autopilot_dir=autopilot_dir)
     paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
@@ -503,15 +523,15 @@ def get_status(timestamp: str, autopilot_dir: str = None) -> dict:
         return {'status': 'not_found'}
 
 
-def wait_for_result(timestamp: str, timeout: int = 600, poll_interval: int = 5,
+def wait_for_result(timestamp: str, timeout: int = 300, poll_interval: int = 1,
                     autopilot_dir: str = None) -> dict:
     """
     Wait for test to complete and return results.
 
     Args:
         timestamp: Request ID from submit_sel4_test()
-        timeout: Maximum time to wait in seconds (default: 600 = 10 minutes)
-        poll_interval: How often to check status in seconds (default: 5)
+    timeout: Maximum time to wait in seconds (default: 300)
+    poll_interval: How often to check status in seconds (default: 1)
         autopilot_dir: Optional override for autopilot working directory
 
     Returns:
@@ -595,6 +615,18 @@ def list_pending(autopilot_dir: str = None) -> list:
     return sorted([f.stem for f in paths['pending'].glob('*.request')])
 
 
+def list_processing(autopilot_dir: str = None) -> list:
+    """List all processing request timestamps.
+
+    Args:
+        autopilot_dir: Optional override for autopilot working directory
+    """
+    paths = get_paths(autopilot_dir)
+    if not paths['processing'].exists():
+        return []
+    return sorted([f.stem for f in paths['processing'].glob('*.request')])
+
+
 def list_completed(autopilot_dir: str = None) -> list:
     """List all completed request timestamps.
 
@@ -617,6 +649,124 @@ def list_failed(autopilot_dir: str = None) -> list:
     if not paths['failed'].exists():
         return []
     return sorted([f.stem for f in paths['failed'].glob('*.request')])
+
+
+def _read_request_file(request_path: Path) -> Optional[dict]:
+    if not request_path.exists():
+        return None
+    try:
+        return json.loads(request_path.read_text())
+    except Exception:
+        return None
+
+
+def _read_chain_last_step(result_dir: Path) -> Optional[dict]:
+    chain_path = result_dir / "chain.json"
+    if not chain_path.exists():
+        return None
+    try:
+        chain = json.loads(chain_path.read_text())
+    except Exception:
+        return None
+    steps = chain.get("steps", [])
+    if not steps:
+        return None
+    last = steps[-1]
+    return {
+        "step": last.get("step"),
+        "status": last.get("status"),
+        "error_code": last.get("error_code"),
+        "error_message": last.get("error_message"),
+        "finished_at": last.get("finished_at"),
+    }
+
+
+def get_autopilot_status(autopilot_dir: str = None) -> dict:
+    paths = get_paths(autopilot_dir)
+    pending = list_pending(autopilot_dir=autopilot_dir)
+    processing = list_processing(autopilot_dir=autopilot_dir)
+    completed = list_completed(autopilot_dir=autopilot_dir)
+    failed = list_failed(autopilot_dir=autopilot_dir)
+
+    current = []
+    for request_id in processing:
+        request_path = paths['processing'] / f"{request_id}.request"
+        req = _read_request_file(request_path) or {}
+        result_dir = paths['results'] / request_id
+        current.append({
+            "request_id": request_id,
+            "profile": req.get("profile"),
+            "type": req.get("type"),
+            "description": req.get("description"),
+            "submitted_at": req.get("submitted_at"),
+            "binary_path": req.get("binary_path"),
+            "binary_name": req.get("binary_name"),
+            "result_dir": str(result_dir),
+            "last_step": _read_chain_last_step(result_dir),
+        })
+
+    return {
+        "pending": {"count": len(pending), "ids": pending},
+        "processing": {"count": len(processing), "ids": processing},
+        "completed": {"count": len(completed), "latest_ids": completed[-10:]},
+        "failed": {"count": len(failed), "latest_ids": failed[-10:]},
+        "current": current,
+    }
+
+
+def get_test_status(timestamp: str, autopilot_dir: str = None) -> dict:
+    paths = get_paths(autopilot_dir)
+    status = get_status(timestamp, autopilot_dir=autopilot_dir)
+    result_dir = paths['results'] / timestamp
+    error_path = result_dir / "error.txt"
+    error_text = error_path.read_text() if error_path.exists() else None
+    return {
+        "request_id": timestamp,
+        "status": status["status"],
+        "result_dir": str(status["result_dir"]) if "result_dir" in status else None,
+        "request": get_request_info(timestamp, autopilot_dir=autopilot_dir),
+        "last_step": _read_chain_last_step(result_dir),
+        "error": error_text,
+    }
+
+
+def _write_canceled_result(result_dir: Path, request: dict) -> None:
+    result_dir.mkdir(parents=True, exist_ok=True)
+    (result_dir / "request.json").write_text(json.dumps(request, indent=2))
+    (result_dir / "error.txt").write_text("Canceled by user\n")
+    chain = {
+        "overall_status": "failed",
+        "abort_reason": "canceled",
+        "steps": [],
+        "forks": {},
+    }
+    (result_dir / "chain.json").write_text(json.dumps(chain, indent=2))
+
+
+def cancel_test(timestamp: str, autopilot_dir: str = None) -> dict:
+    paths = get_paths(autopilot_dir)
+    request_name = f"{timestamp}.request"
+    pending_path = paths['pending'] / request_name
+    processing_path = paths['processing'] / request_name
+    result_dir = paths['results'] / timestamp
+
+    if pending_path.exists():
+        request = _read_request_file(pending_path) or {"submitted_at": timestamp}
+        _write_canceled_result(result_dir, request)
+        pending_path.rename(paths['failed'] / request_name)
+        return {"status": "canceled", "request_id": timestamp, "mode": "pending"}
+
+    if processing_path.exists():
+        runtime_dir = paths['runtime'] / timestamp
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        (runtime_dir / "cancel").write_text("canceled\n")
+        return {"status": "cancel_requested", "request_id": timestamp, "mode": "processing"}
+
+    if (paths['completed'] / request_name).exists():
+        return {"status": "completed", "request_id": timestamp}
+    if (paths['failed'] / request_name).exists():
+        return {"status": "failed", "request_id": timestamp}
+    return {"status": "not_found", "request_id": timestamp}
 
 
 def get_console_manifest(timestamp: str, autopilot_dir: str = None) -> Optional[dict]:
