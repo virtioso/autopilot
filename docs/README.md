@@ -138,19 +138,43 @@ make dtbs
 
 **DO NOT use**: nvbuild.sh, kernel_out/ directory, or any other method!
 
-### Submit a Test
+### Submit a Test (MCP, Async)
 
-```bash
-# After building kernel
-TIMESTAMP=$(date +%Y%m%d%H%M%S)
-touch ${WORKSPACE}/autopilot/requests/pending/${TIMESTAMP}.request
+Autopilot MCP test tools are **submit-only** and return immediately with a
+`request_id`. The AI client should poll for completion.
 
-# Wait ~5 minutes, then check results:
-cat ${WORKSPACE}/autopilot/results/${TIMESTAMP}/panic.log
-cat ${WORKSPACE}/autopilot/results/${TIMESTAMP}/hyp.log
+**Strict single-request policy**:
+- A new submission **fails** if any request is already `pending` or `processing`.
+- If a submission is rejected, investigate why a request is stuck.
+
+Example (MCP):
+```python
+# Submit (returns immediately)
+mcp__sel4-autopilot__test_sel4_binary(binary_path="...")  # returns request_id
+
+# Poll for completion (recommended: 1s interval, 300s overall)
+mcp__sel4-autopilot__get_test_status(request_id="...")
 ```
 
-### Check Test Status
+### Short-Blocking Wait (Optional)
+
+`wait_for_test` is **short-blocking only** (default max 30s) to avoid tool-call timeouts.
+Use it in a loop if you want a helper:
+
+```python
+mcp__sel4-autopilot__wait_for_test(request_id="...", timeout=300, poll_interval=1, max_block_s=30)
+```
+
+### Cancel a Test (Hard Cancel)
+
+```python
+mcp__sel4-autopilot__cancel_test(request_id="...")
+```
+
+- If pending: request is immediately marked failed with `abort_reason="canceled"`.
+- If processing: chain aborts promptly, sessions close, request marked failed.
+
+### Check Test Status (Manual)
 
 ```bash
 # See all requests
@@ -178,6 +202,7 @@ journalctl -u autopilot -f
 | `requests/completed/` | Successfully completed tests |
 | `requests/failed/` | Failed tests |
 | `results/${TIMESTAMP}/` | Test output logs |
+| `runtime/${TIMESTAMP}/` | Per-request runtime control (e.g., cancel flag) |
 
 ### Key Files on Target
 
