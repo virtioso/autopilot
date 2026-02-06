@@ -92,7 +92,13 @@ JSON schema and step definitions for the chain-based execution model.
 
 ---
 
-### 7. [Extending DTB Support](extending-dtb-support.md)
+### 7. [New Project Setup](new-project-setup.md)
+How to use Autopilot from a new project repo with clean separation of code and
+working directories.
+
+---
+
+### 8. [Extending DTB Support](extending-dtb-support.md)
 How to add device tree blob (DTB) upload capability to autopilot.
 
 **Topics**:
