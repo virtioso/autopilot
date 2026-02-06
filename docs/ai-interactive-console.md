@@ -6,6 +6,12 @@ This guide explains how AI tools (Codex/Claude Code) can interact with guest
 Linux consoles through Autopilot. It is designed to be generic and works for
 single or multiple UART consoles (e.g., VM0/VM1).
 
+## MCP Server Availability
+
+The `sel4-autopilot` MCP server is defined in `~/tii-sel4/.mcp.json`.
+Some clients auto-load MCP servers from `.mcp.json`; some do not.
+If MCP is unavailable, fall back to the request/result queues in `AUTOPILOT_DIR`.
+
 ## Concepts
 
 - **Interactive sessions** are created by Autopilot after a boot completes.
