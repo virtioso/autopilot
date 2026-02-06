@@ -96,6 +96,9 @@ JSON schema and step definitions for the chain-based execution model.
 How to use Autopilot from a new project repo with clean separation of code and
 working directories.
 
+**Prompt templates** are included in `new-project-setup.md` for Codex CLI and
+Claude Code.
+
 ---
 
 ### 8. [Extending DTB Support](extending-dtb-support.md)
