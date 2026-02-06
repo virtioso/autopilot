@@ -82,6 +82,13 @@ def poll_idle_events(event_queue: queue.Queue, tui: TUIManager, exit_flag: threa
         elif event.kind in ("switch_window", "list_windows"):
             tui.handle_event(event)
 
+def watch_cancel_file(cancel_flag: threading.Event, cancel_path: Path, exit_flag: threading.Event) -> None:
+    while not exit_flag.is_set() and not cancel_flag.is_set():
+        if cancel_path.exists():
+            cancel_flag.set()
+            break
+        time.sleep(0.2)
+
 
 def main() -> None:
     ensure_dirs()
@@ -163,6 +170,8 @@ def main() -> None:
         result_dir = RESULTS_DIR / timestamp
         result_dir.mkdir(parents=True, exist_ok=True)
         source_manager.set_result_dir(result_dir)
+        runtime_dir = RUNTIME_DIR / timestamp
+        runtime_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"\n=== New request: {timestamp} ===", flush=True)
         print(f"Results: {result_dir}/", flush=True)
@@ -199,13 +208,23 @@ def main() -> None:
             print(f"ERROR: {err}", flush=True)
             continue
 
+        cancel_flag = threading.Event()
+        cancel_path = runtime_dir / "cancel"
+        cancel_watcher = threading.Thread(
+            target=watch_cancel_file,
+            args=(cancel_flag, cancel_path, exit_flag),
+            daemon=True,
+        )
+        cancel_watcher.start()
+
         ctx = {
             "board": board,
             "sources": source_manager,
             "tui": tui,
             "event_queue": event_queue,
-            "cancel_flag": threading.Event(),
+            "cancel_flag": cancel_flag,
             "result_dir": result_dir,
+            "runtime_dir": runtime_dir,
             "request_id": timestamp,
             "request": request_data,
             "profile": profile_name,

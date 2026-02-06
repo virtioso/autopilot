@@ -24,6 +24,10 @@ class AbortRun(Exception):
     pass
 
 
+class CancelRun(Exception):
+    pass
+
+
 @dataclass
 class OutcomeMatch:
     label: str
@@ -392,9 +396,7 @@ class ChainRunner:
         current = self.chain["entry"]
         try:
             while True:
-                if self.cancel_flag.is_set():
-                    self.recorder.finalize("failed", abort_reason="canceled")
-                    return "failed"
+                self._check_cancel()
                 step = self.chain["steps"][current]
                 result, next_step = self._run_step(current, step)
                 self.recorder.record_step(result)
@@ -402,6 +404,9 @@ class ChainRunner:
                     self.recorder.finalize(step["type"])
                     return step["type"]
                 current = next_step
+        except CancelRun:
+            self.recorder.finalize("failed", abort_reason="canceled")
+            return "failed"
         except AbortRun:
             self.recorder.finalize("failed", abort_reason="user_abort")
             return "failed"
@@ -443,6 +448,7 @@ class ChainRunner:
         return result, next_step
 
     def _dispatch_step(self, name: str, step: dict) -> Tuple[str, OutcomeMatch]:
+        self._check_cancel()
         step_type = step["type"]
         if step_type == "pass":
             return "pass", OutcomeMatch("pass", "pass", None, None, None, None)
@@ -536,6 +542,7 @@ class ChainRunner:
         start = time.time()
         cursors: Dict[str, int] = {}
         while time.time() - start < timeout_s:
+            self._check_cancel()
             event = self._poll_event()
             if event:
                 if event.kind == "abort":
@@ -585,6 +592,7 @@ class ChainRunner:
     def _step_upload(self, step: dict, kind: str) -> Tuple[str, OutcomeMatch]:
         import subprocess
 
+        self._check_cancel()
         local_path = self._resolve_value(step.get("local_path"))
         if not local_path:
             if kind == "kernel":
@@ -607,6 +615,7 @@ class ChainRunner:
 
     def _step_reboot(self, step: dict) -> Tuple[str, OutcomeMatch]:
         import subprocess
+        self._check_cancel()
         method = step.get("method", "ssh")
         if method == "ssh":
             target_user = step.get("target_user", "root")
@@ -751,6 +760,7 @@ class ChainRunner:
             return self._simple_outcome(step)
         active = True
         while active:
+            self._check_cancel()
             event = self._poll_event()
             if event and event.kind == "abort":
                 self._handle_abort()
@@ -864,6 +874,7 @@ class ChainRunner:
         cursor = offset
 
         while time.time() < deadline:
+            self._check_cancel()
             data, cursor = binding.read_since(cursor)
             if data:
                 chunk = data.decode("utf-8", errors="ignore")
@@ -900,6 +911,10 @@ class ChainRunner:
             except Exception:
                 pass
         raise AbortRun()
+
+    def _check_cancel(self) -> None:
+        if self.cancel_flag.is_set():
+            raise CancelRun()
 
     def _set_status(self, extra: str) -> None:
         tui = self.ctx.get("tui")
