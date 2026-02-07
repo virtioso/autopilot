@@ -235,9 +235,19 @@ def start_autopilot(
     if use_tmux:
         if _tmux_has_session(session):
             _tmux_kill_session(session)
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", session],
+            check=True,
+            env=env,
+        )
+        # Ensure session has required environment (tmux sessions do not inherit
+        # the client environment by default).
+        subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_DIR", str(base)], check=False)
+        subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY0", env["AUTOPILOT_TTY0"]], check=False)
+        subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY1", env["AUTOPILOT_TTY1"]], check=False)
         command_str = " ".join(shlex.quote(part) for part in shlex.split(effective_command))
         subprocess.run(
-            ["tmux", "new-session", "-d", "-s", session, command_str],
+            ["tmux", "send-keys", "-t", session, command_str, "C-m"],
             check=True,
             env=env,
         )
