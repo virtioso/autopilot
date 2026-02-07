@@ -61,6 +61,9 @@ The response includes an `attach_hint`, typically:
 tmux attach -t autopilot
 ```
 
+When submitting tests via MCP, the server will auto-start Autopilot if it is
+not running, so you usually do not need to start it manually.
+
 ## Stop the Autopilot Daemon
 
 1. Press `Ctrl+C` in the running terminal.

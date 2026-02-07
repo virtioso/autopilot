@@ -567,6 +567,16 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         profile = arguments.get("profile", "sel4test")
         description = arguments.get("description", "")
 
+        # Ensure Autopilot daemon is running
+        daemon_status = status_autopilot(autopilot_dir=str(paths["autopilot"]))
+        if not daemon_status.get("running", False):
+            start_result = start_autopilot(autopilot_dir=str(paths["autopilot"]))
+            if start_result.get("status") == "error":
+                return {
+                    "content": [{"type": "text", "text": json.dumps(start_result, indent=2)}],
+                    "isError": True
+                }
+
         # Generate timestamped binary name to detect upload failures
         binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
 
