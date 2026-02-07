@@ -14,6 +14,9 @@ from typing import Optional
 
 DEFAULT_COMMAND = "python3 /home/hlyytine/autopilot/orin_kernel_autopilot.py"
 DEFAULT_TMUX_SESSION = "autopilot"
+# Orin AGX-specific defaults. Replace for other platforms (e.g. RPi4 uses /dev/ttyUSB*).
+DEFAULT_TTY0 = "/dev/ttyACM0"
+DEFAULT_TTY1 = "/dev/ttyACM1"
 
 
 def _runtime_dir(autopilot_dir: Path) -> Path:
@@ -225,6 +228,9 @@ def start_autopilot(
 
     env = os.environ.copy()
     env["AUTOPILOT_DIR"] = str(base)
+    # Orin AGX-specific defaults. Replace for other platforms.
+    env.setdefault("AUTOPILOT_TTY0", DEFAULT_TTY0)
+    env.setdefault("AUTOPILOT_TTY1", DEFAULT_TTY1)
 
     if use_tmux:
         if _tmux_has_session(session):

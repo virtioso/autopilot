@@ -32,6 +32,9 @@ Autopilot can be started/stopped/restarted via MCP tools:
 These tools run the daemon headless by default in a tmux session and return an
 attach hint (`tmux attach -t autopilot`) to access the TUI.
 
+Orin AGX note: MCP start uses default UARTs `/dev/ttyACM0` and `/dev/ttyACM1`.
+Replace these for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*`).
+
 ## When Working From Another Project
 
 If you are running Autopilot from a different project repo, ensure that project

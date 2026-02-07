@@ -64,6 +64,10 @@ tmux attach -t autopilot
 When submitting tests via MCP, the server will auto-start Autopilot if it is
 not running, so you usually do not need to start it manually.
 
+**Orin AGX note**: The MCP start path sets `AUTOPILOT_TTY0=/dev/ttyACM0` and
+`AUTOPILOT_TTY1=/dev/ttyACM1` by default. These are Orin AGX-specific and must
+be replaced for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*`).
+
 ## Stop the Autopilot Daemon
 
 1. Press `Ctrl+C` in the running terminal.

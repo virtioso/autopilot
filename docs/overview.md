@@ -45,6 +45,10 @@ Attach to the TUI:
 tmux attach -t autopilot
 ```
 
+**Orin AGX note**: The MCP start path sets `AUTOPILOT_TTY0=/dev/ttyACM0` and
+`AUTOPILOT_TTY1=/dev/ttyACM1` by default. These are Orin AGX-specific and must
+be replaced for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*`).
+
 ### Submit a Request
 
 Requests are JSON files that specify a **profile**:
