@@ -84,6 +84,28 @@ tmux attach -t autopilot
 }
 ```
 
+### Codex MCP Examples
+
+When calling from Codex, use the fully qualified MCP tool names:
+
+```python
+mcp__sel4-autopilot__autopilot_start(
+    autopilot_dir="/home/hlyytine/tii-sel4/autopilot"
+)
+
+mcp__sel4-autopilot__autopilot_restart(
+    autopilot_dir="/home/hlyytine/tii-sel4/autopilot"
+)
+
+mcp__sel4-autopilot__autopilot_status(
+    autopilot_dir="/home/hlyytine/tii-sel4/autopilot"
+)
+
+mcp__sel4-autopilot__autopilot_stop(
+    autopilot_dir="/home/hlyytine/tii-sel4/autopilot"
+)
+```
+
 ## Chain Model Overview
 
 Each request is executed by a chain definition stored in a profile JSON.
