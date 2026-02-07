@@ -40,6 +40,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+# Autopilot process management
+from autopilot_manager import (
+    start_autopilot,
+    stop_autopilot,
+    restart_autopilot,
+    status_autopilot,
+)
 # Import the sel4_client library
 # Use script directory to find sel4_client, not hardcoded path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -467,6 +474,82 @@ Returns session names, IDs, and log paths if available.""",
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["session_id"]
+        }
+    },
+    {
+        "name": "autopilot_start",
+        "description": """Start the Autopilot daemon (optionally in a tmux session).""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Command to start Autopilot (default: python3 /home/hlyytine/autopilot/orin_kernel_autopilot.py)"
+                },
+                "use_tmux": {
+                    "type": "boolean",
+                    "description": "Run Autopilot inside tmux for attachable TUI",
+                    "default": True
+                },
+                "tmux_session": {
+                    "type": "string",
+                    "description": "tmux session name (default: autopilot)"
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            }
+        }
+    },
+    {
+        "name": "autopilot_stop",
+        "description": """Stop the Autopilot daemon.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "force": {
+                    "type": "boolean",
+                    "description": "Send SIGKILL if SIGTERM does not stop the daemon",
+                    "default": False
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            }
+        }
+    },
+    {
+        "name": "autopilot_restart",
+        "description": """Restart the Autopilot daemon.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Command to start Autopilot (default: python3 /home/hlyytine/autopilot/orin_kernel_autopilot.py)"
+                },
+                "use_tmux": {
+                    "type": "boolean",
+                    "description": "Run Autopilot inside tmux for attachable TUI",
+                    "default": True
+                },
+                "tmux_session": {
+                    "type": "string",
+                    "description": "tmux session name (default: autopilot)"
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "Send SIGKILL if SIGTERM does not stop the daemon",
+                    "default": False
+                },
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            }
+        }
+    },
+    {
+        "name": "autopilot_status",
+        "description": """Get Autopilot daemon status.""",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "autopilot_dir": AUTOPILOT_DIR_PROP
+            }
         }
     }
 ]
@@ -1002,6 +1085,54 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         close_console_session(session_id, autopilot_dir=autopilot_dir)
         return {
             "content": [{"type": "text", "text": f"Closed session {session_id}"}],
+            "isError": False
+        }
+    elif name == "autopilot_start":
+        command = arguments.get("command")
+        use_tmux = arguments.get("use_tmux", True)
+        tmux_session = arguments.get("tmux_session")
+        result = start_autopilot(
+            autopilot_dir=str(paths["autopilot"]),
+            command=command,
+            use_tmux=use_tmux,
+            tmux_session=tmux_session,
+        )
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
+            "isError": result.get("status") == "error"
+        }
+    elif name == "autopilot_stop":
+        force = arguments.get("force", False)
+        result = stop_autopilot(
+            autopilot_dir=str(paths["autopilot"]),
+            force=force,
+        )
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
+            "isError": False
+        }
+    elif name == "autopilot_restart":
+        command = arguments.get("command")
+        use_tmux = arguments.get("use_tmux", True)
+        tmux_session = arguments.get("tmux_session")
+        force = arguments.get("force", False)
+        result = restart_autopilot(
+            autopilot_dir=str(paths["autopilot"]),
+            command=command,
+            use_tmux=use_tmux,
+            tmux_session=tmux_session,
+            force=force,
+        )
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
+            "isError": result.get("status") == "error"
+        }
+    elif name == "autopilot_status":
+        result = status_autopilot(
+            autopilot_dir=str(paths["autopilot"]),
+        )
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
             "isError": False
         }
 

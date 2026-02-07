@@ -21,6 +21,17 @@ path. Profiles are static data and live in the code repo at
 anywhere (for example `~/autopilot`), while each project uses its own
 `AUTOPILOT_DIR`.
 
+## MCP-Controlled Autopilot Daemon
+
+Autopilot can be started/stopped/restarted via MCP tools:
+- `autopilot_start`
+- `autopilot_stop`
+- `autopilot_restart`
+- `autopilot_status`
+
+These tools run the daemon headless by default in a tmux session and return an
+attach hint (`tmux attach -t autopilot`) to access the TUI.
+
 ## When Working From Another Project
 
 If you are running Autopilot from a different project repo, ensure that project

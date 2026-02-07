@@ -27,6 +27,24 @@ cd /home/hlyytine/autopilot
 AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot python3 orin_kernel_autopilot.py
 ```
 
+### Start Autopilot via MCP (Headless + tmux TUI)
+
+If you want Autopilot running headless while preserving the TUI, start it via
+MCP in a tmux session:
+
+```json
+{
+  "tool": "autopilot_start",
+  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot"
+}
+```
+
+Attach to the TUI:
+
+```bash
+tmux attach -t autopilot
+```
+
 ### Submit a Request
 
 Requests are JSON files that specify a **profile**:

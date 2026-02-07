@@ -44,10 +44,45 @@ Confirm it prints:
 - `Watching: .../requests/pending`
 - `Results:  .../results`
 
+### Start via MCP (Headless + tmux TUI)
+
+Use the MCP tools to start Autopilot in a detached tmux session:
+
+```json
+{
+  "tool": "autopilot_start",
+  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot"
+}
+```
+
+The response includes an `attach_hint`, typically:
+
+```bash
+tmux attach -t autopilot
+```
+
 ## Stop the Autopilot Daemon
 
 1. Press `Ctrl+C` in the running terminal.
 2. Autopilot will move any `processing` requests back to `pending`.
+
+### Stop via MCP
+
+```json
+{
+  "tool": "autopilot_stop",
+  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot"
+}
+```
+
+### Restart via MCP
+
+```json
+{
+  "tool": "autopilot_restart",
+  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot"
+}
+```
 
 ## Chain Model Overview
 
