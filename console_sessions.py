@@ -12,6 +12,8 @@ import serial
 
 DEFAULT_BAUD = 115200
 LOG_BUFFER_LIMIT = 65536
+CODE_DIR = Path(__file__).resolve().parent
+PROFILES_DIR = CODE_DIR / "profiles"
 
 
 @dataclass
@@ -213,7 +215,7 @@ class ConsoleSession:
 class ConsoleManager:
     def __init__(self, autopilot_dir: Path):
         self.autopilot_dir = autopilot_dir
-        self.profiles_dir = autopilot_dir / "profiles"
+        self.profiles_dir = PROFILES_DIR
         self.runtime_dir = autopilot_dir / "runtime" / "console"
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.sessions = {}

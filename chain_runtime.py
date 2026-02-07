@@ -644,32 +644,57 @@ class ChainRunner:
         # Wait for UEFI prompt and enter menu
         idx = self._wait_for_any_pattern(
             source,
-            [r"Enter to continue boot\.", r"Press ESCAPE for boot options"],
+            [
+                r"Enter to continue boot\.",
+                r"Press ESCAPE for boot options",
+                r"Press ESC to enter Setup",
+                r"ESC\s+to enter Setup",
+                r"F11\s+to enter Boot Manager Menu",
+            ],
             prompt_timeout_s,
         )
         if idx == -1:
             raise RuntimeError("Failed to get UEFI prompt")
-        time.sleep(1)
-        self.ctx["sources"].get(source).write("\x1b")
-
-        # Wait for UEFI menu
-        if not self._wait_for_pattern(source, r"Select Entry", select_timeout_s):
-            raise RuntimeError("Failed to get UEFI Select Entry menu")
-        time.sleep(1)
         binding = self.ctx["sources"].get(source)
-        binding.write("\x1b[B")  # Down
-        time.sleep(0.3)
-        binding.write("\x1b[B")  # Down
-        time.sleep(0.3)
-        binding.write("\r")      # Enter
+        binding.write("\x1b")
 
-        # Wait for Boot Manager
-        if not self._wait_for_pattern(source, r"Esc=Exit", boot_manager_timeout_s):
-            raise RuntimeError("Failed to get Boot Manager menu")
+        # Wait for UEFI menu (fallback to F11 if needed)
+        idx = self._wait_for_any_pattern(
+            source,
+            [r"Select Entry", r"Please select boot device"],
+            select_timeout_s,
+        )
+        if idx == -1:
+            binding.write("\x1b[23~")  # F11
+            idx = self._wait_for_any_pattern(
+                source,
+                [r"Select Entry", r"Please select boot device"],
+                select_timeout_s,
+            )
+            if idx == -1:
+                raise RuntimeError("Failed to get UEFI Select Entry menu")
         time.sleep(1)
-        binding.write("\x1b[A")  # Up (UEFI Shell)
-        time.sleep(0.3)
-        binding.write("\r")      # Enter
+        if idx == 0:
+            # "Select Entry" menu -> Boot Manager -> UEFI Shell
+            binding.write("\x1b[B")  # Down
+            time.sleep(0.3)
+            binding.write("\x1b[B")  # Down
+            time.sleep(0.3)
+            binding.write("\r")      # Enter
+
+            # Wait for Boot Manager
+            if not self._wait_for_pattern(source, r"Esc=Exit|ESC to exit", boot_manager_timeout_s):
+                raise RuntimeError("Failed to get Boot Manager menu")
+            time.sleep(1)
+            binding.write("\x1b[A")  # Up (UEFI Shell)
+            time.sleep(0.3)
+            binding.write("\r")      # Enter
+        else:
+            # "Please select boot device" menu -> select UEFI Shell directly
+            for _ in range(6):
+                binding.write("\x1b[B")
+                time.sleep(0.2)
+            binding.write("\r")
 
         # Wait for Shell prompt (handle startup.nsh delay)
         while True:

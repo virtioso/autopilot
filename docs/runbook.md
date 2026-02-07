@@ -1,6 +1,6 @@
 # Autopilot Runbook
 
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-07
 
 This runbook describes how to operate the Autopilot service and how the new
 chain-based execution model works, including startup mappings, recovery
@@ -26,20 +26,17 @@ behavior, and the built-in TUI controls.
 
 ## Directory Layout
 
-- Code: `/home/hlyytine/pkvm/autopilot`
+- Code: `/home/hlyytine/autopilot`
 - Working dir: `${AUTOPILOT_DIR:-/home/hlyytine/tii-sel4/autopilot}`
 - Requests: `${AUTOPILOT_DIR}/requests`
 - Results: `${AUTOPILOT_DIR}/results`
 - Runtime state: `${AUTOPILOT_DIR}/runtime`
-- Profiles: `${AUTOPILOT_DIR}/profiles` (copied or symlinked)
-
-Ensure profiles are synchronized from the code repo:
-`/home/hlyytine/pkvm/autopilot/profiles` -> `${AUTOPILOT_DIR}/profiles`.
+- Profiles: `/home/hlyytine/autopilot/profiles` (code repo, single source of truth)
 
 ## Start the Autopilot Daemon
 
 ```bash
-cd /home/hlyytine/pkvm/autopilot
+cd /home/hlyytine/autopilot
 AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot python3 orin_kernel_autopilot.py
 ```
 
@@ -176,11 +173,14 @@ EOF
 
 ## Profile Chains (Where to Edit)
 
-Profiles live in `${AUTOPILOT_DIR}/profiles`. Each profile defines:
+Profiles live in `/home/hlyytine/autopilot/profiles`. Each profile defines:
 
 - `chain.entry`
 - `chain.steps`
 - optional `chain.subchains`
+
+Profiles are static data. Edit them only in the code repo and do not copy them into
+`AUTOPILOT_DIR`.
 
 Example step types:
 - `relay`

@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage: new-project-init.sh <project_root> [autopilot_dir]
 
-Creates an Autopilot working directory (queues/results/profiles) inside the
+Creates an Autopilot working directory (queues/results/runtime) inside the
 project and optionally writes a .mcp.json for MCP clients.
 
 Arguments:
@@ -28,13 +28,8 @@ project_root="$1"
 autopilot_dir="${2:-${project_root%/}/autopilot}"
 autopilot_code="${AUTOPILOT_CODE:-$HOME/autopilot}"
 
-mkdir -p "${autopilot_dir}/profiles"
 mkdir -p "${autopilot_dir}/requests/"{pending,inflight,done,failed}
 mkdir -p "${autopilot_dir}/results"
-
-if [[ -d "${autopilot_code}/profiles" ]]; then
-  cp -r "${autopilot_code}/profiles/"* "${autopilot_dir}/profiles/" || true
-fi
 
 cat > "${project_root%/}/.mcp.json" <<EOF
 {

@@ -15,6 +15,7 @@ from console_sessions import ConsoleManager
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 AUTOPILOT_DIR = Path(os.environ.get("AUTOPILOT_DIR", str(SCRIPT_DIR)))
+PROFILES_DIR = SCRIPT_DIR / "profiles"
 
 WORKSPACE = Path(os.environ.get("WORKSPACE", "/home/hlyytine/pkvm"))
 KERNEL_DIR = WORKSPACE / "Linux_for_Tegra/source/kernel/linux"
@@ -30,12 +31,11 @@ PROCESSING_DIR = AUTOPILOT_DIR / "requests" / "processing"
 COMPLETED_DIR = AUTOPILOT_DIR / "requests" / "completed"
 FAILED_DIR = AUTOPILOT_DIR / "requests" / "failed"
 RESULTS_DIR = AUTOPILOT_DIR / "results"
-PROFILES_DIR = AUTOPILOT_DIR / "profiles"
 RUNTIME_DIR = AUTOPILOT_DIR / "runtime"
 
 
 def ensure_dirs() -> None:
-    for d in [PENDING_DIR, PROCESSING_DIR, COMPLETED_DIR, FAILED_DIR, RESULTS_DIR, PROFILES_DIR, RUNTIME_DIR]:
+    for d in [PENDING_DIR, PROCESSING_DIR, COMPLETED_DIR, FAILED_DIR, RESULTS_DIR, RUNTIME_DIR]:
         d.mkdir(parents=True, exist_ok=True)
 
 

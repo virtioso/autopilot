@@ -1,7 +1,7 @@
 # Autopilot In A New Project
 
 This guide explains how to use Autopilot as a standalone tool while keeping
-project-specific state (queues, results, profiles) inside each project repo.
+project-specific state (queues, results, runtime) inside each project repo.
 
 ## Goal
 
@@ -24,14 +24,8 @@ Example:
 Create queues and results directories:
 
 ```bash
-mkdir -p ~/tii-sel4/autopilot/{profiles,requests,results}
+mkdir -p ~/tii-sel4/autopilot/{requests,results}
 mkdir -p ~/tii-sel4/autopilot/requests/{pending,inflight,done,failed}
-```
-
-Sync profiles from the code repo:
-
-```bash
-cp -r ~/autopilot/profiles/* ~/tii-sel4/autopilot/profiles/
 ```
 
 ### Optional: One-command initializer
@@ -125,4 +119,5 @@ operate via the request/result queues.
 ## Notes
 
 - Autopilot code and project working directories are decoupled on purpose.
-- Profiles are project-local; update them per project needs.
+- Profiles are **static data** and live in `~/autopilot/profiles` (single source of truth).
+- Do not copy profiles into `AUTOPILOT_DIR`; edits must be made in the code repo.

@@ -1,6 +1,6 @@
 # Autopilot System Overview
 
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-07
 
 ## Purpose
 
@@ -23,7 +23,7 @@ structured results for humans and AI tools.
 ### Start Autopilot
 
 ```bash
-cd /home/hlyytine/pkvm/autopilot
+cd /home/hlyytine/autopilot
 AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot python3 orin_kernel_autopilot.py
 ```
 
@@ -43,6 +43,8 @@ EOF
 ```
 
 Results appear in `results/<timestamp>/`.
+
+Profiles are static data and live in `/home/hlyytine/autopilot/profiles` (single source of truth).
 
 ## Chain Model (Summary)
 

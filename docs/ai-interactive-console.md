@@ -1,6 +1,6 @@
 # AI Interactive Console Guide
 
-**Last Updated**: 2026-02-04
+**Last Updated**: 2026-02-07
 
 This guide explains how AI tools (Codex/Claude Code) can interact with guest
 Linux consoles through Autopilot. It is designed to be generic and works for
@@ -24,8 +24,8 @@ If MCP is unavailable, fall back to the request/result queues in `AUTOPILOT_DIR`
 ## Mandatory: Set AUTOPILOT_DIR
 
 Always set `AUTOPILOT_DIR` in your environment before using the client or MCP tools.
-This points to the **working directory** that contains the request/result queues
-and profiles, not the code location.
+This points to the **working directory** that contains the request/result queues,
+not the code location.
 
 Example:
 
@@ -34,13 +34,13 @@ export AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot
 ```
 
 If you need to reference the client library explicitly, use the code location:
-`/home/hlyytine/pkvm/autopilot/sel4_client.py`
+`/home/hlyytine/autopilot/sel4_client.py`
 
 ## Profiles
 
-Profiles live in `profiles/` and define prompts and login behavior.
+Profiles live in `/home/hlyytine/autopilot/profiles/` and define prompts and login behavior.
 
-Example: `profiles/linux-yocto.json`
+Example: `/home/hlyytine/autopilot/profiles/linux-yocto.json`
 ```json
 {
   "name": "linux-yocto",
@@ -59,6 +59,9 @@ Example: `profiles/linux-yocto.json`
 
 Profiles are **generic**. Create additional profiles for different guest OS
 prompts or login flows.
+
+Profiles are **static data**. Edit them only in `/home/hlyytine/autopilot/profiles` (the
+code repo) and do not copy them into `AUTOPILOT_DIR`.
 
 ## Step 1: Submit a boot_interactive request
 
