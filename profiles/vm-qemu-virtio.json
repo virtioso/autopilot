@@ -110,11 +110,11 @@
         "on_timeout": "fail"
       },
       "boot_efi": {
-        "type": "boot_menu",
+        "type": "uefi_shell_run",
         "source": "tty0",
-        "boot_option": "2",
+        "fs": "fs3",
         "outcomes": [
-          { "label": "menu", "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot", "source": "tty0", "next": "wait_capdl" }
+          { "label": "ok", "next": "wait_capdl" }
         ],
         "on_timeout": "fail"
       },

@@ -465,6 +465,8 @@ class ChainRunner:
             return self._step_send_cmd(step)
         if step_type == "boot_menu":
             return self._step_boot_menu(step)
+        if step_type == "uefi_shell_run":
+            return self._step_uefi_shell_run(step)
         if step_type == "wait_pattern":
             return self._step_wait_pattern(step)
         if step_type == "upload_kernel":
@@ -590,6 +592,118 @@ class ChainRunner:
             log_path=None,
             log_offset=None,
         )
+
+    def _wait_for_any_pattern(self, source: str, patterns: List[str], timeout_s: int) -> int:
+        start = time.time()
+        cursor = 0
+        binding = self.ctx["sources"].get(source)
+        if not binding:
+            raise ValueError(f"unknown source {source}")
+        while time.time() - start < timeout_s:
+            self._check_cancel()
+            event = self._poll_event()
+            if event:
+                if event.kind == "abort":
+                    self._handle_abort()
+                if event.kind == "exit":
+                    self.ctx["exit_flag"].set()
+                    raise AbortRun()
+                if event.kind in ("switch_window", "list_windows"):
+                    self.ctx["tui"].handle_event(event)
+            data, new_cursor = binding.read_since(cursor)
+            cursor = new_cursor
+            if not data:
+                time.sleep(0.1)
+                continue
+            text = data.decode("utf-8", errors="ignore")
+            for idx, pattern in enumerate(patterns):
+                if re.search(pattern, text, re.MULTILINE):
+                    return idx
+        return -1
+
+    def _wait_for_pattern(self, source: str, pattern: str, timeout_s: int) -> bool:
+        return self._wait_for_any_pattern(source, [pattern], timeout_s) == 0
+
+    def _step_uefi_shell_run(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        source = step.get("source")
+        if not source:
+            raise ValueError("uefi_shell_run requires source")
+        binary_name = self._resolve_value(step.get("binary_name"))
+        if not binary_name:
+            binary_name = (self.ctx.get("request") or {}).get("binary_name")
+        if not binary_name:
+            raise ValueError("uefi_shell_run requires binary_name")
+        fs = step.get("fs", "fs3")
+        prompt_timeout_s = int(step.get("prompt_timeout_s", 60))
+        select_timeout_s = int(step.get("select_timeout_s", 30))
+        boot_manager_timeout_s = int(step.get("boot_manager_timeout_s", 30))
+        shell_timeout_s = int(step.get("shell_timeout_s", 30))
+        fs_timeout_s = int(step.get("fs_timeout_s", 10))
+        error_timeout_s = int(step.get("error_timeout_s", 2))
+
+        # Wait for UEFI prompt and enter menu
+        idx = self._wait_for_any_pattern(
+            source,
+            [r"Enter to continue boot\.", r"Press ESCAPE for boot options"],
+            prompt_timeout_s,
+        )
+        if idx == -1:
+            raise RuntimeError("Failed to get UEFI prompt")
+        time.sleep(1)
+        self.ctx["sources"].get(source).write("\x1b")
+
+        # Wait for UEFI menu
+        if not self._wait_for_pattern(source, r"Select Entry", select_timeout_s):
+            raise RuntimeError("Failed to get UEFI Select Entry menu")
+        time.sleep(1)
+        binding = self.ctx["sources"].get(source)
+        binding.write("\x1b[B")  # Down
+        time.sleep(0.3)
+        binding.write("\x1b[B")  # Down
+        time.sleep(0.3)
+        binding.write("\r")      # Enter
+
+        # Wait for Boot Manager
+        if not self._wait_for_pattern(source, r"Esc=Exit", boot_manager_timeout_s):
+            raise RuntimeError("Failed to get Boot Manager menu")
+        time.sleep(1)
+        binding.write("\x1b[A")  # Up (UEFI Shell)
+        time.sleep(0.3)
+        binding.write("\r")      # Enter
+
+        # Wait for Shell prompt (handle startup.nsh delay)
+        while True:
+            idx = self._wait_for_any_pattern(
+                source,
+                [r"Shell>", r"Press ESC in \d+ seconds"],
+                shell_timeout_s,
+            )
+            if idx == 0:
+                break
+            if idx == 1:
+                binding.write(" ")
+                continue
+            raise RuntimeError("Failed to get Shell prompt")
+
+        fs_cmd = fs
+        if not fs_cmd.endswith(":"):
+            fs_cmd = f"{fs_cmd}:"
+        binding.write(f"{fs_cmd}\r")
+
+        fs_prompt = re.escape(fs_cmd.upper()) + r"\\>"
+        if not self._wait_for_pattern(source, fs_prompt, fs_timeout_s):
+            raise RuntimeError(f"Failed to switch to {fs_cmd}")
+
+        binding.write(f"{binary_name}\r")
+        idx = self._wait_for_any_pattern(
+            source,
+            [r"is not recognized as an internal or external command", r".+"],
+            error_timeout_s,
+        )
+        if idx == 0:
+            raise RuntimeError(f"Binary not found on target: {binary_name}")
+
+        return self._simple_outcome(step)
 
     def _step_upload(self, step: dict, kind: str) -> Tuple[str, OutcomeMatch]:
         import subprocess

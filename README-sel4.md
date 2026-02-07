@@ -116,7 +116,7 @@ from sel4_client import (
 
 ## UEFI Navigation Sequence
 
-The `SeL4RunHarness` navigates UEFI menus automatically:
+The chain `uefi_shell_run` step navigates UEFI menus automatically:
 
 1. Wait for "Enter to continue boot." → send ESC
 2. Wait for "Select Entry" → Down, Down, Enter (Boot Manager)

@@ -60,6 +60,7 @@ If regex-based:
 Action steps:
 - `relay`
 - `boot_menu`
+- `uefi_shell_run`
 - `wait_pattern`
 - `upload_kernel`
 - `upload_efi`
@@ -76,6 +77,30 @@ Action steps:
 Terminal steps:
 - `pass`
 - `fail`
+
+## Example: uefi_shell_run
+
+Runs an EFI binary via the UEFI Shell (Boot Manager → UEFI Shell → `fsX:`).
+
+```json
+{
+  "type": "uefi_shell_run",
+  "source": "tty0",
+  "fs": "fs3",
+  "binary_name": "{binary_name}",
+  "outcomes": [
+    { "label": "ok", "next": "wait_sel4" }
+  ],
+  "on_timeout": "fail"
+}
+```
+
+Supported parameters:
+- `source` (required): console source name (e.g. `tty0`).
+- `fs` (optional): filesystem alias to select (default `fs3`).
+- `binary_name` (optional): EFI filename. Defaults to request `binary_name`.
+- `prompt_timeout_s`, `select_timeout_s`, `boot_manager_timeout_s`,
+  `shell_timeout_s`, `fs_timeout_s`, `error_timeout_s` (optional): timeouts.
 
 ## Example: map_source
 
