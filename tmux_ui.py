@@ -28,6 +28,7 @@ class TmuxUIState:
             "subchain": None,
             "step": None,
             "elapsed_s": None,
+            "status_text": "",
             "source_map": {},
             "window_map": {},
         }
@@ -57,6 +58,11 @@ class TmuxUIState:
         with self._lock:
             self._state["step"] = step
             self._state["elapsed_s"] = elapsed_s
+            self._flush_locked()
+
+    def set_status_text(self, text: str) -> None:
+        with self._lock:
+            self._state["status_text"] = text
             self._flush_locked()
 
     def set_subchain(self, subchain: str) -> None:
@@ -218,3 +224,44 @@ def detect_tmux_session() -> Optional[str]:
         return None
     name = proc.stdout.strip()
     return name or None
+
+
+class TmuxUICompat:
+    """Compatibility shim while chain runtime still expects a TUI-like object."""
+
+    def __init__(self, state: TmuxUIState, windows: Optional[TmuxWindowManager] = None):
+        self.state = state
+        self.windows = windows
+        self.enabled = True
+        self.active_window = 1
+        self.window_map: Dict[int, str] = {}
+        self.interactive_enabled = False
+        self.status_text = ""
+
+    def start(self, event_queue) -> None:
+        _ = event_queue
+
+    def stop(self) -> None:
+        return
+
+    def set_input_handler(self, handler) -> None:
+        _ = handler
+
+    def emit_output(self, source: str, data: bytes) -> None:
+        _ = source
+        _ = data
+
+    def handle_event(self, event) -> None:
+        _ = event
+
+    def bind_window(self, window: int, source: str, title: Optional[str] = None) -> None:
+        self.window_map[window] = source
+        self.state.map_window(window, source, title=title)
+        if self.windows:
+            live_path = self.state.live_path_for_source(source)
+            cmd = f"tail -n +1 -F {live_path}"
+            self.windows.ensure_window(window, title or source, cmd)
+
+    def set_status(self, text: str) -> None:
+        self.status_text = text
+        self.state.set_status_text(text)
