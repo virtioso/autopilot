@@ -29,8 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# Default autopilot directory (can be overridden via AUTOPILOT_DIR env var or function parameter)
-DEFAULT_AUTOPILOT_DIR = Path('/home/hlyytine/tii-sel4/autopilot')
+from config import get_autopilot_dir, get_paths
 
 
 class QueueNotEmptyError(RuntimeError):
@@ -38,50 +37,6 @@ class QueueNotEmptyError(RuntimeError):
         super().__init__("queue_not_empty")
         self.pending = pending
         self.processing = processing
-
-
-def get_autopilot_dir(override: str = None) -> Path:
-    """Get the autopilot working directory.
-
-    Priority order:
-    1. override parameter (if provided)
-    2. AUTOPILOT_DIR environment variable (if set)
-    3. Default: /home/hlyytine/pkvm/autopilot
-
-    Args:
-        override: Optional path to use instead of env var or default
-
-    Returns:
-        Path to the autopilot directory
-    """
-    if override:
-        return Path(override)
-    env_dir = os.environ.get('AUTOPILOT_DIR')
-    if env_dir:
-        return Path(env_dir)
-    return DEFAULT_AUTOPILOT_DIR
-
-
-def get_paths(autopilot_dir: str = None) -> dict:
-    """Get all autopilot paths derived from the base directory.
-
-    Args:
-        autopilot_dir: Optional override for the autopilot directory
-
-    Returns:
-        dict with keys: autopilot, pending, processing, completed, failed, results, binaries
-    """
-    base = get_autopilot_dir(autopilot_dir)
-    return {
-        'autopilot': base,
-        'pending': base / 'requests' / 'pending',
-        'processing': base / 'requests' / 'processing',
-        'completed': base / 'requests' / 'completed',
-        'failed': base / 'requests' / 'failed',
-        'results': base / 'results',
-        'binaries': base / 'binaries',
-        'runtime': base / 'runtime',
-    }
 
 
 # Legacy module-level paths for backward compatibility

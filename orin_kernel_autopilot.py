@@ -12,9 +12,10 @@ from pathlib import Path
 import BoardControl
 from chain_runtime import ChainRecorder, ChainRunner, SourceManager, TUIManager
 from console_sessions import ConsoleManager
+from config import get_autopilot_dir, get_default_ttys, get_paths
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-AUTOPILOT_DIR = Path(os.environ.get("AUTOPILOT_DIR", str(SCRIPT_DIR)))
+AUTOPILOT_DIR = get_autopilot_dir()
 PROFILES_DIR = SCRIPT_DIR / "profiles"
 
 WORKSPACE = Path(os.environ.get("WORKSPACE", "/home/hlyytine/pkvm"))
@@ -23,15 +24,15 @@ KERNEL_IMAGE = KERNEL_DIR / "arch/arm64/boot/Image"
 KERNEL_RELEASE_FILE = KERNEL_DIR / "include/config/kernel.release"
 
 TARGET_IP = os.environ.get("AUTOPILOT_TARGET_IP", "192.168.101.112")
-DEFAULT_TTY0 = os.environ.get("AUTOPILOT_TTY0", "/dev/ttyACM0")
-DEFAULT_TTY1 = os.environ.get("AUTOPILOT_TTY1", "/dev/ttyACM1")
+DEFAULT_TTY0, DEFAULT_TTY1 = get_default_ttys()
 
-PENDING_DIR = AUTOPILOT_DIR / "requests" / "pending"
-PROCESSING_DIR = AUTOPILOT_DIR / "requests" / "processing"
-COMPLETED_DIR = AUTOPILOT_DIR / "requests" / "completed"
-FAILED_DIR = AUTOPILOT_DIR / "requests" / "failed"
-RESULTS_DIR = AUTOPILOT_DIR / "results"
-RUNTIME_DIR = AUTOPILOT_DIR / "runtime"
+PATHS = get_paths(str(AUTOPILOT_DIR))
+PENDING_DIR = PATHS["pending"]
+PROCESSING_DIR = PATHS["processing"]
+COMPLETED_DIR = PATHS["completed"]
+FAILED_DIR = PATHS["failed"]
+RESULTS_DIR = PATHS["results"]
+RUNTIME_DIR = PATHS["runtime"]
 
 
 def ensure_dirs() -> None:

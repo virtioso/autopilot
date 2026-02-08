@@ -11,12 +11,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from config import DEFAULT_TTY0, DEFAULT_TTY1
 
 DEFAULT_COMMAND = "python3 /home/hlyytine/autopilot/orin_kernel_autopilot.py"
 DEFAULT_TMUX_SESSION = "autopilot"
-# Orin AGX-specific defaults. Replace for other platforms (e.g. RPi4 uses /dev/ttyUSB*).
-DEFAULT_TTY0 = "/dev/ttyACM0"
-DEFAULT_TTY1 = "/dev/ttyACM1"
 
 
 def _runtime_dir(autopilot_dir: Path) -> Path:

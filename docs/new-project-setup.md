@@ -9,6 +9,8 @@ project-specific state (queues, results, runtime) inside each project repo.
 - Keep Autopilot **working state** per project (example: `~/tii-sel4/autopilot`).
 - Make it easy for AI tools (Codex/Claude Code) to use Autopilot in any repo.
 
+Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
+
 ## Recommended Layout
 
 - Code location: `~/autopilot` (or any path you prefer)
@@ -25,7 +27,7 @@ Create queues and results directories:
 
 ```bash
 mkdir -p ~/tii-sel4/autopilot/{requests,results}
-mkdir -p ~/tii-sel4/autopilot/requests/{pending,inflight,done,failed}
+mkdir -p ~/tii-sel4/autopilot/requests/{pending,processing,completed,failed}
 ```
 
 ### Optional: One-command initializer

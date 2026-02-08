@@ -75,10 +75,12 @@ Create a `.request` file in `requests/pending/`:
 }
 ```
 
+Defaults (AUTOPILOT_DIR/TTYs and queue names) are defined in `config.py` (SSOT).
+
 ## Directory Structure
 
 ```
-~/pkvm/autopilot/
+~/tii-sel4/autopilot/
 ├── requests/
 │   ├── pending/          # New requests go here
 │   ├── processing/       # Currently running test

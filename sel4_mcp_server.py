@@ -24,7 +24,7 @@ Configuration for Claude Code (~/.claude/settings.json):
       "mcpServers": {
         "sel4-autopilot": {
           "command": "python3",
-          "args": ["/home/hlyytine/pkvm/autopilot/sel4_mcp_server.py"]
+          "args": ["/home/hlyytine/autopilot/sel4_mcp_server.py"]
         }
       }
     }
@@ -98,7 +98,7 @@ def send_notification(method: str, params: Any = None):
 # Common autopilot_dir property for all tools
 AUTOPILOT_DIR_PROP = {
     "type": "string",
-    "description": "Override autopilot working directory (default: $AUTOPILOT_DIR or /home/hlyytine/pkvm/autopilot)"
+    "description": "Override autopilot working directory (default: $AUTOPILOT_DIR or /home/hlyytine/tii-sel4/autopilot)"
 }
 
 # Tool definitions

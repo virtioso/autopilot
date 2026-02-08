@@ -4,6 +4,8 @@
 
 This directory contains comprehensive documentation for the Autopilot automated kernel testing system for the NVIDIA Jetson AGX Orin (Tegra234) platform.
 
+Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
+
 ## Documentation Index
 
 ### 1. [Overview](overview.md)

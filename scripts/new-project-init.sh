@@ -28,7 +28,7 @@ project_root="$1"
 autopilot_dir="${2:-${project_root%/}/autopilot}"
 autopilot_code="${AUTOPILOT_CODE:-$HOME/autopilot}"
 
-mkdir -p "${autopilot_dir}/requests/"{pending,inflight,done,failed}
+mkdir -p "${autopilot_dir}/requests/"{pending,processing,completed,failed}
 mkdir -p "${autopilot_dir}/results"
 
 cat > "${project_root%/}/.mcp.json" <<EOF

@@ -18,6 +18,8 @@ structured results for humans and AI tools.
 - **Built-in TUI**: Screen-like hotkeys to switch windows and abort runs.
 - **Structured Results**: `chain.json` captures step-by-step outcomes and errors.
 
+Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
+
 ## Quick Start
 
 ### Start Autopilot

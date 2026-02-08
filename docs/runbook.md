@@ -33,6 +33,8 @@ behavior, and the built-in TUI controls.
 - Runtime state: `${AUTOPILOT_DIR}/runtime`
 - Profiles: `/home/hlyytine/autopilot/profiles` (code repo, single source of truth)
 
+Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
+
 ## Start the Autopilot Daemon
 
 ```bash
