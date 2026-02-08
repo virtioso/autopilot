@@ -2,9 +2,6 @@ import json
 import os
 import queue
 import re
-import select
-import shutil
-import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -172,9 +169,9 @@ class SourceBinding:
 
 
 class SourceManager:
-    def __init__(self, result_dir: Path, tui=None):
+    def __init__(self, result_dir: Path, ui=None):
         self.result_dir = result_dir
-        self.tui = tui
+        self.ui = ui
         self.sources: Dict[str, SourceBinding] = {}
         self.tty_to_source: Dict[str, str] = {}
 
@@ -191,8 +188,8 @@ class SourceManager:
         self.tty_to_source[tty] = source
 
     def _emit(self, source: str, data: bytes) -> None:
-        if self.tui:
-            self.tui.emit_output(source, data)
+        if self.ui:
+            self.ui.emit_output(source, data)
 
     def get(self, source: str) -> Optional[SourceBinding]:
         return self.sources.get(source)
@@ -201,161 +198,6 @@ class SourceManager:
         for binding in list(self.sources.values()):
             binding.stop()
         self.sources.clear()
-
-
-class TUIManager:
-    def __init__(self):
-        self.enabled = sys.stdin.isatty()
-        self.active_window = 1
-        self.window_map: Dict[int, str] = {}
-        self.interactive_enabled = False
-        self.status_text = ""
-        self._lock = threading.Lock()
-        self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-        self._event_queue: Optional[queue.Queue] = None
-        self._input_handler = None
-        self._rows = 0
-        self._use_bottom = True
-
-    def start(self, event_queue: queue.Queue) -> None:
-        if not self.enabled:
-            return
-        self._event_queue = event_queue
-        self._rows = shutil.get_terminal_size((80, 24)).lines
-        self._init_status_line()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self) -> None:
-        import termios
-        import tty
-        old = termios.tcgetattr(sys.stdin)
-        try:
-            tty.setraw(sys.stdin.fileno())
-            while not self._stop.is_set():
-                r, _, _ = select.select([sys.stdin], [], [], 0.1)
-                if not r:
-                    continue
-                ch = sys.stdin.read(1)
-                if ch != "\x01":
-                    if self.interactive_enabled:
-                        self._send_input(ch)
-                    continue
-                nxt = sys.stdin.read(1)
-                if nxt in ("x", "X"):
-                    self._event_queue.put(Event("exit"))
-                elif nxt in ("w", "W"):
-                    self._event_queue.put(Event("list_windows"))
-                elif nxt in ("r", "R"):
-                    self._event_queue.put(Event("abort"))
-                elif nxt in ("i", "I"):
-                    self.interactive_enabled = not self.interactive_enabled
-                    state = "enabled" if self.interactive_enabled else "disabled"
-                    self._print(f"[TUI] interactive {state}\n")
-                    self.set_status(self.status_text)
-                elif nxt.isdigit():
-                    self._event_queue.put(Event("switch_window", {"window": int(nxt)}))
-        finally:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
-            self._reset_status_line()
-
-    def stop(self) -> None:
-        if not self.enabled:
-            return
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=1.0)
-
-    def bind_window(self, window: int, source: str, title: Optional[str] = None) -> None:
-        self.window_map[window] = source
-        self._print(f"[TUI] window {window} -> {source}{' (' + title + ')' if title else ''}\n")
-        self.set_status(self.status_text)
-
-    def handle_event(self, event: Event) -> None:
-        if event.kind == "switch_window":
-            window = int(event.payload.get("window", 1))
-            self.active_window = window
-            self._print(f"[TUI] switched to window {window}\n")
-            self.set_status(self.status_text)
-        elif event.kind == "list_windows":
-            lines = ["[TUI] window list:"]
-            for win in sorted(self.window_map.keys()):
-                src = self.window_map[win]
-                marker = "*" if win == self.active_window else " "
-                lines.append(f"  {marker} {win}: {src}")
-            self._print("\n".join(lines) + "\n")
-
-    def emit_output(self, source: str, data: bytes) -> None:
-        for win, src in self.window_map.items():
-            if src == source and win == self.active_window:
-                self._print(self._sanitize_output(data))
-                break
-
-    def set_input_handler(self, handler) -> None:
-        self._input_handler = handler
-
-    def set_status(self, text: str) -> None:
-        if not self.enabled:
-            return
-        self.status_text = text
-        clean = self._strip_ansi(text)
-        max_len = max(0, shutil.get_terminal_size((80, 24)).columns - 1)
-        clean = clean[:max_len]
-        with self._lock:
-            self._render_status(clean)
-
-    def _send_input(self, ch: str) -> None:
-        source = self.window_map.get(self.active_window)
-        if not source or not self._input_handler:
-            return
-        try:
-            self._input_handler(source, ch)
-        except Exception:
-            pass
-
-    def _print(self, text: str) -> None:
-        with self._lock:
-            sys.stdout.write(text)
-            sys.stdout.flush()
-
-    def _strip_ansi(self, text: str) -> str:
-        return re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)
-
-    def _sanitize_output(self, data: bytes) -> str:
-        text = data.decode("utf-8", errors="ignore")
-        # Keep SGR (color) sequences, strip other CSI/OSC controls that can move cursor.
-        text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", lambda m: m.group(0) if m.group(0).endswith("m") else "", text)
-        # Remove OSC sequences (e.g., title changes)
-        text = re.sub(r"\x1b\].*?\x07", "", text)
-        # Remove save/restore cursor (ESC 7/8)
-        text = text.replace("\x1b7", "").replace("\x1b8", "")
-        return text
-
-    def _init_status_line(self) -> None:
-        if not self.enabled:
-            return
-        if self._use_bottom and self._rows >= 2:
-            sys.stdout.write(f"\x1b[1;{self._rows - 1}r")
-        sys.stdout.flush()
-
-    def _reset_status_line(self) -> None:
-        if not self.enabled:
-            return
-        sys.stdout.write("\x1b[r")
-        sys.stdout.flush()
-
-    def _render_status(self, text: str) -> None:
-        if self._use_bottom and self._rows >= 1:
-            row = self._rows
-            sys.stdout.write("\x1b7")
-            sys.stdout.write(f"\x1b[{row};1H")
-            sys.stdout.write("\x1b[2K")
-            sys.stdout.write("\x1b[1;37;44m")
-            sys.stdout.write(text)
-            sys.stdout.write("\x1b[0m")
-            sys.stdout.write("\x1b8")
-            sys.stdout.flush()
 
 
 def validate_chain(chain: dict) -> None:
@@ -511,13 +353,16 @@ class ChainRunner:
         log_rel = step.get("log", f"console/{source}.jsonl")
         baud = int(step.get("baud", 115200))
         self.ctx["sources"].map_source(source, tty, log_rel, baud=baud)
+        ui = self.ctx.get("ui")
+        if ui and hasattr(ui, "state"):
+            ui.state.map_source(source, tty, str(self.ctx["result_dir"] / log_rel))
         return self._simple_outcome(step)
 
     def _step_map_window(self, step: dict) -> Tuple[str, OutcomeMatch]:
         window = int(step["window"])
         source = step["source"]
         title = step.get("title")
-        self.ctx["tui"].bind_window(window, source, title=title)
+        self.ctx["ui"].bind_window(window, source, title=title)
         return self._simple_outcome(step)
 
     def _step_send_cmd(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -554,8 +399,6 @@ class ChainRunner:
                 if event.kind == "exit":
                     self.ctx["exit_flag"].set()
                     raise AbortRun()
-                if event.kind in ("switch_window", "list_windows"):
-                    self.ctx["tui"].handle_event(event)
             for outcome in outcomes:
                 pattern = outcome.get("pattern")
                 source = outcome.get("source")
@@ -608,8 +451,6 @@ class ChainRunner:
                 if event.kind == "exit":
                     self.ctx["exit_flag"].set()
                     raise AbortRun()
-                if event.kind in ("switch_window", "list_windows"):
-                    self.ctx["tui"].handle_event(event)
             data, new_cursor = binding.read_since(cursor)
             cursor = new_cursor
             if not data:
@@ -1084,20 +925,18 @@ class ChainRunner:
             raise CancelRun()
 
     def _set_status(self, extra: str) -> None:
-        tui = self.ctx.get("tui")
-        if not tui or not tui.enabled:
+        ui = self.ctx.get("ui")
+        if not ui:
             return
-        win = tui.active_window
-        source = tui.window_map.get(win, "-")
-        input_state = "on" if tui.interactive_enabled else "off"
+        step = extra
+        if extra.startswith("step="):
+            step = extra.split("=", 1)[1]
         request_id = self.ctx.get("request_id", "-")
         profile = self.ctx.get("profile", "-")
         chain_name = self.ctx.get("chain_name", "-")
         subchain = self.ctx.get("subchain_name", "-")
         start = self.ctx.get("request_start")
-        elapsed = f"{int(time.time() - start)}s" if start else "-"
-        text = (
-            f"{extra} | req={request_id} profile={profile} chain={chain_name} sub={subchain} "
-            f"| win={win} src={source} | input={input_state} | elapsed={elapsed}"
-        )
-        tui.set_status(text)
+        elapsed = int(time.time() - start) if start else 0
+        if hasattr(ui, "state"):
+            ui.state.set_request(str(request_id), str(profile), str(chain_name), subchain=str(subchain))
+            ui.state.set_step(step, elapsed)

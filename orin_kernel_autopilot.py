@@ -105,7 +105,7 @@ def main() -> None:
     window_manager = TmuxWindowManager(session_name) if session_name else None
     ui = TmuxUICompat(ui_state, windows=window_manager)
 
-    source_manager = SourceManager(RESULTS_DIR, tui=ui)
+    source_manager = SourceManager(RESULTS_DIR, ui=ui)
 
     def _on_abort() -> None:
         event_queue.put(Event("abort"))
@@ -140,7 +140,6 @@ def main() -> None:
                 "board": board,
                 "sources": source_manager,
                 "ui": ui,
-                "tui": ui,
                 "event_queue": event_queue,
                 "cancel_flag": cancel_flag,
                 "result_dir": startup_dir,
@@ -244,7 +243,6 @@ def main() -> None:
             "board": board,
             "sources": source_manager,
             "ui": ui,
-            "tui": ui,
             "event_queue": event_queue,
             "cancel_flag": cancel_flag,
             "result_dir": result_dir,
