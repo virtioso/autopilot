@@ -1,6 +1,6 @@
 # Chain Specification
 
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-08
 
 This document defines the JSON schema used for chain-based execution.
 
@@ -132,6 +132,10 @@ Supported parameters:
   "on_timeout": "fail"
 }
 ```
+
+`map_window` remains part of the chain schema for compatibility. Runtime
+behavior is tmux-native: the step binds a logical source to a tmux window index
+and title.
 
 ## Example: fork
 

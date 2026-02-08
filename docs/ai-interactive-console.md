@@ -1,6 +1,6 @@
 # AI Interactive Console Guide
 
-**Last Updated**: 2026-02-07
+**Last Updated**: 2026-02-08
 
 This guide explains how AI tools (Codex/Claude Code) can interact with guest
 Linux consoles through Autopilot. It is designed to be generic and works for
@@ -193,3 +193,12 @@ results/<timestamp>/console/
 - Auto-login is best-effort based on profile regexes.
 - Idle timeout closes all sessions if no activity.
 - Output polling uses byte offsets; keep track of `new_offset`.
+
+## tmux Operator Mode
+
+When Autopilot runs in tmux, operators can also attach and interact directly:
+
+- `tmux attach -t autopilot`
+- `Ctrl-B` + `0..9` to switch windows
+- `Ctrl-B` + `r` to abort the current run
+- type directly in the mapped source window for raw input forwarding

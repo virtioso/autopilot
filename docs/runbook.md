@@ -1,10 +1,10 @@
 # Autopilot Runbook
 
-**Last Updated**: 2026-02-07
+**Last Updated**: 2026-02-08
 
 This runbook describes how to operate the Autopilot service and how the new
 chain-based execution model works, including startup mappings, recovery
-behavior, and the built-in TUI controls.
+behavior, and tmux-native operator controls.
 
 ## Quick Glossary
 
@@ -12,7 +12,7 @@ behavior, and the built-in TUI controls.
 - **Step**: A unit of work (boot menu, wait for prompt, upload, etc).
 - **Outcome**: A regex match (or action result) that routes to another step.
 - **Source**: Logical name for a UART or log stream (for matching and logging).
-- **Window**: A TUI view bound to a logical source.
+- **Window**: A tmux window bound to a logical source.
 
 ## Prerequisites
 
@@ -46,7 +46,7 @@ Confirm it prints:
 - `Watching: .../requests/pending`
 - `Results:  .../results`
 
-### Start via MCP (Headless + tmux TUI)
+### Start via MCP (Headless + tmux UI)
 
 Use the MCP tools to start Autopilot in a detached tmux session:
 
@@ -136,7 +136,7 @@ typically binds:
 - Window 1 -> `tty0`
 - Window 2 -> `tty1`
 
-This ensures the TUI has windows immediately.
+This ensures tmux source windows can be created immediately.
 
 ### Forked Recovery Boot
 
@@ -145,18 +145,17 @@ the board to stock Linux while log parsing continues. The main chain reports
 results immediately; the recovery runs in the background unless a join is
 explicitly requested.
 
-## TUI Controls (Screen-Like)
+## tmux Controls
 
-Autopilot enables a built-in TUI if it is attached to a TTY.
+Autopilot is controlled through tmux keybindings and pane clients.
 
-- `Ctrl-A` then `X`: exit the TUI (return to normal output or stop session).
-- `Ctrl-A` then `1..9`: switch to window N.
-- `Ctrl-A` then `W`: show window list (window number -> source).
-- `Ctrl-A` then `R`: abort the current test (user abort) and start recovery boot.
-- `Ctrl-A` then `I`: toggle interactive input mode for the active window.
+- `Ctrl-B` then `0..9`: switch to tmux window N.
+- `Ctrl-B` then `r`: abort the current test (user abort) and start recovery boot.
+- `Ctrl-B` then `d`: detach from the running session.
+- Type directly in a source window to send raw input to that source.
 
-When interactive input is enabled, keystrokes are sent to the **source**
-associated with the currently visible window.
+`map_window` steps remain in chains and are converted at runtime to tmux window
+bindings for backward compatibility.
 
 ### Ending Interactive Sessions
 
@@ -180,17 +179,11 @@ interactive step so a console is always available without slowing the flow.
 
 ### Status Line
 
-Autopilot renders a status line showing:
+Autopilot publishes runtime state and tmux renders the status line. It shows:
 - Current step name
 - Request ID and profile
 - Chain/subchain name and elapsed time
-- Active window and source
-- Interactive input state (on/off)
-
-The status line is rendered at the bottom of the terminal when possible.
-
-If Autopilot is not running in a TTY, the TUI is disabled and keybindings are
-ignored.
+- Active source/window mapping
 
 ## Error Codes in chain.json
 

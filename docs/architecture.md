@@ -1,13 +1,13 @@
 # Autopilot System Architecture
 
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-08
 
 ## Purpose
 
 Autopilot is a host-side orchestration service for automated boot testing on an
 NVIDIA Orin AGX target. It provides a chain-based state machine that drives
 boot sequences, uploads, and log collection, with parallel recovery and an
-interactive TUI for operators.
+tmux-native operator interaction.
 
 ## Architecture Overview (Chain-Based)
 
@@ -26,6 +26,7 @@ interactive TUI for operators.
 - Loads profile chains and runs them through the chain runner.
 - Writes results and `chain.json` into `results/<timestamp>/`.
 - Runs a startup chain on launch to establish default source/window mappings.
+- Publishes tmux UI state and exposes a local control socket for abort/input.
 
 ### 2) Chain Runner
 
@@ -82,12 +83,11 @@ Single-run output:
 - `chain.json` (structured step results)
 - `console/*.jsonl` (source logs when mapped)
 
-## TUI Behavior
+## tmux UI Behavior
 
-If Autopilot has a TTY:
-- `Ctrl-A` then `1..9` switches windows.
-- `Ctrl-A` then `W` shows window list.
-- `Ctrl-A` then `X` exits UI.
-- `Ctrl-A` then `R` aborts the current test and starts recovery.
+When started in tmux:
+- `Ctrl-B` then `0..9` switches windows.
+- `Ctrl-B` then `r` sends abort and starts recovery.
+- status is rendered via `runtime/ui/state.json`.
 
-If no TTY is present, the UI is disabled.
+`map_window` is runtime-compatible and maps logical sources to tmux windows.

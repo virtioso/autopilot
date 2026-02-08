@@ -1,6 +1,6 @@
 # Autopilot System Overview
 
-**Last Updated**: 2026-02-07
+**Last Updated**: 2026-02-08
 
 ## Purpose
 
@@ -15,7 +15,7 @@ structured results for humans and AI tools.
 - **Branching Outcomes**: Regex-driven outcomes route to next steps.
 - **Parallel Recovery**: Recovery boot can run in parallel with log parsing.
 - **UART Source Mapping**: Dynamic `map_source` ties tty devices to logical sources.
-- **Built-in TUI**: Screen-like hotkeys to switch windows and abort runs.
+- **tmux-Native Operator UI**: Window switching, status, and abort control are handled by tmux.
 - **Structured Results**: `chain.json` captures step-by-step outcomes and errors.
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
@@ -29,9 +29,9 @@ cd /home/hlyytine/autopilot
 AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot python3 orin_kernel_autopilot.py
 ```
 
-### Start Autopilot via MCP (Headless + tmux TUI)
+### Start Autopilot via MCP (Headless + tmux UI)
 
-If you want Autopilot running headless while preserving the TUI, start it via
+If you want Autopilot running headless while preserving the operator UI, start it via
 MCP in a tmux session:
 
 ```json
@@ -41,7 +41,7 @@ MCP in a tmux session:
 }
 ```
 
-Attach to the TUI:
+Attach to the tmux session:
 
 ```bash
 tmux attach -t autopilot
@@ -81,14 +81,14 @@ Steps include `relay`, `boot_menu`, `wait_pattern`, `upload_*`, `reboot`,
 `map_source`, `map_window`, `fork`, and `join`. Terminal steps are explicit
 `pass` and `fail`.
 
-## TUI Hotkeys
+## tmux Controls
 
-Autopilot enables a built-in TUI when attached to a TTY:
+Autopilot now uses tmux-native controls:
 
-- `Ctrl-A` then `1..9`: switch window
-- `Ctrl-A` then `W`: list windows
-- `Ctrl-A` then `X`: exit UI
-- `Ctrl-A` then `R`: abort run and start recovery boot
+- `Ctrl-B` then `0..9`: switch window
+- `Ctrl-B` then `r`: abort run and start recovery boot
+- `Ctrl-B` then `d`: detach from session
+- type directly in a source window to send raw input to that mapped console
 
 ## Output Files
 

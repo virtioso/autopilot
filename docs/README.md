@@ -1,6 +1,6 @@
 # Autopilot System Documentation
 
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-08
 
 This directory contains comprehensive documentation for the Autopilot automated kernel testing system for the NVIDIA Jetson AGX Orin (Tegra234) platform.
 
@@ -80,7 +80,7 @@ JSON schema and step definitions for the chain-based execution model.
 **Topics**:
 - Chain and step schema
 - Step types and examples
-- fork/join and map_source/map_window
+- fork/join and map_source/map_window (tmux-native runtime binding)
 
 **Best for**: Authors of new profiles and test flows
 
