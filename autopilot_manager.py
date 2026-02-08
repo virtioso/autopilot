@@ -96,6 +96,34 @@ def _tmux_kill_session(session: str) -> None:
     )
 
 
+def _configure_tmux_ui(session: str, autopilot_dir: Path) -> None:
+    code_dir = Path(__file__).resolve().parent
+    status_script = code_dir / "scripts" / "autopilot_tmux_status.py"
+    abort_script = code_dir / "scripts" / "autopilot_tmux_abort.py"
+    quoted_dir = shlex.quote(str(autopilot_dir))
+    status_cmd = f"#(python3 {shlex.quote(str(status_script))} --autopilot-dir {quoted_dir})"
+    abort_cmd = f"python3 {shlex.quote(str(abort_script))} --autopilot-dir {quoted_dir}"
+
+    subprocess.run(["tmux", "set-option", "-t", session, "status", "on"], check=False)
+    subprocess.run(["tmux", "set-option", "-t", session, "status-interval", "1"], check=False)
+    subprocess.run(["tmux", "set-option", "-t", session, "status-right", status_cmd], check=False)
+    subprocess.run(
+        [
+            "tmux",
+            "bind-key",
+            "-T",
+            "prefix",
+            "r",
+            "if-shell",
+            "-F",
+            f"#{{==:#{{session_name}},{session}}}",
+            f"run-shell {shlex.quote(abort_cmd)}",
+            "send-keys r",
+        ],
+        check=False,
+    )
+
+
 def _tmux_pane_pid(session: str) -> Optional[int]:
     result = subprocess.run(
         ["tmux", "list-panes", "-t", session, "-F", "#{pane_pid}"],
@@ -243,6 +271,7 @@ def start_autopilot(
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_DIR", str(base)], check=False)
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY0", env["AUTOPILOT_TTY0"]], check=False)
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY1", env["AUTOPILOT_TTY1"]], check=False)
+        _configure_tmux_ui(session, base)
         command_str = " ".join(shlex.quote(part) for part in shlex.split(effective_command))
         subprocess.run(
             ["tmux", "send-keys", "-t", session, command_str, "C-m"],
