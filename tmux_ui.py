@@ -182,7 +182,7 @@ class TmuxWindowManager:
         target = f"{self.session}:{window}"
         if not self._window_exists(window):
             subprocess.run(
-                ["tmux", "new-window", "-t", f"{self.session}:", "-n", title],
+                ["tmux", "new-window", "-d", "-t", target, "-n", title],
                 check=False,
             )
         subprocess.run(["tmux", "rename-window", "-t", target, title], check=False)
@@ -256,6 +256,7 @@ class TmuxUICompat:
         _ = event
 
     def bind_window(self, window: int, source: str, title: Optional[str] = None) -> None:
+        # map_window is backward-compatible metadata + tmux window binding.
         self.window_map[window] = source
         self.state.map_window(window, source, title=title)
         if self.windows:
@@ -265,7 +266,11 @@ class TmuxUICompat:
                 f"--autopilot-dir {shlex.quote(str(self.state.autopilot_dir))} "
                 f"--source {shlex.quote(source)}"
             )
-            self.windows.ensure_window(window, title or source, cmd)
+            try:
+                self.windows.ensure_window(window, title or source, cmd)
+            except Exception:
+                # Preserve chain compatibility even if tmux window operations fail.
+                pass
 
     def set_status(self, text: str) -> None:
         self.status_text = text

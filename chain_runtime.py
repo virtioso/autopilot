@@ -383,7 +383,9 @@ class ChainRunner:
         window = int(step["window"])
         source = step["source"]
         title = step.get("title")
-        self.ctx["ui"].bind_window(window, source, title=title)
+        ui = self.ctx.get("ui")
+        if ui and hasattr(ui, "bind_window"):
+            ui.bind_window(window, source, title=title)
         return self._simple_outcome(step)
 
     def _step_send_cmd(self, step: dict) -> Tuple[str, OutcomeMatch]:
