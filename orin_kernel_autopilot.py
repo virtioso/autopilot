@@ -114,9 +114,8 @@ def main() -> None:
         binding = source_manager.get(source)
         if not binding:
             return
-        text = data.decode("utf-8", errors="ignore")
-        if text:
-            binding.write(text)
+        if data:
+            binding.write_bytes(data)
 
     control = TmuxControlServer(
         socket_path=ui_state.control_socket_path,

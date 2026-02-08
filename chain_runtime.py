@@ -4,6 +4,7 @@ import queue
 import re
 import threading
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -107,12 +108,14 @@ class SourceBinding:
         source: str,
         tty: str,
         log_path: Path,
+        live_log_path: Optional[Path] = None,
         baud: int = 115200,
         emit=None,
     ):
         self.source = source
         self.tty = tty
         self.log_path = log_path
+        self.live_log_path = live_log_path
         self.baud = baud
         self.emit = emit
         self._lock = threading.Lock()
@@ -126,7 +129,10 @@ class SourceBinding:
 
     def _run(self) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.log_path, "ab", buffering=0) as f:
+        if self.live_log_path:
+            self.live_log_path.parent.mkdir(parents=True, exist_ok=True)
+        live_ctx = open(self.live_log_path, "ab", buffering=0) if self.live_log_path else nullcontext()
+        with open(self.log_path, "ab", buffering=0) as f, live_ctx as live_file:
             while not self._stop.is_set():
                 try:
                     data = self._serial.read(1024)
@@ -138,6 +144,8 @@ class SourceBinding:
                 if self.emit:
                     self.emit(self.source, data)
                 f.write(data)
+                if live_file:
+                    live_file.write(data)
                 with self._lock:
                     self._buffer.extend(data)
                     self._total_bytes += len(data)
@@ -148,8 +156,11 @@ class SourceBinding:
                         self._base_offset += trim
 
     def write(self, text: str) -> None:
+        self.write_bytes(text.encode("utf-8", errors="ignore"))
+
+    def write_bytes(self, payload: bytes) -> None:
         with self._lock:
-            self._serial.write(text.encode("utf-8", errors="ignore"))
+            self._serial.write(payload)
 
     def read_since(self, offset: int) -> Tuple[bytes, int]:
         with self._lock:
@@ -183,7 +194,17 @@ class SourceManager:
             self.sources[source].stop()
             del self.sources[source]
         log_path = self.result_dir / log_rel
-        binding = SourceBinding(source, tty, log_path, baud=baud, emit=self._emit)
+        live_log_path = None
+        if self.ui and hasattr(self.ui, "state"):
+            live_log_path = self.ui.state.live_path_for_source(source)
+        binding = SourceBinding(
+            source,
+            tty,
+            log_path,
+            live_log_path=live_log_path,
+            baud=baud,
+            emit=self._emit,
+        )
         self.sources[source] = binding
         self.tty_to_source[tty] = source
 

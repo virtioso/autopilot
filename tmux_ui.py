@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import socket
 import subprocess
 import threading
@@ -258,8 +259,12 @@ class TmuxUICompat:
         self.window_map[window] = source
         self.state.map_window(window, source, title=title)
         if self.windows:
-            live_path = self.state.live_path_for_source(source)
-            cmd = f"tail -n +1 -F {live_path}"
+            script = Path(__file__).resolve().parent / "scripts" / "autopilot_tmux_console.py"
+            cmd = (
+                f"python3 {shlex.quote(str(script))} "
+                f"--autopilot-dir {shlex.quote(str(self.state.autopilot_dir))} "
+                f"--source {shlex.quote(source)}"
+            )
             self.windows.ensure_window(window, title or source, cmd)
 
     def set_status(self, text: str) -> None:
