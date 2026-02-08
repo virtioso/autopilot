@@ -119,6 +119,11 @@ How to add device tree blob (DTB) upload capability to autopilot.
 
 ---
 
+### 9. [tmux UI Migration Notes](tmux-ui-migration.md)
+Operator-facing migration notes for the tmux-native UI model.
+
+---
+
 ## Quick Reference
 
 ### Build Device Trees (DTBs)
