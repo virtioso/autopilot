@@ -20,7 +20,9 @@ ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
 pattern = re.compile(rf'FS3:\\>\s*{re.escape(binary_name)}', re.IGNORECASE)
 
 found_start = False
-for line in sys.stdin:
+for raw_line in sys.stdin.buffer:
+    # Raw console captures can contain invalid UTF-8 bytes.
+    line = raw_line.decode("utf-8", errors="ignore")
     # Strip ANSI codes for matching, but preserve original line for output
     clean_line = ansi_escape.sub('', line)
     if not found_start:

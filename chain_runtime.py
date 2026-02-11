@@ -504,10 +504,38 @@ class ChainRunner:
         shell_timeout_s = int(step.get("shell_timeout_s", 30))
         fs_timeout_s = int(step.get("fs_timeout_s", 10))
         error_timeout_s = int(step.get("error_timeout_s", 2))
+        binding = self.ctx["sources"].get(source)
+        if not binding:
+            raise ValueError(f"unknown source {source}")
+
+        # Use a moving cursor so this step only matches fresh serial output.
+        _, cursor = binding.read_since(1 << 60)
+
+        def wait_any(patterns: List[str], timeout_s: int) -> int:
+            nonlocal cursor
+            start = time.time()
+            while time.time() - start < timeout_s:
+                self._check_cancel()
+                event = self._poll_event()
+                if event:
+                    if event.kind == "abort":
+                        self._handle_abort()
+                    if event.kind == "exit":
+                        self.ctx["exit_flag"].set()
+                        raise AbortRun()
+                data, new_cursor = binding.read_since(cursor)
+                cursor = new_cursor
+                if not data:
+                    time.sleep(0.1)
+                    continue
+                text = data.decode("utf-8", errors="ignore")
+                for idx, pattern in enumerate(patterns):
+                    if re.search(pattern, text, re.MULTILINE):
+                        return idx
+            return -1
 
         # Wait for UEFI prompt and enter menu
-        idx = self._wait_for_any_pattern(
-            source,
+        idx = wait_any(
             [
                 r"Enter to continue boot\.",
                 r"Press ESCAPE for boot options",
@@ -519,25 +547,26 @@ class ChainRunner:
         )
         if idx == -1:
             raise RuntimeError("Failed to get UEFI prompt")
-        binding = self.ctx["sources"].get(source)
-        binding.write("\x1b")
+        # Prefer ESC path first; with fresh-cursor matching this aligns key timing
+        # with the actual prompt and avoids stale matches from earlier boot text.
+        for _ in range(3):
+            binding.write("\x1b")
+            time.sleep(0.15)
 
-        # Wait for UEFI menu (fallback to F11 if needed)
-        idx = self._wait_for_any_pattern(
-            source,
+        # Wait for UEFI menu (fallback to F11 if ESC path does not open a menu)
+        idx = wait_any(
             [r"Select Entry", r"Please select boot device"],
             select_timeout_s,
         )
         if idx == -1:
             binding.write("\x1b[23~")  # F11
-            idx = self._wait_for_any_pattern(
-                source,
+            idx = wait_any(
                 [r"Select Entry", r"Please select boot device"],
                 select_timeout_s,
             )
             if idx == -1:
                 raise RuntimeError("Failed to get UEFI Select Entry menu")
-        time.sleep(1)
+        time.sleep(0.2)
         if idx == 0:
             # "Select Entry" menu -> Boot Manager -> UEFI Shell
             binding.write("\x1b[B")  # Down
@@ -547,7 +576,7 @@ class ChainRunner:
             binding.write("\r")      # Enter
 
             # Wait for Boot Manager
-            if not self._wait_for_pattern(source, r"Esc=Exit|ESC to exit", boot_manager_timeout_s):
+            if wait_any([r"Esc=Exit|ESC to exit"], boot_manager_timeout_s) != 0:
                 raise RuntimeError("Failed to get Boot Manager menu")
             time.sleep(1)
             binding.write("\x1b[A")  # Up (UEFI Shell)
@@ -562,8 +591,7 @@ class ChainRunner:
 
         # Wait for Shell prompt (handle startup.nsh delay)
         while True:
-            idx = self._wait_for_any_pattern(
-                source,
+            idx = wait_any(
                 [r"Shell>", r"Press ESC in \d+ seconds"],
                 shell_timeout_s,
             )
@@ -580,12 +608,11 @@ class ChainRunner:
         binding.write(f"{fs_cmd}\r")
 
         fs_prompt = re.escape(fs_cmd.upper()) + r"\\>"
-        if not self._wait_for_pattern(source, fs_prompt, fs_timeout_s):
+        if wait_any([fs_prompt], fs_timeout_s) != 0:
             raise RuntimeError(f"Failed to switch to {fs_cmd}")
 
         binding.write(f"{binary_name}\r")
-        idx = self._wait_for_any_pattern(
-            source,
+        idx = wait_any(
             [r"is not recognized as an internal or external command", r".+"],
             error_timeout_s,
         )
