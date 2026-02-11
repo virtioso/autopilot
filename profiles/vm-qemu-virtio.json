@@ -130,7 +130,7 @@
         "type": "wait_pattern",
         "timeout_s": 120,
         "outcomes": [
-          { "label": "vm", "pattern": "Booting Linux|driver-vm login:|login:", "source": "tty1", "next": "filter_logs_pass" }
+          { "label": "vm", "pattern": "driver-vm login:", "source": "tty0", "next": "filter_logs_pass" }
         ],
         "on_timeout": "filter_logs_fail"
       },
