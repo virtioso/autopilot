@@ -1,20 +1,22 @@
 # Autopilot System Architecture
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-11
 
 ## Purpose
 
 Autopilot is a host-side orchestration service for automated boot testing on an
 NVIDIA Orin AGX target. It provides a chain-based state machine that drives
-boot sequences, uploads, and log collection, with parallel recovery and an
-tmux-native operator interaction.
+boot sequences, uploads, and log collection, with parallel recovery and tmux-native
+operator interaction.
 
 ## Architecture Overview (Chain-Based)
 
-- Requests are JSON files that reference a **profile**.
-- Profiles define a **chain**: steps, outcomes, and optional subchains.
+- Requests are JSON files that reference a root chain name in `profile`.
+- Chain files live in `/home/hlyytine/autopilot/chains`.
 - The chain runner executes steps and routes based on regex outcomes.
-- A forked recovery chain can run in parallel while logs are parsed.
+- Chains can invoke other chains:
+  - `fork` for parallel/asynchronous execution
+  - `call_chain` for synchronous inline execution
 - UART sources are dynamically mapped at runtime via chain steps.
 
 ## Core Components
@@ -23,7 +25,7 @@ tmux-native operator interaction.
 
 **Responsibilities**
 - Polls `requests/pending/` for new requests.
-- Loads profile chains and runs them through the chain runner.
+- Loads root chains and runs them through the chain runner.
 - Writes results and `chain.json` into `results/<timestamp>/`.
 - Runs a startup chain on launch to establish default source/window mappings.
 - Publishes tmux UI state and exposes a local control socket for abort/input.
@@ -33,7 +35,7 @@ tmux-native operator interaction.
 **Key concepts**
 - **Step**: A unit of work such as `boot_menu`, `wait_pattern`, `upload_efi`.
 - **Outcome**: Regex match on a source, routes to the next step.
-- **Subchain**: A named chain launched via `fork` for parallel recovery.
+- **Named Chain**: A reusable chain file addressable by name.
 
 **Data outputs**
 - `chain.json`: structured step results, outcomes, error codes, and log offsets.
@@ -67,11 +69,11 @@ PlantUML sources live in `docs/diagrams/`.
 - `docs/diagrams/tui-windows.puml`
 - `docs/diagrams/startup-chain.puml`
 
-## Data Flow (New Model)
+## Data Flow
 
 1. Request is read from `requests/pending`.
-2. Profile chain is validated.
-3. Startup chain runs once (on daemon start).
+2. Root chain is loaded from `chains/<profile>.json`.
+3. Chain is validated.
 4. Main chain runs with optional forked recovery boot.
 5. Results are written to `results/<ts>/` and `chain.json` is finalized.
 
@@ -79,9 +81,8 @@ PlantUML sources live in `docs/diagrams/`.
 
 Single-run output:
 - `console/<source>.jsonl` (raw UART transcripts)
-- Additional logs under `console/` as defined by the profile chain
+- Additional logs under `console/` as defined by chain steps
 - `chain.json` (structured step results)
-- `console/*.jsonl` (source logs when mapped)
 
 ## tmux UI Behavior
 
@@ -90,4 +91,4 @@ When started in tmux:
 - `Ctrl-B` then `r` sends abort and starts recovery.
 - status is rendered via `runtime/ui/state.json`.
 
-`map_window` is runtime-compatible and maps logical sources to tmux windows.
+`map_window` maps logical sources to tmux windows at runtime.

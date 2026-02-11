@@ -182,7 +182,7 @@ interactive step so a console is always available without slowing the flow.
 Autopilot publishes runtime state and tmux renders the status line. It shows:
 - Current step name
 - Request ID and profile
-- Chain/subchain name and elapsed time
+- Current chain name and elapsed time
 - Active source/window mapping
 
 ## Error Codes in chain.json
@@ -247,16 +247,16 @@ cat > requests/pending/${TS}.request <<'EOF'
 EOF
 ```
 
-## Profile Chains (Where to Edit)
+## Chain Files (Where to Edit)
 
-Profiles live in `/home/hlyytine/autopilot/profiles`. Each profile defines:
+Executable chains live in `/home/hlyytine/autopilot/chains` as one file per chain (`<name>.json`).
 
-- `chain.entry`
-- `chain.steps`
-- optional `chain.subchains`
+Each request field `profile` selects the root chain file by name (`chains/<profile>.json`).
 
-Profiles are static data. Edit them only in the code repo and do not copy them into
-`AUTOPILOT_DIR`.
+Reusable flow is expressed by referencing other chain files via `fork` and `call_chain`.
+
+Console login/prompt profiles remain in `/home/hlyytine/autopilot/profiles` (for example
+`linux-yocto.json`, `ubuntu-22.json`).
 
 Example step types:
 - `relay`
@@ -269,7 +269,7 @@ Example step types:
 - `map_window`
 - `send_cmd`
 - `interactive_console`
-- `fork`, `join`
+- `fork`, `call_chain`, `join`
 - `pass`, `fail`
 
 ## Troubleshooting

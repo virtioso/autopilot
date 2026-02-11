@@ -4,7 +4,7 @@ title Forked Recovery Boot
 start
 :run test chain;
 fork
-  :recovery_boot subchain;
+  :recovery_boot chain;
 fork again
   :parse logs;
   :emit results;

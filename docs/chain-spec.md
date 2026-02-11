@@ -1,25 +1,18 @@
 # Chain Specification
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-11
 
 This document defines the JSON schema used for chain-based execution.
 
-## Top-Level Profile
+## Chain Files
 
-```json
-{
-  "name": "linux-yocto",
-  "chain": {
-    "entry": "boot_test",
-    "steps": {
-      "boot_test": { "...": "..." }
-    },
-    "subchains": {
-      "recovery_boot": { "...": "..." }
-    }
-  }
-}
-```
+Executable chains are stored as one file per chain under:
+
+- `/home/hlyytine/autopilot/chains/<name>.json`
+
+The request field `profile` selects the root chain name.
+For example, `"profile": "vm-qemu-virtio"` loads:
+`/home/hlyytine/autopilot/chains/vm-qemu-virtio.json`.
 
 ## Chain Object
 
@@ -27,8 +20,8 @@ Required fields:
 - `entry`: step label to start with.
 - `steps`: dictionary of step definitions.
 
-Optional:
-- `subchains`: named chain definitions referenced by `fork`.
+There is no `subchains` object. Reuse is done by referencing other chain files
+with `fork` (async) or `call_chain` (sync).
 
 ## Step Definition
 
@@ -55,7 +48,7 @@ If regex-based:
 - `pattern`: regex to match.
 - `source`: logical source name (e.g., `tty0`, `vm0`).
 
-## Step Types (v1)
+## Step Types (v2)
 
 Action steps:
 - `relay`
@@ -72,70 +65,19 @@ Action steps:
 - `interactive_console`
 - `analyze_logs`
 - `fork`
+- `call_chain`
 - `join`
 
 Terminal steps:
 - `pass`
 - `fail`
 
-## Example: uefi_shell_run
+## Chain Reference Rules
 
-Runs an EFI binary via the UEFI Shell (Boot Manager → UEFI Shell → `fsX:`).
-
-```json
-{
-  "type": "uefi_shell_run",
-  "source": "tty0",
-  "fs": "fs3",
-  "binary_name": "{binary_name}",
-  "outcomes": [
-    { "label": "ok", "next": "wait_sel4" }
-  ],
-  "on_timeout": "fail"
-}
-```
-
-Supported parameters:
-- `source` (required): console source name (e.g. `tty0`).
-- `fs` (optional): filesystem alias to select (default `fs3`).
-- `binary_name` (optional): EFI filename. Defaults to request `binary_name`.
-- `prompt_timeout_s`, `select_timeout_s`, `boot_manager_timeout_s`,
-  `shell_timeout_s`, `fs_timeout_s`, `error_timeout_s` (optional): timeouts.
-
-## Example: map_source
-
-```json
-{
-  "type": "map_source",
-  "tty": "/dev/ttyACM0",
-  "source": "vm0",
-  "log": "console/vm0.jsonl",
-  "mode": "append",
-  "outcomes": [
-    { "label": "ok", "next": "wait_vm0_login" }
-  ],
-  "on_timeout": "fail"
-}
-```
-
-## Example: map_window
-
-```json
-{
-  "type": "map_window",
-  "window": 1,
-  "source": "vm0",
-  "title": "VM0 Console",
-  "outcomes": [
-    { "label": "ok", "next": "wait_vm0_login" }
-  ],
-  "on_timeout": "fail"
-}
-```
-
-`map_window` remains part of the chain schema for compatibility. Runtime
-behavior is tmux-native: the step binds a logical source to a tmux window index
-and title.
+For steps that reference another chain (`fork`, `call_chain`):
+- `chain` must be a bare chain name (no path, no `.json`).
+- Resolution path is fixed: `/home/hlyytine/autopilot/chains/<name>.json`.
+- Names must match `[A-Za-z0-9._-]+`.
 
 ## Example: fork
 
@@ -150,17 +92,19 @@ and title.
 }
 ```
 
-## Example: ssh_cmd
+## Example: call_chain
 
 ```json
 {
-  "type": "ssh_cmd",
-  "target_user": "root",
-  "target_ip": "{target_ip}",
-  "cmd": "find /boot/efi -maxdepth 1 -type f -print -delete",
+  "type": "call_chain",
+  "chain": "bootefi_common",
   "outcomes": [
-    { "label": "ok", "next": "upload_efi" }
+    { "label": "pass", "next": "wait_sel4" },
+    { "label": "fail", "next": "fail" }
   ],
   "on_timeout": "fail"
 }
 ```
+
+`call_chain` runs the target chain synchronously in the same request context.
+The calling step must define outcomes for `pass` and `fail` labels.

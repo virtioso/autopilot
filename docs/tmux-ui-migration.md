@@ -8,7 +8,7 @@ tmux-native controls.
 ## What Changed
 
 - Removed in-process `Ctrl-A` key handling from Autopilot runtime.
-- `map_window` remains in profile chains but now binds tmux windows at runtime.
+- `map_window` remains in chain files but now binds tmux windows at runtime.
 - Status is now rendered by tmux via `runtime/ui/state.json`.
 - Abort is triggered via tmux key binding (`Ctrl-B` then `r`) using the local
   control socket (`runtime/ui/control.sock`).

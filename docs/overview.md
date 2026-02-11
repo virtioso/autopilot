@@ -1,18 +1,19 @@
 # Autopilot System Overview
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-11
 
 ## Purpose
 
 Autopilot is a host-side orchestration service for automated boot testing on
-the NVIDIA Jetson AGX Orin (Tegra234). It executes **chain-based test flows**
-defined in profile JSON files, handles UART/SSH interactions, and produces
-structured results for humans and AI tools.
+the NVIDIA Jetson AGX Orin (Tegra234). It executes chain-based test flows,
+handles UART/SSH interactions, and produces structured results for humans and
+AI tools.
 
 ## Key Features
 
-- **Chain-Based Execution**: All test logic is defined in profile chains.
+- **Chain-Based Execution**: All test logic is defined in chain files.
 - **Branching Outcomes**: Regex-driven outcomes route to next steps.
+- **Reusable Chains**: Chains can call other chains via `call_chain` and `fork`.
 - **Parallel Recovery**: Recovery boot can run in parallel with log parsing.
 - **UART Source Mapping**: Dynamic `map_source` ties tty devices to logical sources.
 - **tmux-Native Operator UI**: Window switching, status, and abort control are handled by tmux.
@@ -53,37 +54,43 @@ be replaced for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*`).
 
 ### Submit a Request
 
-Requests are JSON files that specify a **profile**:
+Requests are JSON files that specify a root chain by name in `profile`:
 
 ```bash
 cd /home/hlyytine/tii-sel4/autopilot
 TS=$(date +%Y%m%d-%H%M%S)
-cat > requests/pending/${TS}.request <<'EOF'
+cat > requests/pending/${TS}.request <<'EOF_REQ'
 {
   "profile": "linux-kernel",
   "description": "single-run kernel test"
 }
-EOF
+EOF_REQ
 ```
 
 Results appear in `results/<timestamp>/`.
 
-Profiles are static data and live in `/home/hlyytine/autopilot/profiles` (single source of truth).
-
 ## Chain Model (Summary)
 
-Each profile defines:
-- `chain.entry`: starting step label
-- `chain.steps`: dictionary of steps
-- `chain.subchains`: named subchains for `fork`
+Executable chain files live in:
 
-Steps include `relay`, `boot_menu`, `wait_pattern`, `upload_*`, `reboot`,
-`map_source`, `map_window`, `fork`, and `join`. Terminal steps are explicit
-`pass` and `fail`.
+- `/home/hlyytine/autopilot/chains/*.json`
+
+Each chain file defines:
+- `entry`: starting step label
+- `steps`: dictionary of steps
+
+There is no `subchains` schema. Reuse is done via:
+- `fork` for asynchronous/background chain execution
+- `call_chain` for synchronous inline chain execution
+
+Console login/prompt profiles remain in:
+
+- `/home/hlyytine/autopilot/profiles/linux-yocto.json`
+- `/home/hlyytine/autopilot/profiles/ubuntu-22.json`
 
 ## tmux Controls
 
-Autopilot now uses tmux-native controls:
+Autopilot uses tmux-native controls:
 
 - `Ctrl-B` then `0..9`: switch window
 - `Ctrl-B` then `r`: abort run and start recovery boot
@@ -96,7 +103,7 @@ Each test produces:
 
 - `chain.json`: structured step results and errors
 - `console/<source>.jsonl`: UART transcripts for mapped sources
-- Additional log files under `console/` as defined by the profile chain (for example, filtered outputs created by `analyze_logs`)
+- Additional log files under `console/` as defined by chain steps (for example, filtered outputs created by `analyze_logs`)
 - `device-trees/*.dtb` and `device-trees/*.dts`: guest DTB dumps decoded from logs
 - `device-trees/summary.json`: extraction/conversion summary
 

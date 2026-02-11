@@ -1,0 +1,180 @@
+{
+  "entry": "map_tty0",
+  "steps": {
+    "map_tty0": {
+      "type": "map_source",
+      "source": "tty0",
+      "tty": "env:AUTOPILOT_TTY0",
+      "log": "console/tty0.raw",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "window1"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "window1": {
+      "type": "map_window",
+      "window": 1,
+      "source": "tty0",
+      "title": "TTY0",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "relay_power"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "relay_power": {
+      "type": "relay",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "boot_stock"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "boot_stock": {
+      "type": "boot_menu",
+      "source": "tty0",
+      "boot_option": "1",
+      "outcomes": [
+        {
+          "label": "menu",
+          "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot",
+          "source": "tty0",
+          "next": "wait_stock_prompt"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_stock_prompt": {
+      "type": "wait_pattern",
+      "timeout_s": 180,
+      "outcomes": [
+        {
+          "label": "prompt",
+          "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
+          "source": "tty0",
+          "next": "interactive_stock"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "interactive_stock": {
+      "type": "interactive_console",
+      "hold_open": false,
+      "exit_after_shell": false,
+      "sessions": [
+        {
+          "name": "tty0",
+          "port": "/dev/ttyACM0",
+          "source": "tty0",
+          "profile": "ubuntu-22"
+        }
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "run_bootefi"
+        }
+      ],
+      "on_timeout": "run_bootefi"
+    },
+    "wait_sel4": {
+      "type": "wait_pattern",
+      "timeout_s": 180,
+      "outcomes": [
+        {
+          "label": "ok",
+          "pattern": "seL4|ELF-loader",
+          "source": "tty0",
+          "next": "filter_sel4_log_pass"
+        },
+        {
+          "label": "panic",
+          "pattern": "Kernel panic|panic",
+          "source": "tty0",
+          "next": "filter_sel4_log_fail"
+        }
+      ],
+      "on_timeout": "filter_sel4_log_fail"
+    },
+    "filter_sel4_log_pass": {
+      "type": "analyze_logs",
+      "command": [
+        "bash",
+        "-lc",
+        "/home/hlyytine/autopilot/filter_sel4_start.py \"{binary_name}\" < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\""
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fork_recovery_pass"
+        }
+      ],
+      "on_timeout": "fork_recovery_fail"
+    },
+    "filter_sel4_log_fail": {
+      "type": "analyze_logs",
+      "command": [
+        "bash",
+        "-lc",
+        "/home/hlyytine/autopilot/filter_sel4_start.py \"{binary_name}\" < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\""
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fork_recovery_fail"
+        }
+      ],
+      "on_timeout": "fork_recovery_fail"
+    },
+    "fork_recovery_pass": {
+      "type": "fork",
+      "chain": "recovery_boot",
+      "outcomes": [
+        {
+          "label": "started",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "pass"
+    },
+    "fork_recovery_fail": {
+      "type": "fork",
+      "chain": "recovery_boot",
+      "outcomes": [
+        {
+          "label": "started",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    },
+    "run_bootefi": {
+      "type": "call_chain",
+      "chain": "bootefi_common",
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "wait_sel4"
+        },
+        {
+          "label": "fail",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    }
+  }
+}

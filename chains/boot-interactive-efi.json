@@ -1,0 +1,133 @@
+{
+  "entry": "map_tty0",
+  "steps": {
+    "map_tty0": {
+      "type": "map_source",
+      "source": "tty0",
+      "tty": "env:AUTOPILOT_TTY0",
+      "log": "console/tty0.jsonl",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "window1"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "window1": {
+      "type": "map_window",
+      "window": 1,
+      "source": "tty0",
+      "title": "TTY0",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "relay_power"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "relay_power": {
+      "type": "relay",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "boot_stock"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "boot_stock": {
+      "type": "boot_menu",
+      "source": "tty0",
+      "boot_option": "1",
+      "outcomes": [
+        {
+          "label": "menu",
+          "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot",
+          "source": "tty0",
+          "next": "wait_stock_prompt"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_stock_prompt": {
+      "type": "wait_pattern",
+      "timeout_s": 180,
+      "outcomes": [
+        {
+          "label": "prompt",
+          "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
+          "source": "tty0",
+          "next": "run_bootefi"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_efi": {
+      "type": "wait_pattern",
+      "timeout_s": 180,
+      "outcomes": [
+        {
+          "label": "ok",
+          "pattern": "seL4|ELF-loader|driver-vm login:|root@driver-vm:~#",
+          "source": "tty0",
+          "next": "interactive"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "interactive": {
+      "type": "interactive_console",
+      "exit_after_shell": true,
+      "hold_open": true,
+      "sessions": [
+        {
+          "name": "tty0",
+          "port": "/dev/ttyACM0",
+          "source": "tty0",
+          "profile": "ubuntu-22"
+        }
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fork_recovery_pass"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "fork_recovery_pass": {
+      "type": "fork",
+      "chain": "recovery_boot",
+      "outcomes": [
+        {
+          "label": "started",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "pass"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    },
+    "run_bootefi": {
+      "type": "call_chain",
+      "chain": "bootefi_common",
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "wait_efi"
+        },
+        {
+          "label": "fail",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    }
+  }
+}

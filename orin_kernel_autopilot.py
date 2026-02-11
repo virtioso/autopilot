@@ -3,6 +3,7 @@
 import json
 import os
 import queue
+import re
 import signal
 import sys
 import threading
@@ -18,7 +19,7 @@ from tmux_ui import TmuxControlServer, TmuxUICompat, TmuxUIState, TmuxWindowMana
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 AUTOPILOT_DIR = get_autopilot_dir()
-PROFILES_DIR = SCRIPT_DIR / "profiles"
+CHAINS_DIR = SCRIPT_DIR / "chains"
 
 WORKSPACE = Path(os.environ.get("WORKSPACE", "/home/hlyytine/pkvm"))
 KERNEL_DIR = WORKSPACE / "Linux_for_Tegra/source/kernel/linux"
@@ -62,11 +63,17 @@ signal.signal(signal.SIGINT, handle_signal)
 signal.signal(signal.SIGTERM, handle_signal)
 
 
-def load_profile(profile_name: str) -> dict:
-    profile_path = PROFILES_DIR / f"{profile_name}.json"
-    if not profile_path.exists():
-        raise ValueError(f"profile not found: {profile_name}")
-    return json.loads(profile_path.read_text())
+def _validate_chain_name(chain_name: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", chain_name):
+        raise ValueError(f"invalid chain name: {chain_name}")
+
+
+def load_chain(chain_name: str) -> dict:
+    _validate_chain_name(chain_name)
+    chain_path = CHAINS_DIR / f"{chain_name}.json"
+    if not chain_path.exists():
+        raise ValueError(f"chain not found: {chain_name}")
+    return json.loads(chain_path.read_text())
 
 
 def run_chain(chain: dict, ctx: dict, recorder: ChainRecorder) -> str:
@@ -155,43 +162,45 @@ def main() -> None:
     print(f"Results:  {RESULTS_DIR}", flush=True)
 
     # Startup chain (optional)
-    startup_profile = PROFILES_DIR / "startup.json"
-    if startup_profile.exists():
-        startup_chain = json.loads(startup_profile.read_text()).get("chain")
-        if startup_chain:
-            startup_dir = RUNTIME_DIR / "startup"
-            startup_dir.mkdir(parents=True, exist_ok=True)
-            source_manager.set_result_dir(startup_dir)
-            ctx = {
-                "board": board,
-                "sources": source_manager,
-                "ui": ui,
-                "event_queue": event_queue,
-                "cancel_flag": cancel_flag,
-                "result_dir": startup_dir,
-                "request_id": "startup",
-                "request": {},
-                "profile": "startup",
-                "chain_name": "startup",
-                "request_start": time.time(),
-                "target_ip": TARGET_IP,
-                "kernel_image": KERNEL_IMAGE,
-                "kernel_release": KERNEL_RELEASE_FILE.read_text().strip() if KERNEL_RELEASE_FILE.exists() else "unknown",
-                "forks": {},
-                "fork_recorders": {},
-                "console_manager": console_manager,
-                "abort_recovery_chain": "recovery_boot",
-                "default_ttys": {"tty0": DEFAULT_TTY0, "tty1": DEFAULT_TTY1},
-                "exit_flag": exit_flag,
-            }
-            recorder = ChainRecorder(startup_dir)
-            try:
-                ui_state.set_request("startup", "startup", "startup", subchain="-")
-                run_chain(startup_chain, ctx, recorder)
-                ui_state.clear_request()
-            except Exception as exc:
-                print(f"Startup chain failed: {exc}", flush=True)
-                ui_state.clear_request()
+    try:
+        startup_chain = load_chain("startup")
+    except Exception:
+        startup_chain = None
+    if startup_chain:
+        startup_dir = RUNTIME_DIR / "startup"
+        startup_dir.mkdir(parents=True, exist_ok=True)
+        source_manager.set_result_dir(startup_dir)
+        ctx = {
+            "board": board,
+            "sources": source_manager,
+            "ui": ui,
+            "event_queue": event_queue,
+            "cancel_flag": cancel_flag,
+            "result_dir": startup_dir,
+            "request_id": "startup",
+            "request": {},
+            "profile": "startup",
+            "chain_name": "startup",
+            "request_start": time.time(),
+            "target_ip": TARGET_IP,
+            "kernel_image": KERNEL_IMAGE,
+            "kernel_release": KERNEL_RELEASE_FILE.read_text().strip() if KERNEL_RELEASE_FILE.exists() else "unknown",
+            "forks": {},
+            "fork_recorders": {},
+            "console_manager": console_manager,
+            "abort_recovery_chain": "recovery_boot",
+            "default_ttys": {"tty0": DEFAULT_TTY0, "tty1": DEFAULT_TTY1},
+            "exit_flag": exit_flag,
+            "load_chain": load_chain,
+        }
+        recorder = ChainRecorder(startup_dir)
+        try:
+            ui_state.set_request("startup", "startup", "startup")
+            run_chain(startup_chain, ctx, recorder)
+            ui_state.clear_request()
+        except Exception as exc:
+            print(f"Startup chain failed: {exc}", flush=True)
+            ui_state.clear_request()
 
     # Main loop
     while not exit_flag.is_set():
@@ -241,19 +250,11 @@ def main() -> None:
             continue
 
         try:
-            profile = load_profile(profile_name)
+            chain = load_chain(profile_name)
         except Exception as exc:
             (result_dir / "error.txt").write_text(str(exc))
             processing_file.rename(FAILED_DIR / request_file.name)
             print(f"ERROR: {exc}", flush=True)
-            continue
-
-        chain = profile.get("chain")
-        if not chain:
-            err = f"profile {profile_name} missing chain"
-            (result_dir / "error.txt").write_text(err)
-            processing_file.rename(FAILED_DIR / request_file.name)
-            print(f"ERROR: {err}", flush=True)
             continue
 
         cancel_flag = threading.Event()
@@ -287,12 +288,13 @@ def main() -> None:
             "abort_recovery_chain": "recovery_boot",
             "default_ttys": {"tty0": DEFAULT_TTY0, "tty1": DEFAULT_TTY1},
             "exit_flag": exit_flag,
+            "load_chain": load_chain,
         }
         recorder = ChainRecorder(result_dir)
 
         status = "failed"
         try:
-            ui_state.set_request(timestamp, profile_name, profile_name, subchain="-")
+            ui_state.set_request(timestamp, profile_name, profile_name)
             status = run_chain(chain, ctx, recorder)
         except Exception as exc:
             (result_dir / "error.txt").write_text(str(exc))

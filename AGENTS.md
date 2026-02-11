@@ -16,10 +16,10 @@ Always read the following documents before you start planning or making changes:
 ## Working Directory vs Code
 
 `AUTOPILOT_DIR` is the working directory (queues/results/runtime), not the code
-path. Profiles are static data and live in the code repo at
-`/home/hlyytine/autopilot/profiles` (single source of truth). The code can live
-anywhere (for example `~/autopilot`), while each project uses its own
-`AUTOPILOT_DIR`.
+path. Executable chains live in the code repo at
+`/home/hlyytine/autopilot/chains`. Console login/prompt profiles live at
+`/home/hlyytine/autopilot/profiles`. The code can live anywhere (for example
+`~/autopilot`), while each project uses its own `AUTOPILOT_DIR`.
 
 ## MCP-Controlled Autopilot Daemon
 

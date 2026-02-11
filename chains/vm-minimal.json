@@ -1,0 +1,213 @@
+{
+  "entry": "map_tty0",
+  "steps": {
+    "map_tty0": {
+      "type": "map_source",
+      "source": "tty0",
+      "tty": "env:AUTOPILOT_TTY0",
+      "log": "console/tty0.raw",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "map_tty1"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "map_tty1": {
+      "type": "map_source",
+      "source": "tty1",
+      "tty": "env:AUTOPILOT_TTY1",
+      "log": "console/tty1.raw",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "window1"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "window1": {
+      "type": "map_window",
+      "window": 1,
+      "source": "tty0",
+      "title": "TTY0",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "window2"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "window2": {
+      "type": "map_window",
+      "window": 2,
+      "source": "tty1",
+      "title": "TTY1",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "relay_power"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "relay_power": {
+      "type": "relay",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "boot_stock"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "boot_stock": {
+      "type": "boot_menu",
+      "source": "tty0",
+      "boot_option": "1",
+      "outcomes": [
+        {
+          "label": "menu",
+          "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot",
+          "source": "tty0",
+          "next": "wait_stock_prompt"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_stock_prompt": {
+      "type": "wait_pattern",
+      "timeout_s": 180,
+      "outcomes": [
+        {
+          "label": "prompt",
+          "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
+          "source": "tty0",
+          "next": "interactive_stock"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "interactive_stock": {
+      "type": "interactive_console",
+      "hold_open": false,
+      "exit_after_shell": false,
+      "sessions": [
+        {
+          "name": "tty0",
+          "port": "/dev/ttyACM0",
+          "source": "tty0",
+          "profile": "ubuntu-22"
+        }
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "run_bootefi"
+        }
+      ],
+      "on_timeout": "run_bootefi"
+    },
+    "wait_capdl": {
+      "type": "wait_pattern",
+      "timeout_s": 120,
+      "outcomes": [
+        {
+          "label": "capdl",
+          "pattern": "capdl-loader|ELF-loader",
+          "source": "tty0",
+          "next": "wait_vm_boot"
+        }
+      ],
+      "on_timeout": "filter_logs_fail"
+    },
+    "wait_vm_boot": {
+      "type": "wait_pattern",
+      "timeout_s": 120,
+      "outcomes": [
+        {
+          "label": "vm",
+          "pattern": "Booting Linux|driver-vm login:|login:",
+          "source": "tty1",
+          "next": "filter_logs_pass"
+        }
+      ],
+      "on_timeout": "filter_logs_fail"
+    },
+    "filter_logs_pass": {
+      "type": "analyze_logs",
+      "command": [
+        "bash",
+        "-lc",
+        "/home/hlyytine/autopilot/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && /home/hlyytine/autopilot/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\""
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fork_recovery_pass"
+        }
+      ],
+      "on_timeout": "fork_recovery_fail"
+    },
+    "filter_logs_fail": {
+      "type": "analyze_logs",
+      "command": [
+        "bash",
+        "-lc",
+        "/home/hlyytine/autopilot/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && /home/hlyytine/autopilot/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\""
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fork_recovery_fail"
+        }
+      ],
+      "on_timeout": "fork_recovery_fail"
+    },
+    "fork_recovery_pass": {
+      "type": "fork",
+      "chain": "recovery_boot",
+      "outcomes": [
+        {
+          "label": "started",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "pass"
+    },
+    "fork_recovery_fail": {
+      "type": "fork",
+      "chain": "recovery_boot",
+      "outcomes": [
+        {
+          "label": "started",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    },
+    "run_bootefi": {
+      "type": "call_chain",
+      "chain": "bootefi_common",
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "wait_capdl"
+        },
+        {
+          "label": "fail",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    }
+  }
+}

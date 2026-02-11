@@ -26,7 +26,6 @@ class TmuxUIState:
             "request_id": None,
             "profile": None,
             "chain": None,
-            "subchain": None,
             "step": None,
             "elapsed_s": None,
             "status_text": "",
@@ -37,12 +36,11 @@ class TmuxUIState:
         self.live_dir.mkdir(parents=True, exist_ok=True)
         self._flush_locked()
 
-    def set_request(self, request_id: str, profile: str, chain: str, subchain: str = "-") -> None:
+    def set_request(self, request_id: str, profile: str, chain: str) -> None:
         with self._lock:
             self._state["request_id"] = request_id
             self._state["profile"] = profile
             self._state["chain"] = chain
-            self._state["subchain"] = subchain
             self._flush_locked()
 
     def clear_request(self) -> None:
@@ -50,7 +48,6 @@ class TmuxUIState:
             self._state["request_id"] = None
             self._state["profile"] = None
             self._state["chain"] = None
-            self._state["subchain"] = None
             self._state["step"] = None
             self._state["elapsed_s"] = None
             self._flush_locked()
@@ -64,11 +61,6 @@ class TmuxUIState:
     def set_status_text(self, text: str) -> None:
         with self._lock:
             self._state["status_text"] = text
-            self._flush_locked()
-
-    def set_subchain(self, subchain: str) -> None:
-        with self._lock:
-            self._state["subchain"] = subchain
             self._flush_locked()
 
     def map_source(self, source: str, tty: str, log_path: str) -> None:

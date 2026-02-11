@@ -1,0 +1,46 @@
+{
+  "entry": "cleanup_efi",
+  "steps": {
+    "cleanup_efi": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "find /boot/efi -maxdepth 1 -type f -print -delete",
+      "outcomes": [
+        { "label": "ok", "next": "upload_efi" }
+      ],
+      "on_timeout": "fail"
+    },
+    "upload_efi": {
+      "type": "upload_efi",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "target_path": "/boot/efi/{binary_name}",
+      "outcomes": [
+        { "label": "ok", "next": "reboot_efi" }
+      ],
+      "on_timeout": "fail"
+    },
+    "reboot_efi": {
+      "type": "reboot",
+      "method": "ssh",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "outcomes": [
+        { "label": "ok", "next": "boot_efi" }
+      ],
+      "on_timeout": "fail"
+    },
+    "boot_efi": {
+      "type": "uefi_shell_run",
+      "source": "tty0",
+      "fs": "fs3",
+      "outcomes": [
+        { "label": "ok", "next": "pass" }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": { "type": "pass" },
+    "fail": { "type": "fail" }
+  }
+}

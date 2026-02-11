@@ -1,0 +1,38 @@
+{
+  "entry": "boot_stock",
+  "steps": {
+    "boot_stock": {
+      "type": "boot_menu",
+      "source": "tty0",
+      "boot_option": "1",
+      "outcomes": [
+        {
+          "label": "menu",
+          "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot",
+          "source": "tty0",
+          "next": "wait_prompt"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_prompt": {
+      "type": "wait_pattern",
+      "timeout_s": 180,
+      "outcomes": [
+        {
+          "label": "prompt",
+          "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
+          "source": "tty0",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    }
+  }
+}

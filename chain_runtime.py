@@ -96,6 +96,17 @@ class ChainRecorder:
         self.path.write_text(json.dumps(payload, indent=2))
 
 
+class NoopChainRecorder:
+    def record_step(self, result: StepResult) -> None:
+        return
+
+    def record_fork(self, name: str, status: str) -> None:
+        return
+
+    def finalize(self, status: str, abort_reason: Optional[str] = None) -> None:
+        return
+
+
 class Event:
     def __init__(self, kind: str, payload: Optional[dict] = None):
         self.kind = kind
@@ -242,6 +253,12 @@ def validate_chain(chain: dict) -> None:
                     raise ChainValidationError(f"step {name} outcome target missing: {outcome['next']}")
         if "on_timeout" in step and step["on_timeout"] not in steps:
             raise ChainValidationError(f"step {name} on_timeout target missing")
+        if step.get("type") == "call_chain":
+            labels = {outcome.get("label") for outcome in step.get("outcomes", [])}
+            if "pass" not in labels or "fail" not in labels:
+                raise ChainValidationError(
+                    f"step {name} call_chain requires outcomes for labels 'pass' and 'fail'"
+                )
 
 
 class ChainRunner:
@@ -252,10 +269,15 @@ class ChainRunner:
         self.event_queue: queue.Queue = ctx["event_queue"]
         self.cancel_flag = ctx["cancel_flag"]
         self.ctx.setdefault("chain_name", self.ctx.get("profile", "-"))
-        self.ctx.setdefault("subchain_name", "-")
+        stack = self.ctx.setdefault("chain_stack", [])
+        if not stack:
+            chain_name = str(self.ctx.get("chain_name", "")).strip()
+            if chain_name:
+                self.ctx["chain_stack"] = [chain_name]
 
     def run(self) -> str:
         validate_chain(self.chain)
+        self._validate_external_refs()
         current = self.chain["entry"]
         try:
             while True:
@@ -342,6 +364,8 @@ class ChainRunner:
             return self._step_ssh_cmd(step)
         if step_type == "fork":
             return self._step_fork(step)
+        if step_type == "call_chain":
+            return self._step_call_chain(step)
         if step_type == "join":
             return self._step_join(step)
         if step_type == "analyze_logs":
@@ -684,13 +708,12 @@ class ChainRunner:
 
     def _step_fork(self, step: dict) -> Tuple[str, OutcomeMatch]:
         name = step["chain"]
-        subchain = self.chain.get("subchains", {}).get(name)
-        if not subchain:
-            raise ValueError(f"unknown subchain {name}")
+        subchain = self._load_named_chain(name)
         cancel_flag = threading.Event()
         sub_ctx = dict(self.ctx)
         sub_ctx["cancel_flag"] = cancel_flag
-        sub_ctx["subchain_name"] = name
+        sub_ctx["chain_name"] = name
+        sub_ctx["chain_stack"] = list(self.ctx.get("chain_stack", []))
         recorder = self.ctx["fork_recorders"].setdefault(
             name, ChainRecorder(self.ctx["result_dir"])
         )
@@ -703,6 +726,28 @@ class ChainRunner:
         thread.start()
         self.recorder.record_fork(name, "running")
         return self._simple_outcome(step)
+
+    def _step_call_chain(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        name = step["chain"]
+        chain = self._load_named_chain(name)
+        stack = list(self.ctx.get("chain_stack", []))
+        if name in stack:
+            path = " -> ".join(stack + [name])
+            raise ChainValidationError(f"call_chain recursion detected: {path}")
+        sub_ctx = dict(self.ctx)
+        sub_ctx["chain_name"] = name
+        sub_ctx["chain_stack"] = stack + [name]
+        recorder = NoopChainRecorder()
+        runner = ChainRunner(chain, sub_ctx, recorder)
+        status = runner.run()
+        label = "pass" if status == "pass" else "fail"
+        outcomes = step.get("outcomes", [])
+        for outcome in outcomes:
+            if outcome.get("label") == label:
+                next_step = outcome.get("next", step.get("on_timeout", "fail"))
+                return next_step, OutcomeMatch(label, next_step, None, None, None, None)
+        next_step = step.get("on_timeout", "fail")
+        return next_step, OutcomeMatch(label, next_step, None, None, None, None)
 
     def _step_join(self, step: dict) -> Tuple[str, OutcomeMatch]:
         name = step.get("chain")
@@ -958,11 +1003,32 @@ class ChainRunner:
             return value.format(**format_ctx)
         return value
 
+    def _load_named_chain(self, name: str) -> dict:
+        loader = self.ctx.get("load_chain")
+        if not loader:
+            raise ValueError("load_chain callback not configured")
+        return loader(name)
+
+    def _validate_external_refs(self) -> None:
+        for step_name, step in self.chain.get("steps", {}).items():
+            step_type = step.get("type")
+            if step_type not in ("fork", "call_chain"):
+                continue
+            chain_name = step.get("chain")
+            if not chain_name:
+                raise ChainValidationError(f"step {step_name} missing chain name")
+            try:
+                self._load_named_chain(str(chain_name))
+            except Exception as exc:
+                raise ChainValidationError(
+                    f"step {step_name} references unknown chain {chain_name}: {exc}"
+                ) from exc
+
     def _handle_abort(self) -> None:
         for fork in self.ctx["forks"].values():
             fork["cancel"].set()
         recovery = self.ctx.get("abort_recovery_chain")
-        if recovery and recovery in self.chain.get("subchains", {}):
+        if recovery:
             step = {"type": "fork", "chain": recovery, "outcomes": [{"label": "started", "next": "fail"}]}
             try:
                 self._step_fork(step)
@@ -984,9 +1050,8 @@ class ChainRunner:
         request_id = self.ctx.get("request_id", "-")
         profile = self.ctx.get("profile", "-")
         chain_name = self.ctx.get("chain_name", "-")
-        subchain = self.ctx.get("subchain_name", "-")
         start = self.ctx.get("request_start")
         elapsed = int(time.time() - start) if start else 0
         if hasattr(ui, "state"):
-            ui.state.set_request(str(request_id), str(profile), str(chain_name), subchain=str(subchain))
+            ui.state.set_request(str(request_id), str(profile), str(chain_name))
             ui.state.set_step(step, elapsed)

@@ -4,17 +4,20 @@ Extends the pKVM autopilot framework to support seL4 EFI binary testing on NVIDI
 
 ## Overview
 
-The `orin_kernel_autopilot.py` daemon executes tests based on the **profile** specified in each request. Profiles define the full chain (UART mappings, SSH steps, success criteria, and log outputs). There is no request `type` routing.
+The `orin_kernel_autopilot.py` daemon executes tests based on the `profile` value
+specified in each request, where `profile` is the root chain name. Chains are
+loaded from `/home/hlyytine/autopilot/chains/<profile>.json`. There is no
+request `type` routing.
 
-seL4 EFI test flow (profile-defined):
+seL4 EFI test flow (chain-defined):
 1. Boot to stock Jetson Linux
 2. Upload EFI binary via SCP to `/boot/efi/`
 3. Reboot and navigate UEFI menus to EFI Shell
-4. Run the binary and capture output according to the profile chain
-5. Optional post-processing (filters) to produce profile-defined log files
+4. Run the binary and capture output according to the chain
+5. Optional post-processing (filters) to produce chain-defined log files
 6. Recover to stock Linux (if defined in profile)
 
-All logs live under `results/<timestamp>/console/` and are defined by the profile.
+All logs live under `results/<timestamp>/console/` and are defined by chain steps.
 
 ## Quick Start
 
@@ -88,7 +91,7 @@ Defaults (AUTOPILOT_DIR/TTYs and queue names) are defined in `config.py` (SSOT).
 │   └── failed/           # Failed tests
 ├── results/
 │   └── <timestamp>/
-│       ├── console/      # Profile-defined log outputs
+│       ├── console/      # Chain-defined log outputs
 │       ├── upload.log    # Upload phase log (if defined by profile)
 │       └── recovery.log  # Recovery phase log (if defined by profile)
 ├── binaries/             # Staging area for EFI binaries
@@ -99,7 +102,9 @@ Defaults (AUTOPILOT_DIR/TTYs and queue names) are defined in `config.py` (SSOT).
 
 ## Output Files
 
-After test completion, `results/<timestamp>/console/` contains **only** the logs defined by the profile chain (raw UART captures and any filtered logs created by `analyze_logs`). There are no fixed filenames enforced by code.
+After test completion, `results/<timestamp>/console/` contains **only** the logs
+defined by the chain (raw UART captures and any filtered logs created by
+`analyze_logs`). There are no fixed filenames enforced by code.
 
 ## Client Library API
 
@@ -125,14 +130,14 @@ The chain `uefi_shell_run` step navigates UEFI menus automatically:
 3. Wait for "Esc=Exit" → Up, Enter (UEFI Shell)
 4. Wait for "Shell>" → send `fs3:`
 5. Wait for "FS3:\>" → send binary name
-6. Capture output until profile-defined quiescence
+6. Capture output until chain-defined quiescence
 
 ## Troubleshooting
 
 **Test hangs during upload**: Check SSH connectivity to 192.168.101.112
 
-**UEFI navigation fails**: The UEFI menu structure may have changed. Check the raw console log defined by the profile.
+**UEFI navigation fails**: The UEFI menu structure may have changed. Check the raw console log defined by the chain.
 
 **Binary not found on target**: Verify `/boot/efi/` is mounted and writable on the target.
 
-**Recovery fails**: Board may need manual power cycle. Check any recovery log defined by the profile.
+**Recovery fails**: Board may need manual power cycle. Check any recovery log defined by the chain.
