@@ -97,6 +97,8 @@ Each test produces:
 - `chain.json`: structured step results and errors
 - `console/<source>.jsonl`: UART transcripts for mapped sources
 - Additional log files under `console/` as defined by the profile chain (for example, filtered outputs created by `analyze_logs`)
+- `device-trees/*.dtb` and `device-trees/*.dts`: guest DTB dumps decoded from logs
+- `device-trees/summary.json`: extraction/conversion summary
 
 ## Dependencies
 

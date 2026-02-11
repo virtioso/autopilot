@@ -213,6 +213,22 @@ EOF
 
 Results appear in `results/<timestamp>/`.
 
+## Guest Device Tree Artifacts (Automatic)
+
+After every processed request, Autopilot scans captured logs for `DTB_DUMP_START`
+and `DTB_DUMP_END` markers and writes decoded artifacts to:
+
+- `results/<timestamp>/device-trees/*.dtb`
+- `results/<timestamp>/device-trees/*.dts` (via `dtc`)
+- `results/<timestamp>/device-trees/summary.json`
+
+If no DTB dump markers are found, `summary.json` still exists and reports zero
+extracted dumps.
+
+When a run has guest behavior problems (boot failure, missing device, guest
+panic, unexpected timeout), **always inspect the generated `.dts` files** as a
+first-line debugging step.
+
 ## Interactive EFI Sessions
 
 For EFI-based interactive sessions, use the `boot-interactive-efi` profile and
@@ -265,6 +281,7 @@ Example step types:
 ### Boot Menu Not Detected
 1. Inspect UART logs in `results/<timestamp>/console/` (profile-defined log names).
 2. Verify the regex in the `boot_menu` step matches actual output.
+3. If guest boot behavior is wrong, inspect `results/<timestamp>/device-trees/*.dts`.
 
 ### SSH Upload Fails
 1. Check SSH auth: `ssh root@192.168.101.112 hostname`.

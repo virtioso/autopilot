@@ -40,3 +40,11 @@ Replace these for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*`).
 If you are running Autopilot from a different project repo, ensure that project
 has its own `AGENTS.md` referencing the Autopilot docs above and that it defines
 `AUTOPILOT_DIR` for that project.
+
+## Guest DTB Artifacts (Mandatory Workflow)
+
+After every test run, Autopilot extracts guest DTB dumps from logs into
+`results/<request_id>/device-trees/` and converts them to `.dts` when possible.
+
+If guest behavior is abnormal, always inspect the generated `.dts` files as part
+of first-pass triage.

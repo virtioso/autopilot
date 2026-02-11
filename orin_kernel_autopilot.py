@@ -13,6 +13,7 @@ import BoardControl
 from chain_runtime import ChainRecorder, ChainRunner, Event, SourceManager
 from console_sessions import ConsoleManager
 from config import get_autopilot_dir, get_default_ttys, get_paths
+from extract_guest_dtb import extract_guest_dtbs
 from tmux_ui import TmuxControlServer, TmuxUICompat, TmuxUIState, TmuxWindowManager, detect_tmux_session
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -71,6 +72,32 @@ def load_profile(profile_name: str) -> dict:
 def run_chain(chain: dict, ctx: dict, recorder: ChainRecorder) -> str:
     runner = ChainRunner(chain, ctx, recorder)
     return runner.run()
+
+
+def write_post_run_dtb_artifacts(result_dir: Path, status: str) -> None:
+    try:
+        summary = extract_guest_dtbs(result_dir)
+        payload = summary.to_json()
+        payload["request_status"] = status
+        payload["review_required"] = (
+            status != "pass" and payload.get("generated_dts", 0) > 0
+        )
+        summary_path = summary.output_dir / "summary.json"
+        summary_path.write_text(json.dumps(payload, indent=2))
+        print(
+            "DT artifacts:"
+            f" dtb={payload.get('generated_dtb', 0)}"
+            f" dts={payload.get('generated_dts', 0)}"
+            f" summary={summary_path}",
+            flush=True,
+        )
+        if payload["review_required"]:
+            print(
+                "DT review required: guest run failed; inspect generated DTS files",
+                flush=True,
+            )
+    except Exception as exc:
+        print(f"WARNING: DTB extraction failed: {exc}", flush=True)
 
 
 def poll_idle_events(event_queue: queue.Queue, exit_flag: threading.Event) -> None:
@@ -272,6 +299,7 @@ def main() -> None:
             status = "failed"
         finally:
             ui_state.clear_request()
+            write_post_run_dtb_artifacts(result_dir, status)
 
         if status == "pass":
             processing_file.rename(COMPLETED_DIR / request_file.name)
