@@ -2,11 +2,10 @@
 """
 seL4 Autopilot MCP Server
 
-An MCP (Model Context Protocol) server that provides tools for building and
-testing seL4 EFI binaries on NVIDIA Orin AGX hardware.
+An MCP (Model Context Protocol) server that provides tools for testing and
+observing seL4 EFI binaries on NVIDIA Orin AGX hardware.
 
 Tools:
-- build_sel4test: Build sel4test for Orin AGX (clean build in Docker)
 - test_sel4_efi: Submit a binary, wait for completion, return results
 - check_sel4_test: Check status of a submitted test
 - get_logs: List console logs for a completed test
@@ -32,7 +31,6 @@ Configuration for Claude Code (~/.claude/settings.json):
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -200,29 +198,6 @@ Returns paths (and optionally contents) for files under results/<id>/console/.""
         }
     },
     {
-        "name": "build_sel4test",
-        "description": """Build sel4test for the Orin AGX platform.
-
-Performs a clean build of sel4test inside Docker. This ALWAYS removes any
-existing build directory, configures for the specified mode, and runs the
-full build.
-
-The build typically takes 3-5 minutes.
-
-Returns the path to the built binary on success.""",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "mode": {
-                    "type": "string",
-                    "enum": ["el1", "el2", "el2-ras", "el2-ftrace", "el2-ftrace-nocache"],
-                    "description": "Kernel mode: 'el2' for hypervisor mode (default), 'el1' for no hypervisor, 'el2-ras' for RAS error logging without function tracing (lower overhead), 'el2-ftrace' for full function tracing, 'el2-ftrace-nocache' for ftrace with data cache disabled",
-                    "default": "el2"
-                }
-            }
-        }
-    },
-    {
         "name": "query_ftrace",
         "description": """Query indexed ftrace data from a test run.
 
@@ -268,29 +243,6 @@ Supports:
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["request_id"]
-        }
-    },
-    {
-        "name": "build_vm_minimal",
-        "description": """Build vm_minimal CAmkES application for the Orin AGX platform.
-
-Performs a clean build of vm_minimal inside Docker. This ALWAYS removes any
-existing build directory, configures for the specified mode, and runs the
-full build.
-
-The build typically takes 5-10 minutes.
-
-Returns the path to the built capdl-loader binary on success.""",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "mode": {
-                    "type": "string",
-                    "enum": ["el1", "el2"],
-                    "description": "Kernel mode: 'el2' for hypervisor mode (default), 'el1' for no hypervisor",
-                    "default": "el2"
-                }
-            }
         }
     },
     {
@@ -813,212 +765,6 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         except Exception as e:
             return {
                 "content": [{"type": "text", "text": f"Query failed: {str(e)}"}],
-                "isError": True
-            }
-
-    elif name == "build_sel4test":
-        mode = arguments.get("mode", "el2")
-
-        # Configuration
-        workspace_root = Path("/home/hlyytine/tii-sel4")
-        build_dir = workspace_root / "orinagx_sel4test"
-        binary_path = build_dir / "images" / "sel4test-driver-image-arm-orinagx"
-
-        # Determine defconfig based on mode
-        if mode == "el2":
-            defconfig = "orinagx_defconfig"
-        elif mode == "el2-ras":
-            defconfig = "orinagx_ras_defconfig"
-        elif mode == "el2-ftrace":
-            defconfig = "orinagx_ftrace_defconfig"
-        elif mode == "el2-ftrace-nocache":
-            defconfig = "orinagx_ftrace_nocache_defconfig"
-        else:
-            defconfig = "orinagx_nohyp_defconfig"
-
-        build_log = []
-        build_log.append(f"Building sel4test in {mode} mode...")
-
-        try:
-            # Step 1: Always remove existing build directory for clean build
-            if build_dir.exists():
-                build_log.append(f"Removing existing build directory: {build_dir}")
-                shutil.rmtree(build_dir)
-
-            # Step 2: Run defconfig
-            build_log.append(f"Running: make {defconfig}")
-            result = subprocess.run(
-                ["make", defconfig],
-                cwd=str(workspace_root),
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            if result.returncode != 0:
-                return {
-                    "content": [{"type": "text", "text": f"Defconfig failed:\n{result.stderr}\n{result.stdout}"}],
-                    "isError": True
-                }
-            build_log.append("Defconfig completed successfully")
-
-            # Step 3: Build sel4test
-            build_log.append("Running: make sel4test (this may take several minutes)")
-            result = subprocess.run(
-                ["make", "sel4test"],
-                cwd=str(workspace_root),
-                capture_output=True,
-                text=True,
-                timeout=900  # 15 minute timeout
-            )
-
-            # Check for build errors
-            if result.returncode != 0:
-                # Include last 50 lines of output for debugging
-                stderr_lines = result.stderr.strip().split('\n')[-50:]
-                stdout_lines = result.stdout.strip().split('\n')[-50:]
-                return {
-                    "content": [{"type": "text", "text": f"Build failed (exit code {result.returncode}):\n\nstderr (last 50 lines):\n" + "\n".join(stderr_lines) + "\n\nstdout (last 50 lines):\n" + "\n".join(stdout_lines)}],
-                    "isError": True
-                }
-
-            # Step 4: Verify binary was created
-            if not binary_path.exists():
-                return {
-                    "content": [{"type": "text", "text": f"Build appeared to succeed but binary not found at: {binary_path}"}],
-                    "isError": True
-                }
-
-            # Get binary timestamp
-            mtime = datetime.fromtimestamp(binary_path.stat().st_mtime)
-            build_time = mtime.strftime("%Y-%m-%d %H:%M:%S")
-
-            build_log.append(f"Build completed successfully!")
-            build_log.append(f"Binary: {binary_path}")
-            build_log.append(f"Build time: {build_time}")
-
-            # Return success with structured result
-            result_json = {
-                "success": True,
-                "binary_path": str(binary_path),
-                "mode": mode,
-                "build_time": build_time
-            }
-
-            response_text = "\n".join(build_log) + f"\n\nResult:\n{json.dumps(result_json, indent=2)}"
-
-            return {
-                "content": [{"type": "text", "text": response_text}],
-                "isError": False
-            }
-
-        except subprocess.TimeoutExpired:
-            return {
-                "content": [{"type": "text", "text": "Build timed out after 15 minutes"}],
-                "isError": True
-            }
-        except Exception as e:
-            return {
-                "content": [{"type": "text", "text": f"Build failed with exception: {str(e)}"}],
-                "isError": True
-            }
-
-    elif name == "build_vm_minimal":
-        mode = arguments.get("mode", "el2")
-
-        # Configuration
-        workspace_root = Path("/home/hlyytine/tii-sel4")
-        build_dir = workspace_root / "orinagx_vm_minimal"
-        binary_path = build_dir / "images" / "capdl-loader-image-arm-orinagx"
-
-        # Determine defconfig based on mode
-        if mode == "el2":
-            defconfig = "orinagx_defconfig"
-        else:
-            defconfig = "orinagx_nohyp_defconfig"
-
-        build_log = []
-        build_log.append(f"Building vm_minimal in {mode} mode...")
-
-        try:
-            # Step 1: Always remove existing build directory for clean build
-            if build_dir.exists():
-                build_log.append(f"Removing existing build directory: {build_dir}")
-                shutil.rmtree(build_dir)
-
-            # Step 2: Run defconfig
-            build_log.append(f"Running: make {defconfig}")
-            result = subprocess.run(
-                ["make", defconfig],
-                cwd=str(workspace_root),
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            if result.returncode != 0:
-                return {
-                    "content": [{"type": "text", "text": f"Defconfig failed:\n{result.stderr}\n{result.stdout}"}],
-                    "isError": True
-                }
-            build_log.append("Defconfig completed successfully")
-
-            # Step 3: Build vm_minimal
-            build_log.append("Running: make vm_minimal (this may take several minutes)")
-            result = subprocess.run(
-                ["make", "vm_minimal"],
-                cwd=str(workspace_root),
-                capture_output=True,
-                text=True,
-                timeout=1800  # 30 minute timeout (CAmkES builds take longer)
-            )
-
-            # Check for build errors
-            if result.returncode != 0:
-                # Include last 50 lines of output for debugging
-                stderr_lines = result.stderr.strip().split('\n')[-50:]
-                stdout_lines = result.stdout.strip().split('\n')[-50:]
-                return {
-                    "content": [{"type": "text", "text": f"Build failed (exit code {result.returncode}):\n\nstderr (last 50 lines):\n" + "\n".join(stderr_lines) + "\n\nstdout (last 50 lines):\n" + "\n".join(stdout_lines)}],
-                    "isError": True
-                }
-
-            # Step 4: Verify binary was created
-            if not binary_path.exists():
-                return {
-                    "content": [{"type": "text", "text": f"Build appeared to succeed but binary not found at: {binary_path}"}],
-                    "isError": True
-                }
-
-            # Get binary timestamp
-            mtime = datetime.fromtimestamp(binary_path.stat().st_mtime)
-            build_time = mtime.strftime("%Y-%m-%d %H:%M:%S")
-
-            build_log.append(f"Build completed successfully!")
-            build_log.append(f"Binary: {binary_path}")
-            build_log.append(f"Build time: {build_time}")
-
-            # Return success with structured result
-            result_json = {
-                "success": True,
-                "binary_path": str(binary_path),
-                "mode": mode,
-                "build_time": build_time
-            }
-
-            response_text = "\n".join(build_log) + f"\n\nResult:\n{json.dumps(result_json, indent=2)}"
-
-            return {
-                "content": [{"type": "text", "text": response_text}],
-                "isError": False
-            }
-
-        except subprocess.TimeoutExpired:
-            return {
-                "content": [{"type": "text", "text": "Build timed out after 30 minutes"}],
-                "isError": True
-            }
-        except Exception as e:
-            return {
-                "content": [{"type": "text", "text": f"Build failed with exception: {str(e)}"}],
                 "isError": True
             }
 
