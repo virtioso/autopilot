@@ -30,6 +30,7 @@ Configuration for Claude Code (~/.claude/settings.json):
 """
 
 import json
+import importlib
 import os
 import subprocess
 import sys
@@ -40,14 +41,9 @@ from typing import Any
 
 from config import DEFAULT_TTY0, DEFAULT_TTY1, get_default_ttys
 
-# Autopilot process management
-from autopilot_manager import (
-    start_autopilot,
-    stop_autopilot,
-    restart_autopilot,
-    status_autopilot,
-    DEFAULT_PLATFORM,
-)
+# Autopilot process management (hot-reloaded to pick up local fixes without
+# restarting the MCP server process).
+import autopilot_manager as autopilot_manager_mod
 # Import the sel4_client library
 # Use script directory to find sel4_client, not hardcoded path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -72,6 +68,26 @@ from sel4_client import (
     send_console_command,
     close_console_session,
 )
+
+_AUTOPILOT_MANAGER_MTIME_NS = None
+
+
+def _get_autopilot_manager():
+    global autopilot_manager_mod, _AUTOPILOT_MANAGER_MTIME_NS
+    mod_path = Path(autopilot_manager_mod.__file__).resolve()
+    try:
+        mtime_ns = mod_path.stat().st_mtime_ns
+    except OSError:
+        return autopilot_manager_mod
+
+    if _AUTOPILOT_MANAGER_MTIME_NS is None:
+        _AUTOPILOT_MANAGER_MTIME_NS = mtime_ns
+        return autopilot_manager_mod
+
+    if mtime_ns != _AUTOPILOT_MANAGER_MTIME_NS:
+        autopilot_manager_mod = importlib.reload(autopilot_manager_mod)
+        _AUTOPILOT_MANAGER_MTIME_NS = mtime_ns
+    return autopilot_manager_mod
 
 # MCP Protocol implementation
 # Using stdio transport with JSON-RPC 2.0
@@ -539,6 +555,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
     # Extract common autopilot_dir parameter
     autopilot_dir = arguments.get("autopilot_dir")
     paths = get_paths(autopilot_dir)
+    apm = _get_autopilot_manager()
 
     if name == "test_sel4_efi":
         binary_path = arguments["binary_path"]
@@ -564,9 +581,9 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
 
         # Ensure Autopilot daemon is running
         default_tty0, default_tty1 = get_default_ttys()
-        daemon_status = status_autopilot(autopilot_dir=str(paths["autopilot"]))
+        daemon_status = apm.status_autopilot(autopilot_dir=str(paths["autopilot"]))
         if not daemon_status.get("running", False):
-            start_result = start_autopilot(
+            start_result = apm.start_autopilot(
                 autopilot_dir=str(paths["autopilot"]),
                 tty0=default_tty0,
                 tty1=default_tty1,
@@ -581,7 +598,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             running_tty0 = (daemon_status.get("tty0") or "").strip()
             running_tty1 = (daemon_status.get("tty1") or "").strip()
             running_platform = (daemon_status.get("platform") or "").strip()
-            expected_platform = (os.environ.get("AUTOPILOT_PLATFORM") or "").strip() or DEFAULT_PLATFORM
+            expected_platform = (os.environ.get("AUTOPILOT_PLATFORM") or "").strip() or apm.DEFAULT_PLATFORM
             if (
                 not running_tty0
                 or not running_tty1
@@ -589,7 +606,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                 or running_tty1 != default_tty1
                 or running_platform != expected_platform
             ):
-                restart_result = restart_autopilot(
+                restart_result = apm.restart_autopilot(
                     autopilot_dir=str(paths["autopilot"]),
                     use_tmux=True,
                     tty0=default_tty0,
@@ -931,7 +948,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                 "content": [{"type": "text", "text": "tty1 is required (example: /dev/ttyACM1)"}],
                 "isError": True
             }
-        result = start_autopilot(
+        result = apm.start_autopilot(
             autopilot_dir=str(paths["autopilot"]),
             command=command,
             use_tmux=use_tmux,
@@ -945,7 +962,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         }
     elif name == "autopilot_stop":
         force = arguments.get("force", False)
-        result = stop_autopilot(
+        result = apm.stop_autopilot(
             autopilot_dir=str(paths["autopilot"]),
             force=force,
         )
@@ -970,7 +987,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                 "content": [{"type": "text", "text": "tty1 is required (example: /dev/ttyACM1)"}],
                 "isError": True
             }
-        result = restart_autopilot(
+        result = apm.restart_autopilot(
             autopilot_dir=str(paths["autopilot"]),
             command=command,
             use_tmux=use_tmux,
@@ -984,7 +1001,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             "isError": result.get("status") == "error"
         }
     elif name == "autopilot_status":
-        result = status_autopilot(
+        result = apm.status_autopilot(
             autopilot_dir=str(paths["autopilot"]),
         )
         return {
