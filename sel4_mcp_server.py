@@ -582,7 +582,13 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             running_tty1 = (daemon_status.get("tty1") or "").strip()
             running_platform = (daemon_status.get("platform") or "").strip()
             expected_platform = (os.environ.get("AUTOPILOT_PLATFORM") or "").strip() or DEFAULT_PLATFORM
-            if (not running_tty0 or not running_tty1 or running_platform != expected_platform):
+            if (
+                not running_tty0
+                or not running_tty1
+                or running_tty0 != default_tty0
+                or running_tty1 != default_tty1
+                or running_platform != expected_platform
+            ):
                 restart_result = restart_autopilot(
                     autopilot_dir=str(paths["autopilot"]),
                     use_tmux=True,
