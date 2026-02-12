@@ -286,14 +286,23 @@ def start_autopilot(
             check=True,
             env=env,
         )
-        # Ensure session has required environment (tmux sessions do not inherit
-        # the client environment by default).
+        # Track desired environment inside tmux for observability, and launch
+        # command with explicit env assignments so the existing shell receives
+        # the variables even when tmux server state is stale.
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_DIR", str(base)], check=False)
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY0", env["AUTOPILOT_TTY0"]], check=False)
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY1", env["AUTOPILOT_TTY1"]], check=False)
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_PLATFORM", env["AUTOPILOT_PLATFORM"]], check=False)
         _configure_tmux_ui(session, base)
-        command_str = " ".join(shlex.quote(part) for part in shlex.split(effective_command))
+        env_prefix_parts = [
+            f"AUTOPILOT_DIR={shlex.quote(str(base))}",
+            f"AUTOPILOT_TTY0={shlex.quote(env['AUTOPILOT_TTY0'])}",
+            f"AUTOPILOT_TTY1={shlex.quote(env['AUTOPILOT_TTY1'])}",
+            f"AUTOPILOT_PLATFORM={shlex.quote(env['AUTOPILOT_PLATFORM'])}",
+        ]
+        command_str = " ".join(
+            env_prefix_parts + [shlex.join(shlex.split(effective_command))]
+        )
         subprocess.run(
             ["tmux", "send-keys", "-t", session, command_str, "C-m"],
             check=True,
