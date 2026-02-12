@@ -1,0 +1,103 @@
+# DRY and SSOT Tracking
+
+**Created**: 2026-02-12  
+**Scope**: `/home/hlyytine/autopilot`  
+**Purpose**: Track DRY (Don't Repeat Yourself) and SSOT (Single Source of Truth) findings and remediation progress.
+
+## Status
+
+- Open findings: 7
+- In progress: 0
+- Resolved: 0
+
+## Baseline Findings (2026-02-12)
+
+### F-001 (High): Daemon launch command path not single-sourced
+- **Summary**: Default daemon command hardcodes code path instead of deriving from runtime location.
+- **Evidence**:
+  - `autopilot_manager.py:16`
+  - `AGENTS.md:21` (states code can live anywhere)
+- **Risk**: Relocation breaks MCP start/restart defaults unless command is overridden.
+- **Proposed direction**: Build default command from `Path(__file__).resolve().parent`.
+- **Status**: Open
+
+### F-002 (High): Chain steps hardcode absolute script paths
+- **Summary**: Multiple chains call analysis scripts with `/home/hlyytine/autopilot/...` absolute paths.
+- **Evidence**:
+  - `chains/sel4test.json:111`
+  - `chains/sel4test.json:126`
+  - `chains/vm-minimal.json:144`
+  - `chains/vm-minimal.json:159`
+  - `chains/vm-qemu-virtio.json:144`
+  - `chains/vm-qemu-virtio.json:159`
+- **Risk**: Non-relocatable chain execution and repeated literals.
+- **Proposed direction**: Introduce a chain-runtime token (for example `{code_dir}`) or env-backed script root.
+- **Status**: Open
+
+### F-003 (Medium): Target network constants duplicated across codepaths
+- **Summary**: Board and target IP values are repeated in multiple modules/scripts.
+- **Evidence**:
+  - `orin_kernel_autopilot.py:29`
+  - `BootHarness.py:357`
+  - `seL4BootHarness.py:26`
+  - `BoardControl.py:36`
+  - `bin/update.sh:5`
+- **Risk**: Drift when network topology changes.
+- **Proposed direction**: Consolidate into `config.py` and pass through call sites.
+- **Status**: Open
+
+### F-004 (Medium): VM profile chains duplicate large logic blocks
+- **Summary**: `vm-minimal` and `vm-qemu-virtio` repeat large shared blocks, differing mostly in one wait pattern/source.
+- **Evidence**:
+  - `chains/vm-minimal.json:139`
+  - `chains/vm-minimal.json:154`
+  - `chains/vm-qemu-virtio.json:139`
+  - `chains/vm-qemu-virtio.json:154`
+  - Main delta: `chains/vm-minimal.json:132` vs `chains/vm-qemu-virtio.json:132`
+- **Risk**: Fixes must be duplicated manually; easy to diverge.
+- **Proposed direction**: Extract common subchain and parameterize pattern/source.
+- **Status**: Open
+
+### F-005 (Medium): Docs claim fixed chain path while runtime resolves relative path
+- **Summary**: Documentation presents fixed absolute chain resolution path; runtime uses script-relative chain directory.
+- **Evidence**:
+  - `docs/chain-spec.md:11`
+  - `docs/chain-spec.md:80`
+  - `orin_kernel_autopilot.py:20`
+  - `orin_kernel_autopilot.py:22`
+- **Risk**: SSOT drift between docs and implementation.
+- **Proposed direction**: Update docs to describe script-relative resolution and examples separately.
+- **Status**: Open
+
+### F-006 (Low): Duplicate tty validation logic in MCP handlers
+- **Summary**: `autopilot_start` and `autopilot_restart` each repeat tty argument validation logic.
+- **Evidence**:
+  - `sel4_mcp_server.py:915`
+  - `sel4_mcp_server.py:954`
+- **Risk**: Small maintenance overhead.
+- **Proposed direction**: Helper function for shared validation/error response.
+- **Status**: Open
+
+### F-007 (Low): `sel4_client.py` duplicates queue path definitions
+- **Summary**: Module-level legacy path constants duplicate path mapping available via `get_paths()`.
+- **Evidence**:
+  - `sel4_client.py:44`
+  - `sel4_client.py:51`
+  - `sel4_client.py:86` (already uses `get_paths()`)
+- **Risk**: Dual path authority in one module.
+- **Proposed direction**: Deprecate/remove legacy constants or confine to compatibility wrapper.
+- **Status**: Open
+
+## Progress Log
+
+### 2026-02-12
+- Created this tracking file.
+- Added baseline DRY/SSOT findings F-001 through F-007.
+
+## Update Rules
+
+- Add a new dated entry under **Progress Log** for every remediation step.
+- When a finding is completed:
+  - Mark finding status as `Resolved`.
+  - Add commit hash(es) and changed file references.
+  - Keep the original finding text for audit trail.
