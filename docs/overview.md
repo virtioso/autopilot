@@ -29,7 +29,7 @@ For Orin AGX EFI workflows, set
 ### Start Autopilot
 
 ```bash
-cd /home/hlyytine/autopilot
+cd <code_root>
 AUTOPILOT_PLATFORM=orin-agx-uefi-netboot \
 AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot \
 python3 orin_kernel_autopilot.py
@@ -78,7 +78,7 @@ Results appear in `results/<timestamp>/`.
 
 Executable chain files live in:
 
-- `/home/hlyytine/autopilot/chains/*.json`
+- `<code_root>/chains/*.json`
 
 Each chain file defines:
 - `entry`: starting step label
@@ -90,8 +90,8 @@ There is no `subchains` schema. Reuse is done via:
 
 Console login/prompt profiles remain in:
 
-- `/home/hlyytine/autopilot/profiles/linux-yocto.json`
-- `/home/hlyytine/autopilot/profiles/ubuntu-22.json`
+- `<code_root>/profiles/linux-yocto.json`
+- `<code_root>/profiles/ubuntu-22.json`
 
 ## tmux Controls
 

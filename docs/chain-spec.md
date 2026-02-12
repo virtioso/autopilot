@@ -8,11 +8,11 @@ This document defines the JSON schema used for chain-based execution.
 
 Executable chains are stored as one file per chain under:
 
-- `/home/hlyytine/autopilot/chains/<name>.json`
+- `<code_root>/chains/<name>.json`
 
 The request field `profile` selects the root chain name.
 For example, `"profile": "vm-qemu-virtio"` loads:
-`/home/hlyytine/autopilot/chains/vm-qemu-virtio.json`.
+`<code_root>/chains/vm-qemu-virtio.json`.
 
 ## Chain Object
 
@@ -77,7 +77,7 @@ Terminal steps:
 
 For steps that reference another chain (`fork`, `call_chain`):
 - `chain` must be a bare chain name (no path, no `.json`).
-- Resolution path is fixed: `/home/hlyytine/autopilot/chains/<name>.json`.
+- Resolution path is fixed: `<code_root>/chains/<name>.json`.
 - Names must match `[A-Za-z0-9._-]+`.
 
 ## Example: fork

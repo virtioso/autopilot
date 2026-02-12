@@ -12,7 +12,7 @@ operator interaction.
 ## Architecture Overview (Chain-Based)
 
 - Requests are JSON files that reference a root chain name in `profile`.
-- Chain files live in `/home/hlyytine/autopilot/chains`.
+- Chain files live in `<code_root>/chains`.
 - The chain runner executes steps and routes based on regex outcomes.
 - Chains can invoke other chains:
   - `fork` for parallel/asynchronous execution

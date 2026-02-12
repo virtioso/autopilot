@@ -26,19 +26,19 @@ behavior, and tmux-native operator controls.
 
 ## Directory Layout
 
-- Code: `/home/hlyytine/autopilot`
+- Code: `<code_root>`
 - Working dir: `${AUTOPILOT_DIR:-/home/hlyytine/tii-sel4/autopilot}`
 - Requests: `${AUTOPILOT_DIR}/requests`
 - Results: `${AUTOPILOT_DIR}/results`
 - Runtime state: `${AUTOPILOT_DIR}/runtime`
-- Profiles: `/home/hlyytine/autopilot/profiles` (code repo, single source of truth)
+- Profiles: `<code_root>/profiles` (code repo, single source of truth)
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
 
 ## Start the Autopilot Daemon
 
 ```bash
-cd /home/hlyytine/autopilot
+cd <code_root>
 AUTOPILOT_PLATFORM=orin-agx-uefi-netboot \
 AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot \
 python3 orin_kernel_autopilot.py
@@ -265,13 +265,13 @@ EOF
 
 ## Chain Files (Where to Edit)
 
-Executable chains live in `/home/hlyytine/autopilot/chains` as one file per chain (`<name>.json`).
+Executable chains live in `<code_root>/chains` as one file per chain (`<name>.json`).
 
 Each request field `profile` selects the root chain file by name (`chains/<profile>.json`).
 
 Reusable flow is expressed by referencing other chain files via `fork` and `call_chain`.
 
-Console login/prompt profiles remain in `/home/hlyytine/autopilot/profiles` (for example
+Console login/prompt profiles remain in `<code_root>/profiles` (for example
 `linux-yocto.json`, `ubuntu-22.json`).
 
 Example step types:

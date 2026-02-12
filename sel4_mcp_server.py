@@ -23,7 +23,7 @@ Configuration for Claude Code (~/.claude/settings.json):
       "mcpServers": {
         "sel4-autopilot": {
           "command": "python3",
-          "args": ["/home/hlyytine/autopilot/sel4_mcp_server.py"]
+          "args": ["<code_root>/sel4_mcp_server.py"]
         }
       }
     }
@@ -467,7 +467,7 @@ Returns session names, IDs, and log paths if available.""",
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "Command to start Autopilot (default: python3 /home/hlyytine/autopilot/orin_kernel_autopilot.py)"
+                    "description": "Command to start Autopilot (default: python3 <code_root>/orin_kernel_autopilot.py)"
                 },
                 "use_tmux": {
                     "type": "boolean",
@@ -516,7 +516,7 @@ Returns session names, IDs, and log paths if available.""",
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "Command to start Autopilot (default: python3 /home/hlyytine/autopilot/orin_kernel_autopilot.py)"
+                    "description": "Command to start Autopilot (default: python3 <code_root>/orin_kernel_autopilot.py)"
                 },
                 "use_tmux": {
                     "type": "boolean",

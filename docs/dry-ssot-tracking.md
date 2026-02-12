@@ -6,9 +6,9 @@
 
 ## Status
 
-- Open findings: 1
+- Open findings: 0
 - In progress: 0
-- Resolved: 6
+- Resolved: 7
 
 ## Baseline Findings (2026-02-12)
 
@@ -72,7 +72,7 @@
   - `orin_kernel_autopilot.py:20`
 - **Risk**: SSOT drift and operator confusion when repo is moved/renamed.
 - **Proposed direction**: Reword docs and MCP schema text to describe script-relative/code-root behavior; keep absolute paths only as explicitly marked examples.
-- **Status**: Open
+- **Status**: Resolved
 
 ### F-006 (Low): Duplicate tty validation logic in MCP handlers
 - **Summary**: `autopilot_start` and `autopilot_restart` each repeat tty argument validation logic.
@@ -154,6 +154,18 @@
   - `F-004` -> Resolved
   - `F-006` -> Resolved
   - `F-007` -> Resolved
+- Reworded docs and MCP metadata to avoid hardcoded code install paths:
+  - Replaced fixed `/home/hlyytine/autopilot` references with `<code_root>` in:
+    - `docs/chain-spec.md`
+    - `docs/overview.md`
+    - `docs/runbook.md`
+    - `docs/ai-interactive-console.md`
+    - `docs/architecture.md`
+    - `sel4_mcp_server.py` (usage/example + tool schema descriptions)
+- Validation:
+  - `rg '/home/hlyytine/autopilot'` over these docs + MCP server now returns no matches.
+- Finding status updates:
+  - `F-005` -> Resolved
 
 ## Execution Plan (Absolute Path Removal Phase)
 
