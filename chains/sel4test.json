@@ -22,7 +22,7 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "relay_power"
+          "next": "run_bootefi"
         }
       ],
       "on_timeout": "fail"

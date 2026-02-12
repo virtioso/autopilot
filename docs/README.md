@@ -5,6 +5,8 @@
 This directory contains comprehensive documentation for the Autopilot automated kernel testing system for the NVIDIA Jetson AGX Orin (Tegra234) platform.
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
+For Orin AGX EFI workflows, default policy is
+`AUTOPILOT_PLATFORM=orin-agx-uefi-netboot`.
 
 ## Documentation Index
 

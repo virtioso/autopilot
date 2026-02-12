@@ -67,6 +67,7 @@ Action steps:
 - `fork`
 - `call_chain`
 - `join`
+- `set_overrides`
 
 Terminal steps:
 - `pass`
@@ -108,3 +109,21 @@ For steps that reference another chain (`fork`, `call_chain`):
 
 `call_chain` runs the target chain synchronously in the same request context.
 The calling step must define outcomes for `pass` and `fail` labels.
+
+## Upload Methods
+
+`upload_kernel` and `upload_efi` support:
+
+- `method: "scp"` (default): copy to remote target via SCP.
+- `method: "local_copy"`: copy on the host filesystem to `target_path`.
+
+`local_copy` is useful for host-local deployment targets such as TFTP roots.
+
+## Platform Overrides
+
+`set_overrides` updates runtime override state (deep merge). This can be used in
+platform-init chains to establish behavior before request chains start.
+
+Current override keys:
+
+- `chain_aliases`: map requested chain name to an alternate chain name.

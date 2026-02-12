@@ -1,0 +1,19 @@
+{
+  "entry": "set_overrides",
+  "steps": {
+    "set_overrides": {
+      "type": "set_overrides",
+      "overrides": {
+        "chain_aliases": {
+          "bootefi_common": "bootefi_orin_netboot"
+        }
+      },
+      "outcomes": [
+        { "label": "ok", "next": "pass" }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": { "type": "pass" },
+    "fail": { "type": "fail" }
+  }
+}

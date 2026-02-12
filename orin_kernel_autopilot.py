@@ -27,6 +27,7 @@ KERNEL_IMAGE = KERNEL_DIR / "arch/arm64/boot/Image"
 KERNEL_RELEASE_FILE = KERNEL_DIR / "include/config/kernel.release"
 
 TARGET_IP = os.environ.get("AUTOPILOT_TARGET_IP", "192.168.101.112")
+AUTOPILOT_PLATFORM = os.environ.get("AUTOPILOT_PLATFORM", "").strip()
 DEFAULT_TTY0, DEFAULT_TTY1 = get_default_ttys()
 
 PATHS = get_paths(str(AUTOPILOT_DIR))
@@ -79,6 +80,54 @@ def load_chain(chain_name: str) -> dict:
 def run_chain(chain: dict, ctx: dict, recorder: ChainRecorder) -> str:
     runner = ChainRunner(chain, ctx, recorder)
     return runner.run()
+
+
+def run_bootstrap_chain(
+    chain_name: str,
+    source_manager: SourceManager,
+    board,
+    event_queue: queue.Queue,
+    cancel_flag: threading.Event,
+    ui,
+    ui_state: TmuxUIState,
+    exit_flag: threading.Event,
+    console_manager: ConsoleManager,
+    platform_overrides: dict,
+) -> None:
+    chain = load_chain(chain_name)
+    bootstrap_dir = RUNTIME_DIR / chain_name
+    bootstrap_dir.mkdir(parents=True, exist_ok=True)
+    source_manager.set_result_dir(bootstrap_dir)
+    ctx = {
+        "board": board,
+        "sources": source_manager,
+        "ui": ui,
+        "event_queue": event_queue,
+        "cancel_flag": cancel_flag,
+        "result_dir": bootstrap_dir,
+        "request_id": chain_name,
+        "request": {},
+        "profile": chain_name,
+        "chain_name": chain_name,
+        "request_start": time.time(),
+        "target_ip": TARGET_IP,
+        "kernel_image": KERNEL_IMAGE,
+        "kernel_release": KERNEL_RELEASE_FILE.read_text().strip() if KERNEL_RELEASE_FILE.exists() else "unknown",
+        "forks": {},
+        "fork_recorders": {},
+        "console_manager": console_manager,
+        "abort_recovery_chain": "recovery_boot",
+        "default_ttys": {"tty0": DEFAULT_TTY0, "tty1": DEFAULT_TTY1},
+        "exit_flag": exit_flag,
+        "load_chain": load_chain,
+        "platform_overrides": platform_overrides,
+    }
+    recorder = ChainRecorder(bootstrap_dir)
+    try:
+        ui_state.set_request(chain_name, chain_name, chain_name)
+        run_chain(chain, ctx, recorder)
+    finally:
+        ui_state.clear_request()
 
 
 def write_post_run_dtb_artifacts(result_dir: Path, status: str) -> None:
@@ -140,6 +189,7 @@ def main() -> None:
     ui = TmuxUICompat(ui_state, windows=window_manager)
 
     source_manager = SourceManager(RESULTS_DIR, ui=ui)
+    platform_overrides = {}
 
     def _on_abort() -> None:
         event_queue.put(Event("abort"))
@@ -163,44 +213,49 @@ def main() -> None:
 
     # Startup chain (optional)
     try:
-        startup_chain = load_chain("startup")
-    except Exception:
-        startup_chain = None
-    if startup_chain:
-        startup_dir = RUNTIME_DIR / "startup"
-        startup_dir.mkdir(parents=True, exist_ok=True)
-        source_manager.set_result_dir(startup_dir)
-        ctx = {
-            "board": board,
-            "sources": source_manager,
-            "ui": ui,
-            "event_queue": event_queue,
-            "cancel_flag": cancel_flag,
-            "result_dir": startup_dir,
-            "request_id": "startup",
-            "request": {},
-            "profile": "startup",
-            "chain_name": "startup",
-            "request_start": time.time(),
-            "target_ip": TARGET_IP,
-            "kernel_image": KERNEL_IMAGE,
-            "kernel_release": KERNEL_RELEASE_FILE.read_text().strip() if KERNEL_RELEASE_FILE.exists() else "unknown",
-            "forks": {},
-            "fork_recorders": {},
-            "console_manager": console_manager,
-            "abort_recovery_chain": "recovery_boot",
-            "default_ttys": {"tty0": DEFAULT_TTY0, "tty1": DEFAULT_TTY1},
-            "exit_flag": exit_flag,
-            "load_chain": load_chain,
-        }
-        recorder = ChainRecorder(startup_dir)
-        try:
-            ui_state.set_request("startup", "startup", "startup")
-            run_chain(startup_chain, ctx, recorder)
-            ui_state.clear_request()
-        except Exception as exc:
+        run_bootstrap_chain(
+            chain_name="startup",
+            source_manager=source_manager,
+            board=board,
+            event_queue=event_queue,
+            cancel_flag=cancel_flag,
+            ui=ui,
+            ui_state=ui_state,
+            exit_flag=exit_flag,
+            console_manager=console_manager,
+            platform_overrides=platform_overrides,
+        )
+    except ValueError as exc:
+        if "chain not found: startup" not in str(exc):
             print(f"Startup chain failed: {exc}", flush=True)
-            ui_state.clear_request()
+    except Exception as exc:
+        print(f"Startup chain failed: {exc}", flush=True)
+
+    if AUTOPILOT_PLATFORM:
+        platform_chain_name = f"platform-init-{AUTOPILOT_PLATFORM}"
+        try:
+            run_bootstrap_chain(
+                chain_name=platform_chain_name,
+                source_manager=source_manager,
+                board=board,
+                event_queue=event_queue,
+                cancel_flag=cancel_flag,
+                ui=ui,
+                ui_state=ui_state,
+                exit_flag=exit_flag,
+                console_manager=console_manager,
+                platform_overrides=platform_overrides,
+            )
+            print(
+                f"Platform init complete: {platform_chain_name} overrides={json.dumps(platform_overrides)}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"Platform init failed ({platform_chain_name}): {exc}", flush=True)
+            control.stop()
+            ui.stop()
+            cleanup()
+            sys.exit(1)
 
     # Main loop
     while not exit_flag.is_set():
@@ -289,6 +344,7 @@ def main() -> None:
             "default_ttys": {"tty0": DEFAULT_TTY0, "tty1": DEFAULT_TTY1},
             "exit_flag": exit_flag,
             "load_chain": load_chain,
+            "platform_overrides": platform_overrides,
         }
         recorder = ChainRecorder(result_dir)
 

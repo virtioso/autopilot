@@ -1,0 +1,25 @@
+{
+  "entry": "upload_efi",
+  "steps": {
+    "upload_efi": {
+      "type": "upload_efi",
+      "method": "local_copy",
+      "local_path": "{binary_path}",
+      "target_path": "/tftp/efi/bootimg.efi",
+      "outcomes": [
+        { "label": "ok", "next": "reboot_efi" }
+      ],
+      "on_timeout": "fail"
+    },
+    "reboot_efi": {
+      "type": "reboot",
+      "method": "relay",
+      "outcomes": [
+        { "label": "ok", "next": "pass" }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": { "type": "pass" },
+    "fail": { "type": "fail" }
+  }
+}

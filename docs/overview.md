@@ -20,6 +20,9 @@ AI tools.
 - **Structured Results**: `chain.json` captures step-by-step outcomes and errors.
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
+For Orin AGX EFI workflows, set
+`AUTOPILOT_PLATFORM=orin-agx-uefi-netboot` so Autopilot runs
+`chains/platform-init-<platform>.json` at daemon startup to set overrides.
 
 ## Quick Start
 
@@ -27,7 +30,9 @@ Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (
 
 ```bash
 cd /home/hlyytine/autopilot
-AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot python3 orin_kernel_autopilot.py
+AUTOPILOT_PLATFORM=orin-agx-uefi-netboot \
+AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot \
+python3 orin_kernel_autopilot.py
 ```
 
 ### Start Autopilot via MCP (Headless + tmux UI)
@@ -115,7 +120,8 @@ Host:
 
 Target:
 - UEFI + extlinux boot menu
-- `/boot/efi` writable for EFI uploads
+- Deployment target required by active profile/platform (for example `/boot/efi`
+  for SSH upload or host-local `/tftp/efi/bootimg.efi` for netboot)
 
 ## See Also
 
