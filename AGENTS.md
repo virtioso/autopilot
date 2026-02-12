@@ -21,6 +21,16 @@ path. Executable chains live in the code repo at
 `/home/hlyytine/autopilot/profiles`. The code can live anywhere (for example
 `~/autopilot`), while each project uses its own `AUTOPILOT_DIR`.
 
+## Orin AGX Default Workflow (Mandatory)
+
+For Orin AGX EFI testing, always run Autopilot with:
+
+- `AUTOPILOT_PLATFORM=orin-agx-uefi-netboot`
+
+This enforces the platform-init override chain and routes EFI deployment through
+the netboot path (`/tftp/efi/bootimg.efi` + relay reset). Do not use legacy
+SSH `/boot/efi` upload flow for Orin AGX unless explicitly requested.
+
 ## MCP-Controlled Autopilot Daemon
 
 Autopilot can be started/stopped/restarted via MCP tools:
@@ -32,8 +42,11 @@ Autopilot can be started/stopped/restarted via MCP tools:
 These tools run the daemon headless by default in a tmux session and return an
 attach hint (`tmux attach -t autopilot`) to access the TUI.
 
-Orin AGX note: MCP start uses default UARTs `/dev/ttyACM0` and `/dev/ttyACM1`.
-Replace these for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*`).
+Orin AGX note: always specify UARTs explicitly when starting/restarting via MCP:
+`tty0="/dev/ttyACM0"` and `tty1="/dev/ttyACM1"`.
+Defaults still exist, but callers must provide explicit values.
+Replace these for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*` and
+a different platform override chain).
 
 ## When Working From Another Project
 

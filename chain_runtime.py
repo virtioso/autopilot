@@ -4,6 +4,7 @@ import queue
 import re
 import threading
 import time
+import shutil
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -372,6 +373,8 @@ class ChainRunner:
             return self._step_analyze_logs(step)
         if step_type == "interactive_console":
             return self._step_interactive_console(step)
+        if step_type == "set_overrides":
+            return self._step_set_overrides(step)
         raise ChainValidationError(f"unknown step type: {step_type}")
 
     def _simple_outcome(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -387,12 +390,16 @@ class ChainRunner:
     def _step_map_source(self, step: dict) -> Tuple[str, OutcomeMatch]:
         source = step["source"]
         tty = step.get("tty")
+        defaults = self.ctx.get("default_ttys", {})
         if not tty:
-            defaults = self.ctx.get("default_ttys", {})
             tty = defaults.get(source)
         if isinstance(tty, str) and tty.startswith("env:"):
             env_key = tty.split("env:", 1)[1]
-            tty = os.environ.get(env_key, "")
+            tty = (os.environ.get(env_key, "") or "").strip()
+            if not tty:
+                tty = defaults.get(source)
+        if isinstance(tty, str):
+            tty = tty.strip()
         if not tty:
             raise ValueError("map_source requires tty")
         log_rel = step.get("log", f"console/{source}.jsonl")
@@ -662,11 +669,21 @@ class ChainRunner:
         target_path = self._resolve_value(step.get("target_path"))
         if not target_path:
             raise ValueError("upload step missing target_path")
-        subprocess.run([
-            "scp", "-o", "StrictHostKeyChecking=no",
-            str(local_path),
-            f"{target_user}@{target_ip}:{target_path}"
-        ], check=True)
+        method = step.get("method", "scp")
+        if method == "scp":
+            subprocess.run([
+                "scp", "-o", "StrictHostKeyChecking=no",
+                str(local_path),
+                f"{target_user}@{target_ip}:{target_path}"
+            ], check=True)
+        elif method == "local_copy":
+            target_file = Path(target_path)
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_file = target_file.with_name(f".{target_file.name}.tmp.{os.getpid()}")
+            shutil.copy2(str(local_path), str(tmp_file))
+            os.replace(str(tmp_file), str(target_file))
+        else:
+            raise ValueError(f"unknown upload method: {method}")
         return self._simple_outcome(step)
 
     def _step_reboot(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -1004,10 +1021,31 @@ class ChainRunner:
         return value
 
     def _load_named_chain(self, name: str) -> dict:
+        chain_name = self._resolve_chain_name(name)
         loader = self.ctx.get("load_chain")
         if not loader:
             raise ValueError("load_chain callback not configured")
-        return loader(name)
+        return loader(chain_name)
+
+    def _resolve_chain_name(self, name: str) -> str:
+        overrides = self.ctx.get("platform_overrides", {}) or {}
+        aliases = overrides.get("chain_aliases", {}) or {}
+        return str(aliases.get(name, name))
+
+    def _step_set_overrides(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        updates = step.get("overrides")
+        if not isinstance(updates, dict):
+            raise ValueError("set_overrides requires dictionary field 'overrides'")
+        current = self.ctx.setdefault("platform_overrides", {})
+        self._deep_merge_dict(current, updates)
+        return self._simple_outcome(step)
+
+    def _deep_merge_dict(self, current: dict, updates: dict) -> None:
+        for key, value in updates.items():
+            if isinstance(value, dict) and isinstance(current.get(key), dict):
+                self._deep_merge_dict(current[key], value)
+            else:
+                current[key] = value
 
     def _validate_external_refs(self) -> None:
         for step_name, step in self.chain.get("steps", {}).items():

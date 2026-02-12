@@ -19,8 +19,8 @@ def get_autopilot_dir(override: str | None = None) -> Path:
 
 
 def get_default_ttys() -> tuple[str, str]:
-    tty0 = os.environ.get("AUTOPILOT_TTY0", DEFAULT_TTY0)
-    tty1 = os.environ.get("AUTOPILOT_TTY1", DEFAULT_TTY1)
+    tty0 = (os.environ.get("AUTOPILOT_TTY0") or "").strip() or DEFAULT_TTY0
+    tty1 = (os.environ.get("AUTOPILOT_TTY1") or "").strip() or DEFAULT_TTY1
     return tty0, tty1
 
 

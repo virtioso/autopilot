@@ -38,6 +38,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from config import DEFAULT_TTY0, DEFAULT_TTY1, get_default_ttys
+
 # Autopilot process management
 from autopilot_manager import (
     start_autopilot,
@@ -448,8 +450,19 @@ Returns session names, IDs, and log paths if available.""",
                     "type": "string",
                     "description": "tmux session name (default: autopilot)"
                 },
+                "tty0": {
+                    "type": "string",
+                    "description": "UART device for tty0 (required, e.g. /dev/ttyACM0)",
+                    "default": DEFAULT_TTY0
+                },
+                "tty1": {
+                    "type": "string",
+                    "description": "UART device for tty1 (required, e.g. /dev/ttyACM1)",
+                    "default": DEFAULT_TTY1
+                },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
-            }
+            },
+            "required": ["tty0", "tty1"]
         }
     },
     {
@@ -491,8 +504,19 @@ Returns session names, IDs, and log paths if available.""",
                     "description": "Send SIGKILL if SIGTERM does not stop the daemon",
                     "default": False
                 },
+                "tty0": {
+                    "type": "string",
+                    "description": "UART device for tty0 (required, e.g. /dev/ttyACM0)",
+                    "default": DEFAULT_TTY0
+                },
+                "tty1": {
+                    "type": "string",
+                    "description": "UART device for tty1 (required, e.g. /dev/ttyACM1)",
+                    "default": DEFAULT_TTY1
+                },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
-            }
+            },
+            "required": ["tty0", "tty1"]
         }
     },
     {
@@ -538,14 +562,35 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             }
 
         # Ensure Autopilot daemon is running
+        default_tty0, default_tty1 = get_default_ttys()
         daemon_status = status_autopilot(autopilot_dir=str(paths["autopilot"]))
         if not daemon_status.get("running", False):
-            start_result = start_autopilot(autopilot_dir=str(paths["autopilot"]))
+            start_result = start_autopilot(
+                autopilot_dir=str(paths["autopilot"]),
+                tty0=default_tty0,
+                tty1=default_tty1,
+            )
             if start_result.get("status") == "error":
                 return {
                     "content": [{"type": "text", "text": json.dumps(start_result, indent=2)}],
                     "isError": True
                 }
+        else:
+            # Self-heal stale daemon sessions started without explicit tty metadata.
+            running_tty0 = (daemon_status.get("tty0") or "").strip()
+            running_tty1 = (daemon_status.get("tty1") or "").strip()
+            if not running_tty0 or not running_tty1:
+                restart_result = restart_autopilot(
+                    autopilot_dir=str(paths["autopilot"]),
+                    use_tmux=True,
+                    tty0=default_tty0,
+                    tty1=default_tty1,
+                )
+                if restart_result.get("status") == "error":
+                    return {
+                        "content": [{"type": "text", "text": json.dumps(restart_result, indent=2)}],
+                        "isError": True
+                    }
 
         # Generate timestamped binary name to detect upload failures
         binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
@@ -865,11 +910,25 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         command = arguments.get("command")
         use_tmux = arguments.get("use_tmux", True)
         tmux_session = arguments.get("tmux_session")
+        tty0 = arguments.get("tty0")
+        tty1 = arguments.get("tty1")
+        if not (tty0 and str(tty0).strip()):
+            return {
+                "content": [{"type": "text", "text": "tty0 is required (example: /dev/ttyACM0)"}],
+                "isError": True
+            }
+        if not (tty1 and str(tty1).strip()):
+            return {
+                "content": [{"type": "text", "text": "tty1 is required (example: /dev/ttyACM1)"}],
+                "isError": True
+            }
         result = start_autopilot(
             autopilot_dir=str(paths["autopilot"]),
             command=command,
             use_tmux=use_tmux,
             tmux_session=tmux_session,
+            tty0=str(tty0),
+            tty1=str(tty1),
         )
         return {
             "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
@@ -890,12 +949,26 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         use_tmux = arguments.get("use_tmux", True)
         tmux_session = arguments.get("tmux_session")
         force = arguments.get("force", False)
+        tty0 = arguments.get("tty0")
+        tty1 = arguments.get("tty1")
+        if not (tty0 and str(tty0).strip()):
+            return {
+                "content": [{"type": "text", "text": "tty0 is required (example: /dev/ttyACM0)"}],
+                "isError": True
+            }
+        if not (tty1 and str(tty1).strip()):
+            return {
+                "content": [{"type": "text", "text": "tty1 is required (example: /dev/ttyACM1)"}],
+                "isError": True
+            }
         result = restart_autopilot(
             autopilot_dir=str(paths["autopilot"]),
             command=command,
             use_tmux=use_tmux,
             tmux_session=tmux_session,
             force=force,
+            tty0=str(tty0),
+            tty1=str(tty1),
         )
         return {
             "content": [{"type": "text", "text": json.dumps(result, indent=2)}],

@@ -1,6 +1,6 @@
 # Autopilot Runbook
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-11
 
 This runbook describes how to operate the Autopilot service and how the new
 chain-based execution model works, including startup mappings, recovery
@@ -39,12 +39,18 @@ Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (
 
 ```bash
 cd /home/hlyytine/autopilot
-AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot python3 orin_kernel_autopilot.py
+AUTOPILOT_PLATFORM=orin-agx-uefi-netboot \
+AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot \
+python3 orin_kernel_autopilot.py
 ```
 
 Confirm it prints:
 - `Watching: .../requests/pending`
 - `Results:  .../results`
+
+For Orin AGX, this platform setting is mandatory. Autopilot runs
+`chains/platform-init-<platform>.json` during startup. This chain can set
+runtime overrides (for example chain aliases).
 
 ### Start via MCP (Headless + tmux UI)
 
@@ -53,7 +59,9 @@ Use the MCP tools to start Autopilot in a detached tmux session:
 ```json
 {
   "tool": "autopilot_start",
-  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot"
+  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot",
+  "tty0": "/dev/ttyACM0",
+  "tty1": "/dev/ttyACM1"
 }
 ```
 
@@ -67,8 +75,10 @@ When submitting tests via MCP, the server will auto-start Autopilot if it is
 not running, so you usually do not need to start it manually.
 
 **Orin AGX note**: The MCP start path sets `AUTOPILOT_TTY0=/dev/ttyACM0` and
-`AUTOPILOT_TTY1=/dev/ttyACM1` by default. These are Orin AGX-specific and must
-be replaced for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*`).
+`AUTOPILOT_TTY1=/dev/ttyACM1` by default, and defaults
+`AUTOPILOT_PLATFORM=orin-agx-uefi-netboot` when not already set. These Orin
+defaults must be replaced for other platforms (e.g. Raspberry Pi 4 uses
+`/dev/ttyUSB*` and a different platform override chain).
 These defaults are injected into the tmux session environment.
 
 ## Stop the Autopilot Daemon
@@ -90,7 +100,9 @@ These defaults are injected into the tmux session environment.
 ```json
 {
   "tool": "autopilot_restart",
-  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot"
+  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot",
+  "tty0": "/dev/ttyACM0",
+  "tty1": "/dev/ttyACM1"
 }
 ```
 
@@ -100,11 +112,15 @@ When calling from Codex, use the fully qualified MCP tool names:
 
 ```python
 mcp__sel4-autopilot__autopilot_start(
-    autopilot_dir="/home/hlyytine/tii-sel4/autopilot"
+    autopilot_dir="/home/hlyytine/tii-sel4/autopilot",
+    tty0="/dev/ttyACM0",
+    tty1="/dev/ttyACM1"
 )
 
 mcp__sel4-autopilot__autopilot_restart(
-    autopilot_dir="/home/hlyytine/tii-sel4/autopilot"
+    autopilot_dir="/home/hlyytine/tii-sel4/autopilot",
+    tty0="/dev/ttyACM0",
+    tty1="/dev/ttyACM1"
 )
 
 mcp__sel4-autopilot__autopilot_status(
@@ -270,6 +286,7 @@ Example step types:
 - `send_cmd`
 - `interactive_console`
 - `fork`, `call_chain`, `join`
+- `set_overrides`
 - `pass`, `fail`
 
 ## Troubleshooting

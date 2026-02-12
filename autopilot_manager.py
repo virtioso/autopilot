@@ -11,10 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from config import DEFAULT_TTY0, DEFAULT_TTY1
+from config import get_default_ttys
 
 DEFAULT_COMMAND = "python3 /home/hlyytine/autopilot/orin_kernel_autopilot.py"
 DEFAULT_TMUX_SESSION = "autopilot"
+DEFAULT_PLATFORM = "orin-agx-uefi-netboot"
 
 
 def _runtime_dir(autopilot_dir: Path) -> Path:
@@ -189,6 +190,16 @@ def _read_meta(meta_path: Path) -> dict:
         return {}
 
 
+def _require_non_empty_tty(name: str, value: Optional[str], fallback: str) -> str:
+    if value is None:
+        candidate = fallback
+    else:
+        candidate = value.strip()
+    if not candidate:
+        raise ValueError(f"{name} must be non-empty")
+    return candidate
+
+
 def status_autopilot(
     autopilot_dir: str,
     command: Optional[str] = None,
@@ -219,6 +230,9 @@ def status_autopilot(
         "pid": pid,
         "cmdline": _read_cmdline(pid) if pid else [],
         "tmux_session": session if use_tmux else None,
+        "platform": meta.get("platform"),
+        "tty0": meta.get("tty0"),
+        "tty1": meta.get("tty1"),
         "last_start_time": meta.get("start_time"),
     }
 
@@ -228,6 +242,8 @@ def start_autopilot(
     command: Optional[str] = None,
     use_tmux: bool = True,
     tmux_session: Optional[str] = None,
+    tty0: Optional[str] = None,
+    tty1: Optional[str] = None,
 ) -> dict:
     base = Path(autopilot_dir)
     runtime = _runtime_dir(base)
@@ -253,10 +269,14 @@ def start_autopilot(
         return {"status": "error", "error": "tmux not found in PATH"}
 
     env = os.environ.copy()
+    default_tty0, default_tty1 = get_default_ttys()
+    resolved_tty0 = _require_non_empty_tty("tty0", tty0, default_tty0)
+    resolved_tty1 = _require_non_empty_tty("tty1", tty1, default_tty1)
     env["AUTOPILOT_DIR"] = str(base)
     # Orin AGX-specific defaults. Replace for other platforms.
-    env.setdefault("AUTOPILOT_TTY0", DEFAULT_TTY0)
-    env.setdefault("AUTOPILOT_TTY1", DEFAULT_TTY1)
+    env["AUTOPILOT_TTY0"] = resolved_tty0
+    env["AUTOPILOT_TTY1"] = resolved_tty1
+    env.setdefault("AUTOPILOT_PLATFORM", DEFAULT_PLATFORM)
 
     if use_tmux:
         if _tmux_has_session(session):
@@ -271,6 +291,7 @@ def start_autopilot(
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_DIR", str(base)], check=False)
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY0", env["AUTOPILOT_TTY0"]], check=False)
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY1", env["AUTOPILOT_TTY1"]], check=False)
+        subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_PLATFORM", env["AUTOPILOT_PLATFORM"]], check=False)
         _configure_tmux_ui(session, base)
         command_str = " ".join(shlex.quote(part) for part in shlex.split(effective_command))
         subprocess.run(
@@ -309,6 +330,9 @@ def start_autopilot(
         "marker": marker,
         "tmux_session": session,
         "use_tmux": use_tmux,
+        "platform": env.get("AUTOPILOT_PLATFORM"),
+        "tty0": env.get("AUTOPILOT_TTY0"),
+        "tty1": env.get("AUTOPILOT_TTY1"),
         "pid": pid,
         "start_time": datetime.utcnow().isoformat() + "Z",
         "log_path": str(log_path),
@@ -321,6 +345,8 @@ def start_autopilot(
         "tmux_session": session if use_tmux else None,
         "attach_hint": f"tmux attach -t {session}" if use_tmux else "",
         "log_path": str(log_path),
+        "tty0": env.get("AUTOPILOT_TTY0"),
+        "tty1": env.get("AUTOPILOT_TTY1"),
     }
 
 
@@ -390,6 +416,8 @@ def restart_autopilot(
     use_tmux: bool = True,
     tmux_session: Optional[str] = None,
     force: bool = False,
+    tty0: Optional[str] = None,
+    tty1: Optional[str] = None,
 ) -> dict:
     stop_autopilot(
         autopilot_dir=autopilot_dir,
@@ -402,6 +430,8 @@ def restart_autopilot(
         command=command,
         use_tmux=use_tmux,
         tmux_session=tmux_session,
+        tty0=tty0,
+        tty1=tty1,
     )
 
 
