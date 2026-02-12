@@ -1,0 +1,24 @@
+{
+  "entry": "wait_vm_boot",
+  "steps": {
+    "wait_vm_boot": {
+      "type": "wait_pattern",
+      "timeout_s": 120,
+      "outcomes": [
+        {
+          "label": "vm",
+          "pattern": "driver-vm login:",
+          "source": "tty0",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    }
+  }
+}

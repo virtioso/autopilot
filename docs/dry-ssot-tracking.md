@@ -6,9 +6,9 @@
 
 ## Status
 
-- Open findings: 4
+- Open findings: 1
 - In progress: 0
-- Resolved: 3
+- Resolved: 6
 
 ## Baseline Findings (2026-02-12)
 
@@ -56,7 +56,7 @@
   - Main delta: `chains/vm-minimal.json:132` vs `chains/vm-qemu-virtio.json:132`
 - **Risk**: Fixes must be duplicated manually; easy to diverge.
 - **Proposed direction**: Extract common subchain and parameterize pattern/source.
-- **Status**: Open
+- **Status**: Resolved
 
 ### F-005 (Medium): Docs and MCP metadata still hardcode install paths
 - **Summary**: Runtime now resolves code paths relative to code root, but multiple docs and MCP tool descriptions still present fixed `/home/hlyytine/autopilot` paths as defaults/authoritative locations.
@@ -81,7 +81,7 @@
   - `sel4_mcp_server.py:954`
 - **Risk**: Small maintenance overhead.
 - **Proposed direction**: Helper function for shared validation/error response.
-- **Status**: Open
+- **Status**: Resolved
 
 ### F-007 (Low): `sel4_client.py` duplicates queue path definitions
 - **Summary**: Module-level legacy path constants duplicate path mapping available via `get_paths()`.
@@ -91,7 +91,7 @@
   - `sel4_client.py:86` (already uses `get_paths()`)
 - **Risk**: Dual path authority in one module.
 - **Proposed direction**: Deprecate/remove legacy constants or confine to compatibility wrapper.
-- **Status**: Open
+- **Status**: Resolved
 
 ## Progress Log
 
@@ -134,6 +134,26 @@
   - Endpoint literal scan in `*.py` and `bin/*.sh` shows constants centralized in `config.py` and env-default usage in `bin/update.sh`.
 - Finding status updates:
   - `F-003` -> Resolved
+- Extracted shared VM flow and reduced profile wrappers:
+  - Added `chains/vm_common.json`.
+  - Added chain-specific wait subchains:
+    - `chains/vm_wait_boot_minimal.json`
+    - `chains/vm_wait_boot_qemu_virtio.json`
+  - Converted wrappers to alias + shared call:
+    - `chains/vm-minimal.json`
+    - `chains/vm-qemu-virtio.json`
+- Removed duplicated MCP tty validation logic:
+  - Added `_require_ttys()` helper in `sel4_mcp_server.py`.
+  - Reused helper in `autopilot_start` and `autopilot_restart` handlers.
+- Removed duplicated queue-path literals in `sel4_client.py`:
+  - Module-level compatibility constants now mirror `get_paths()` output.
+- Validation:
+  - JSON parse check passed for all files in `chains/`.
+  - Python syntax check passed for `sel4_mcp_server.py` and `sel4_client.py`.
+- Finding status updates:
+  - `F-004` -> Resolved
+  - `F-006` -> Resolved
+  - `F-007` -> Resolved
 
 ## Execution Plan (Absolute Path Removal Phase)
 

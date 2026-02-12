@@ -40,15 +40,16 @@ class QueueNotEmptyError(RuntimeError):
 
 
 # Legacy module-level paths for backward compatibility
-# These use the default/environment-based directory
+# These mirror get_paths() so queue path mapping has one source of truth.
 AUTOPILOT_DIR = get_autopilot_dir()
-PENDING_DIR = AUTOPILOT_DIR / 'requests' / 'pending'
-PROCESSING_DIR = AUTOPILOT_DIR / 'requests' / 'processing'
-COMPLETED_DIR = AUTOPILOT_DIR / 'requests' / 'completed'
-FAILED_DIR = AUTOPILOT_DIR / 'requests' / 'failed'
-RESULTS_DIR = AUTOPILOT_DIR / 'results'
-BINARIES_DIR = AUTOPILOT_DIR / 'binaries'
-RUNTIME_DIR = AUTOPILOT_DIR / 'runtime'
+_DEFAULT_PATHS = get_paths(str(AUTOPILOT_DIR))
+PENDING_DIR = _DEFAULT_PATHS['pending']
+PROCESSING_DIR = _DEFAULT_PATHS['processing']
+COMPLETED_DIR = _DEFAULT_PATHS['completed']
+FAILED_DIR = _DEFAULT_PATHS['failed']
+RESULTS_DIR = _DEFAULT_PATHS['results']
+BINARIES_DIR = _DEFAULT_PATHS['binaries']
+RUNTIME_DIR = _DEFAULT_PATHS['runtime']
 
 
 def ensure_queue_empty(autopilot_dir: str = None) -> None:

@@ -89,6 +89,17 @@ def _get_autopilot_manager():
         _AUTOPILOT_MANAGER_MTIME_NS = mtime_ns
     return autopilot_manager_mod
 
+
+def _require_ttys(arguments: dict) -> tuple[str, str] | None:
+    tty0 = arguments.get("tty0")
+    tty1 = arguments.get("tty1")
+    if not (tty0 and str(tty0).strip()):
+        return None
+    if not (tty1 and str(tty1).strip()):
+        return None
+    return str(tty0), str(tty1)
+
+
 # MCP Protocol implementation
 # Using stdio transport with JSON-RPC 2.0
 
@@ -936,25 +947,20 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         command = arguments.get("command")
         use_tmux = arguments.get("use_tmux", True)
         tmux_session = arguments.get("tmux_session")
-        tty0 = arguments.get("tty0")
-        tty1 = arguments.get("tty1")
-        if not (tty0 and str(tty0).strip()):
+        ttys = _require_ttys(arguments)
+        if not ttys:
             return {
-                "content": [{"type": "text", "text": "tty0 is required (example: /dev/ttyACM0)"}],
+                "content": [{"type": "text", "text": "tty0 and tty1 are required (examples: /dev/ttyACM0, /dev/ttyACM1)"}],
                 "isError": True
             }
-        if not (tty1 and str(tty1).strip()):
-            return {
-                "content": [{"type": "text", "text": "tty1 is required (example: /dev/ttyACM1)"}],
-                "isError": True
-            }
+        tty0, tty1 = ttys
         result = apm.start_autopilot(
             autopilot_dir=str(paths["autopilot"]),
             command=command,
             use_tmux=use_tmux,
             tmux_session=tmux_session,
-            tty0=str(tty0),
-            tty1=str(tty1),
+            tty0=tty0,
+            tty1=tty1,
         )
         return {
             "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
@@ -975,26 +981,21 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         use_tmux = arguments.get("use_tmux", True)
         tmux_session = arguments.get("tmux_session")
         force = arguments.get("force", False)
-        tty0 = arguments.get("tty0")
-        tty1 = arguments.get("tty1")
-        if not (tty0 and str(tty0).strip()):
+        ttys = _require_ttys(arguments)
+        if not ttys:
             return {
-                "content": [{"type": "text", "text": "tty0 is required (example: /dev/ttyACM0)"}],
+                "content": [{"type": "text", "text": "tty0 and tty1 are required (examples: /dev/ttyACM0, /dev/ttyACM1)"}],
                 "isError": True
             }
-        if not (tty1 and str(tty1).strip()):
-            return {
-                "content": [{"type": "text", "text": "tty1 is required (example: /dev/ttyACM1)"}],
-                "isError": True
-            }
+        tty0, tty1 = ttys
         result = apm.restart_autopilot(
             autopilot_dir=str(paths["autopilot"]),
             command=command,
             use_tmux=use_tmux,
             tmux_session=tmux_session,
             force=force,
-            tty0=str(tty0),
-            tty1=str(tty1),
+            tty0=tty0,
+            tty1=tty1,
         )
         return {
             "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
