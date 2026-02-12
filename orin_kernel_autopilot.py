@@ -13,7 +13,7 @@ from pathlib import Path
 import BoardControl
 from chain_runtime import ChainRecorder, ChainRunner, Event, SourceManager
 from console_sessions import ConsoleManager
-from config import get_autopilot_dir, get_default_ttys, get_paths
+from config import get_autopilot_dir, get_default_ttys, get_paths, get_target_ip
 from extract_guest_dtb import extract_guest_dtbs
 from tmux_ui import TmuxControlServer, TmuxUICompat, TmuxUIState, TmuxWindowManager, detect_tmux_session
 
@@ -26,7 +26,7 @@ KERNEL_DIR = WORKSPACE / "Linux_for_Tegra/source/kernel/linux"
 KERNEL_IMAGE = KERNEL_DIR / "arch/arm64/boot/Image"
 KERNEL_RELEASE_FILE = KERNEL_DIR / "include/config/kernel.release"
 
-TARGET_IP = os.environ.get("AUTOPILOT_TARGET_IP", "192.168.101.112")
+TARGET_IP = get_target_ip()
 AUTOPILOT_PLATFORM = os.environ.get("AUTOPILOT_PLATFORM", "").strip()
 DEFAULT_TTY0, DEFAULT_TTY1 = get_default_ttys()
 

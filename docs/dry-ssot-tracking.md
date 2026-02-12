@@ -6,9 +6,9 @@
 
 ## Status
 
-- Open findings: 5
+- Open findings: 4
 - In progress: 0
-- Resolved: 2
+- Resolved: 3
 
 ## Baseline Findings (2026-02-12)
 
@@ -44,7 +44,7 @@
   - `bin/update.sh:5`
 - **Risk**: Drift when network topology changes.
 - **Proposed direction**: Consolidate into `config.py` and pass through call sites.
-- **Status**: Open
+- **Status**: Resolved
 
 ### F-004 (Medium): VM profile chains duplicate large logic blocks
 - **Summary**: `vm-minimal` and `vm-qemu-virtio` repeat large shared blocks, differing mostly in one wait pattern/source.
@@ -118,6 +118,22 @@
   - `F-001` -> Resolved
   - `F-002` -> Resolved
 - Reformulated `F-005` to cover broader docs + MCP metadata path drift after runtime relocation fixes.
+- Implemented network endpoint SSOT in `config.py`:
+  - `get_target_ip()`
+  - `get_target_user()`
+  - `get_boot_control_host()`
+- Updated runtime consumers to read centralized values:
+  - `orin_kernel_autopilot.py`
+  - `BoardControl.py`
+  - `BootHarness.py`
+  - `seL4BootHarness.py`
+  - `bin/update.sh` (env-backed defaults)
+- Validation:
+  - Python syntax check passed for all touched Python files.
+  - `bash -n bin/update.sh` passed.
+  - Endpoint literal scan in `*.py` and `bin/*.sh` shows constants centralized in `config.py` and env-default usage in `bin/update.sh`.
+- Finding status updates:
+  - `F-003` -> Resolved
 
 ## Execution Plan (Absolute Path Removal Phase)
 

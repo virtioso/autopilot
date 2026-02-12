@@ -1,6 +1,7 @@
 import subprocess
 import usbrelay_py
 import time
+from config import get_boot_control_host
 
 class BoardControlLocal(object):
     def __init__(self):
@@ -26,14 +27,14 @@ class BoardControlLocal(object):
 
 class BoardControlRemote(object):
     def __init__(self):
-        pass
+        self.host = get_boot_control_host()
 
     def boot(self, recovery):
         mode = "normal"
         if recovery:
             mode = "recovery"
         result = subprocess.run(
-            ["ssh", "192.168.101.110", "./boot.sh", mode],
+            ["ssh", self.host, "./boot.sh", mode],
             capture_output=True,
             text=True,
             check=False,

@@ -7,6 +7,9 @@ from typing import Dict
 DEFAULT_AUTOPILOT_DIR = Path("/home/hlyytine/tii-sel4/autopilot")
 DEFAULT_TTY0 = "/dev/ttyACM0"
 DEFAULT_TTY1 = "/dev/ttyACM1"
+DEFAULT_TARGET_IP = "192.168.101.112"
+DEFAULT_TARGET_USER = "root"
+DEFAULT_BOOT_CONTROL_HOST = "192.168.101.110"
 
 
 def get_code_root() -> Path:
@@ -43,3 +46,15 @@ def get_paths(autopilot_dir: str | None = None) -> Dict[str, Path]:
         "binaries": base / "binaries",
         "runtime": base / "runtime",
     }
+
+
+def get_target_ip() -> str:
+    return (os.environ.get("AUTOPILOT_TARGET_IP") or "").strip() or DEFAULT_TARGET_IP
+
+
+def get_target_user() -> str:
+    return (os.environ.get("AUTOPILOT_TARGET_USER") or "").strip() or DEFAULT_TARGET_USER
+
+
+def get_boot_control_host() -> str:
+    return (os.environ.get("AUTOPILOT_BOOT_CONTROL_HOST") or "").strip() or DEFAULT_BOOT_CONTROL_HOST

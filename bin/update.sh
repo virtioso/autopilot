@@ -2,4 +2,7 @@
 
 set -euo pipefail
 
-cat "$1/update.tar" | ssh root@192.168.101.112 'tar -C / -xvf - && reboot'
+TARGET_USER="${AUTOPILOT_TARGET_USER:-root}"
+TARGET_IP="${AUTOPILOT_TARGET_IP:-192.168.101.112}"
+
+cat "$1/update.tar" | ssh "${TARGET_USER}@${TARGET_IP}" 'tar -C / -xvf - && reboot'

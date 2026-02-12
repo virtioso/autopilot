@@ -20,11 +20,12 @@ def strip_ansi(text):
 
 import BootHarness
 from BootHarness import BootHarness as BaseBootHarness, debug_print
+from config import get_target_ip, get_target_user
 
 
 # Shared constants
-TARGET_IP = '192.168.101.112'
-TARGET_USER = 'root'
+TARGET_IP = get_target_ip()
+TARGET_USER = get_target_user()
 TARGET_PATH = '/boot/efi'
 
 

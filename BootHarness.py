@@ -6,6 +6,7 @@ import time
 import threading
 import subprocess
 from pexpect import fdpexpect, EOF, TIMEOUT
+from config import get_target_ip, get_target_user
 
 class Tee:
     def __init__(self, *streams): self.streams = streams
@@ -354,8 +355,8 @@ class ReadyBootHarness(BootHarness):
 
 class UpdateBootHarness(BootHarness):
     """Upload kernel via SCP and reboot. Assumes board is already in ready state."""
-    TARGET_IP = '192.168.101.112'
-    TARGET_USER = 'root'
+    TARGET_IP = get_target_ip()
+    TARGET_USER = get_target_user()
 
     def __init__(self, board, tty, filename, hyp_tty, hyp_filename, kernel_image_path, kernel_version):
         super().__init__(board, tty, filename, hyp_tty, hyp_filename)
