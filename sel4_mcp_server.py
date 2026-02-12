@@ -46,6 +46,7 @@ from autopilot_manager import (
     stop_autopilot,
     restart_autopilot,
     status_autopilot,
+    DEFAULT_PLATFORM,
 )
 # Import the sel4_client library
 # Use script directory to find sel4_client, not hardcoded path
@@ -576,10 +577,12 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                     "isError": True
                 }
         else:
-            # Self-heal stale daemon sessions started without explicit tty metadata.
+            # Self-heal stale daemon sessions started without explicit tty/platform metadata.
             running_tty0 = (daemon_status.get("tty0") or "").strip()
             running_tty1 = (daemon_status.get("tty1") or "").strip()
-            if not running_tty0 or not running_tty1:
+            running_platform = (daemon_status.get("platform") or "").strip()
+            expected_platform = (os.environ.get("AUTOPILOT_PLATFORM") or "").strip() or DEFAULT_PLATFORM
+            if (not running_tty0 or not running_tty1 or running_platform != expected_platform):
                 restart_result = restart_autopilot(
                     autopilot_dir=str(paths["autopilot"]),
                     use_tmux=True,
