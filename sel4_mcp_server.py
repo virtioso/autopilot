@@ -107,7 +107,8 @@ TOOLS = [
 
 Submits the binary to the autopilot service and returns immediately.
 
-The binary is uploaded to the target via SSH, then booted via UEFI.
+The binary deployment and boot flow are defined by the selected profile chain
+and platform overrides (for example, SSH upload or host-local TFTP copy).
 Console output is captured according to the selected profile chain.""",
         "inputSchema": {
             "type": "object",
@@ -518,6 +519,23 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         binary_path = arguments["binary_path"]
         profile = arguments.get("profile", "sel4test")
         description = arguments.get("description", "")
+        chain_path = SCRIPT_DIR / "chains" / f"{profile}.json"
+
+        if not chain_path.exists():
+            available_chains = sorted(
+                p.stem for p in (SCRIPT_DIR / "chains").glob("*.json")
+            )
+            payload = {
+                "error": "chain_not_found",
+                "message": f"chain not found: {profile}",
+                "requested_profile": profile,
+                "expected_path": str(chain_path),
+                "available_chains": available_chains,
+            }
+            return {
+                "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+                "isError": True,
+            }
 
         # Ensure Autopilot daemon is running
         daemon_status = status_autopilot(autopilot_dir=str(paths["autopilot"]))
