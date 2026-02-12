@@ -58,15 +58,20 @@
 - **Proposed direction**: Extract common subchain and parameterize pattern/source.
 - **Status**: Open
 
-### F-005 (Medium): Docs claim fixed chain path while runtime resolves relative path
-- **Summary**: Documentation presents fixed absolute chain resolution path; runtime uses script-relative chain directory.
+### F-005 (Medium): Docs and MCP metadata still hardcode install paths
+- **Summary**: Runtime now resolves code paths relative to code root, but multiple docs and MCP tool descriptions still present fixed `/home/hlyytine/autopilot` paths as defaults/authoritative locations.
 - **Evidence**:
   - `docs/chain-spec.md:11`
   - `docs/chain-spec.md:80`
+  - `docs/overview.md:81`
+  - `docs/runbook.md:268`
+  - `docs/architecture.md:15`
+  - `docs/ai-interactive-console.md:43`
+  - `sel4_mcp_server.py:442`
+  - `sel4_mcp_server.py:491`
   - `orin_kernel_autopilot.py:20`
-  - `orin_kernel_autopilot.py:22`
-- **Risk**: SSOT drift between docs and implementation.
-- **Proposed direction**: Update docs to describe script-relative resolution and examples separately.
+- **Risk**: SSOT drift and operator confusion when repo is moved/renamed.
+- **Proposed direction**: Reword docs and MCP schema text to describe script-relative/code-root behavior; keep absolute paths only as explicitly marked examples.
 - **Status**: Open
 
 ### F-006 (Low): Duplicate tty validation logic in MCP handlers
@@ -112,6 +117,7 @@
 - Finding status updates:
   - `F-001` -> Resolved
   - `F-002` -> Resolved
+- Reformulated `F-005` to cover broader docs + MCP metadata path drift after runtime relocation fixes.
 
 ## Execution Plan (Absolute Path Removal Phase)
 
