@@ -141,7 +141,7 @@
       "command": [
         "bash",
         "-lc",
-        "/home/hlyytine/autopilot/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && /home/hlyytine/autopilot/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\""
+        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\""
       ],
       "outcomes": [
         {
@@ -156,7 +156,7 @@
       "command": [
         "bash",
         "-lc",
-        "/home/hlyytine/autopilot/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && /home/hlyytine/autopilot/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\""
+        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\""
       ],
       "outcomes": [
         {

@@ -1016,6 +1016,10 @@ class ChainRunner:
     def _resolve_value(self, value):
         if isinstance(value, str):
             format_ctx = dict(self.ctx)
+            code_root = Path(__file__).resolve().parent
+            format_ctx.setdefault("code_root", str(code_root))
+            format_ctx.setdefault("chains_dir", str(code_root / "chains"))
+            format_ctx.setdefault("profiles_dir", str(code_root / "profiles"))
             format_ctx.update(self.ctx.get("request", {}))
             return value.format(**format_ctx)
         return value

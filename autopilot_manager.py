@@ -11,9 +11,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from config import get_default_ttys
+from config import get_code_root, get_default_ttys
 
-DEFAULT_COMMAND = "python3 /home/hlyytine/autopilot/orin_kernel_autopilot.py"
+DEFAULT_COMMAND = f"python3 {shlex.quote(str(get_code_root() / 'orin_kernel_autopilot.py'))}"
 DEFAULT_TMUX_SESSION = "autopilot"
 DEFAULT_PLATFORM = "orin-agx-uefi-netboot"
 

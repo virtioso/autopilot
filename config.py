@@ -9,6 +9,13 @@ DEFAULT_TTY0 = "/dev/ttyACM0"
 DEFAULT_TTY1 = "/dev/ttyACM1"
 
 
+def get_code_root() -> Path:
+    override = os.environ.get("AUTOPILOT_CODE_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path(__file__).resolve().parent
+
+
 def get_autopilot_dir(override: str | None = None) -> Path:
     if override:
         return Path(override)

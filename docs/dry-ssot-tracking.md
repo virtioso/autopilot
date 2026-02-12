@@ -6,9 +6,9 @@
 
 ## Status
 
-- Open findings: 7
+- Open findings: 5
 - In progress: 0
-- Resolved: 0
+- Resolved: 2
 
 ## Baseline Findings (2026-02-12)
 
@@ -19,7 +19,7 @@
   - `AGENTS.md:21` (states code can live anywhere)
 - **Risk**: Relocation breaks MCP start/restart defaults unless command is overridden.
 - **Proposed direction**: Build default command from `Path(__file__).resolve().parent`.
-- **Status**: Open
+- **Status**: Resolved
 
 ### F-002 (High): Chain steps hardcode absolute script paths
 - **Summary**: Multiple chains call analysis scripts with `/home/hlyytine/autopilot/...` absolute paths.
@@ -32,7 +32,7 @@
   - `chains/vm-qemu-virtio.json:159`
 - **Risk**: Non-relocatable chain execution and repeated literals.
 - **Proposed direction**: Introduce a chain-runtime token (for example `{code_dir}`) or env-backed script root.
-- **Status**: Open
+- **Status**: Resolved
 
 ### F-003 (Medium): Target network constants duplicated across codepaths
 - **Summary**: Board and target IP values are repeated in multiple modules/scripts.
@@ -93,6 +93,52 @@
 ### 2026-02-12
 - Created this tracking file.
 - Added baseline DRY/SSOT findings F-001 through F-007.
+- Added execution plan for absolute-path removal phase (`Plan-AP-1`..`Plan-AP-5`).
+- Implemented `config.get_code_root()` as code-root SSOT.
+- Updated daemon default command to be code-root derived (no fixed `/home/hlyytine/autopilot`).
+- Added runtime format tokens in chain context resolution:
+  - `code_root`
+  - `chains_dir`
+  - `profiles_dir`
+- Converted chain script commands from absolute code paths to `{code_root}` token:
+  - `chains/sel4test.json`
+  - `chains/vm-minimal.json`
+  - `chains/vm-qemu-virtio.json`
+- Validation:
+  - Python syntax check passed for touched modules.
+  - `rg '/home/hlyytine/autopilot' /home/hlyytine/autopilot/chains/*.json` returned no matches.
+  - Runtime sanity: `sel4test` request `20260212-154345` completed `pass`.
+  - Note: request `20260212-154313` failed due stale MCP-server process relaunching daemon without platform env (known independent issue); restarting through updated manager path resolved it.
+- Finding status updates:
+  - `F-001` -> Resolved
+  - `F-002` -> Resolved
+
+## Execution Plan (Absolute Path Removal Phase)
+
+### Plan-AP-1: Introduce code-root SSOT
+- Add `get_code_root()` in `config.py`.
+- Keep default behavior script-relative (`Path(__file__).resolve().parent`).
+
+### Plan-AP-2: Remove hardcoded daemon command path
+- Replace `autopilot_manager.py` default command literal with code-root derived path.
+
+### Plan-AP-3: Make chain script invocations relocatable
+- Expose runtime format tokens from chain runner context:
+  - `code_root`
+  - `chains_dir`
+  - `profiles_dir`
+- Update chain `analyze_logs` commands to use `{code_root}` instead of `/home/hlyytine/autopilot`.
+
+### Plan-AP-4: Validate relocation behavior
+- Static checks:
+  - Python syntax compile for touched modules.
+  - Search for `/home/hlyytine/autopilot` in executable chain files.
+- Runtime sanity check:
+  - Submit one `sel4test` run and confirm chain completes.
+
+### Plan-AP-5: Update tracker and commit
+- Record implementation results and finding status updates.
+- Commit code + tracker updates in one changeset.
 
 ## Update Rules
 

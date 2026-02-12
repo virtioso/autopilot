@@ -121,6 +121,9 @@ def run_bootstrap_chain(
         "exit_flag": exit_flag,
         "load_chain": load_chain,
         "platform_overrides": platform_overrides,
+        "code_root": str(SCRIPT_DIR),
+        "chains_dir": str(CHAINS_DIR),
+        "profiles_dir": str(SCRIPT_DIR / "profiles"),
     }
     recorder = ChainRecorder(bootstrap_dir)
     try:
@@ -345,6 +348,9 @@ def main() -> None:
             "exit_flag": exit_flag,
             "load_chain": load_chain,
             "platform_overrides": platform_overrides,
+            "code_root": str(SCRIPT_DIR),
+            "chains_dir": str(CHAINS_DIR),
+            "profiles_dir": str(SCRIPT_DIR / "profiles"),
         }
         recorder = ChainRecorder(result_dir)
 
