@@ -88,7 +88,7 @@
           "next": "interactive_stock"
         }
       ],
-      "on_timeout": "fail"
+      "on_timeout": "run_bootefi"
     },
     "interactive_stock": {
       "type": "interactive_console",
@@ -198,7 +198,7 @@
     },
     "run_bootefi": {
       "type": "call_chain",
-      "chain": "bootefi_common",
+      "chain": "bootefi_orin_netboot",
       "outcomes": [
         {
           "label": "pass",

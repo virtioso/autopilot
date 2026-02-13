@@ -1,15 +1,130 @@
 {
-  "entry": "wait_vm_boot",
+  "entry": "wait_vm0_login_or_shell",
   "steps": {
-    "wait_vm_boot": {
+    "wait_vm0_login_or_shell": {
+      "type": "wait_pattern",
+      "timeout_s": 180,
+      "outcomes": [
+        {
+          "label": "ftrace_overflow",
+          "pattern": "FTRACE: Storage full",
+          "source": "tty0",
+          "next": "emit_ftrace_overflow_marker"
+        },
+        {
+          "label": "shell",
+          "pattern": "root@.*:~#",
+          "source": "tty0",
+          "next": "arm_ftrace_late"
+        },
+        {
+          "label": "login",
+          "pattern": "login:",
+          "source": "tty0",
+          "next": "send_root_login"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "send_root_login": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "root",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_vm0_shell"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_vm0_shell": {
       "type": "wait_pattern",
       "timeout_s": 120,
       "outcomes": [
         {
-          "label": "vm",
+          "label": "ftrace_overflow",
+          "pattern": "FTRACE: Storage full",
+          "source": "tty0",
+          "next": "emit_ftrace_overflow_marker"
+        },
+        {
+          "label": "shell",
+          "pattern": "root@.*:~#",
+          "source": "tty0",
+          "next": "arm_ftrace_late"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "arm_ftrace_late": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x1; elif command -v devmem >/dev/null 2>&1; then devmem 0x0F010000 32 0x1; else echo 'WARN: no devmem tool for hyp-ftrace ARM'; fi",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "run_qemu_rnd_helper"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "run_qemu_rnd_helper": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "qemu-rnd-helper >/tmp/qemu-rnd-helper.log 2>&1 &",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_vm1_boot_or_ftrace_overflow"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_vm1_boot_or_ftrace_overflow": {
+      "type": "wait_pattern",
+      "timeout_s": 240,
+      "outcomes": [
+        {
+          "label": "ftrace_overflow",
+          "pattern": "FTRACE: Storage full",
+          "source": "tty0",
+          "next": "emit_ftrace_overflow_marker"
+        },
+        {
+          "label": "vm1",
           "pattern": "Booting Linux|driver-vm login:|login:",
           "source": "tty1",
+          "next": "dump_ftrace_after_dwell"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "dump_ftrace_after_dwell": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "sleep 25; if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x2; elif command -v devmem >/dev/null 2>&1; then devmem 0x0F010000 32 0x2; else echo 'WARN: no devmem tool for hyp-ftrace DUMP'; fi",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
           "next": "pass"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "emit_ftrace_overflow_marker": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "echo 'AUTOPILOT_FAIL: FTRACE_OVERFLOW_EARLY (storage full before VM1 trace window)'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fail"
         }
       ],
       "on_timeout": "fail"

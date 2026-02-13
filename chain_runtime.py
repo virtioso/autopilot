@@ -46,6 +46,8 @@ class StepResult:
     error_message: Optional[str]
     started_at: float
     finished_at: float
+    chain_name: str
+    chain_stack: List[str]
 
 
 class ChainRecorder:
@@ -65,6 +67,8 @@ class ChainRecorder:
             "finished_at": result.finished_at,
             "error_code": result.error_code,
             "error_message": result.error_message,
+            "chain_name": result.chain_name,
+            "chain_stack": result.chain_stack,
         }
         if result.outcome:
             entry.update({
@@ -263,10 +267,11 @@ def validate_chain(chain: dict) -> None:
 
 
 class ChainRunner:
-    def __init__(self, chain: dict, ctx: dict, recorder: ChainRecorder):
+    def __init__(self, chain: dict, ctx: dict, recorder: ChainRecorder, finalize_on_exit: bool = True):
         self.chain = chain
         self.ctx = ctx
         self.recorder = recorder
+        self.finalize_on_exit = finalize_on_exit
         self.event_queue: queue.Queue = ctx["event_queue"]
         self.cancel_flag = ctx["cancel_flag"]
         self.ctx.setdefault("chain_name", self.ctx.get("profile", "-"))
@@ -275,6 +280,7 @@ class ChainRunner:
             chain_name = str(self.ctx.get("chain_name", "")).strip()
             if chain_name:
                 self.ctx["chain_stack"] = [chain_name]
+        self.last_step_result: Optional[StepResult] = None
 
     def run(self) -> str:
         validate_chain(self.chain)
@@ -285,16 +291,20 @@ class ChainRunner:
                 self._check_cancel()
                 step = self.chain["steps"][current]
                 result, next_step = self._run_step(current, step)
+                self.last_step_result = result
                 self.recorder.record_step(result)
                 if step["type"] in ("pass", "fail"):
-                    self.recorder.finalize(step["type"])
+                    if self.finalize_on_exit:
+                        self.recorder.finalize(step["type"])
                     return step["type"]
                 current = next_step
         except CancelRun:
-            self.recorder.finalize("failed", abort_reason="canceled")
+            if self.finalize_on_exit:
+                self.recorder.finalize("failed", abort_reason="canceled")
             return "failed"
         except AbortRun:
-            self.recorder.finalize("failed", abort_reason="user_abort")
+            if self.finalize_on_exit:
+                self.recorder.finalize("failed", abort_reason="user_abort")
             return "failed"
 
     def _run_step(self, name: str, step: dict) -> Tuple[StepResult, str]:
@@ -330,6 +340,8 @@ class ChainRunner:
             error_message=error_message,
             started_at=started,
             finished_at=finished,
+            chain_name=self.ctx.get("chain_name", "-"),
+            chain_stack=list(self.ctx.get("chain_stack", [])),
         )
         return result, next_step
 
@@ -754,17 +766,31 @@ class ChainRunner:
         sub_ctx = dict(self.ctx)
         sub_ctx["chain_name"] = name
         sub_ctx["chain_stack"] = stack + [name]
-        recorder = NoopChainRecorder()
-        runner = ChainRunner(chain, sub_ctx, recorder)
+        runner = ChainRunner(chain, sub_ctx, self.recorder, finalize_on_exit=False)
         status = runner.run()
         label = "pass" if status == "pass" else "fail"
+        child_outcome = runner.last_step_result.outcome if runner.last_step_result else None
         outcomes = step.get("outcomes", [])
         for outcome in outcomes:
             if outcome.get("label") == label:
                 next_step = outcome.get("next", step.get("on_timeout", "fail"))
-                return next_step, OutcomeMatch(label, next_step, None, None, None, None)
+                return next_step, OutcomeMatch(
+                    label,
+                    next_step,
+                    child_outcome.pattern if child_outcome else None,
+                    child_outcome.source if child_outcome else None,
+                    child_outcome.log_path if child_outcome else None,
+                    child_outcome.log_offset if child_outcome else None,
+                )
         next_step = step.get("on_timeout", "fail")
-        return next_step, OutcomeMatch(label, next_step, None, None, None, None)
+        return next_step, OutcomeMatch(
+            label,
+            next_step,
+            child_outcome.pattern if child_outcome else None,
+            child_outcome.source if child_outcome else None,
+            child_outcome.log_path if child_outcome else None,
+            child_outcome.log_offset if child_outcome else None,
+        )
 
     def _step_join(self, step: dict) -> Tuple[str, OutcomeMatch]:
         name = step.get("chain")
