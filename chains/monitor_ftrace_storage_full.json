@@ -1,0 +1,21 @@
+{
+  "entry": "watch_storage_full",
+  "steps": {
+    "watch_storage_full": {
+      "type": "wait_pattern",
+      "timeout_s": 30,
+      "outcomes": [
+        {
+          "label": "overflow",
+          "pattern": "FTRACE: Storage full",
+          "source": "tty0",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "watch_storage_full"
+    },
+    "fail": {
+      "type": "fail"
+    }
+  }
+}

@@ -48,6 +48,20 @@
       "outcomes": [
         {
           "label": "ok",
+          "next": "purge_uarts"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "purge_uarts": {
+      "type": "purge_sources",
+      "sources": [
+        "tty0",
+        "tty1"
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
           "next": "relay_power"
         }
       ],
@@ -63,9 +77,9 @@
       ],
       "on_timeout": "fail"
     },
-    "wait_capdl": {
+    "elfloader_started": {
       "type": "wait_pattern",
-      "timeout_s": 120,
+      "timeout_s": 300,
       "outcomes": [
         {
           "label": "ftrace_overflow",
@@ -80,17 +94,40 @@
           "next": "filter_logs_fail_vm0_abort"
         },
         {
-          "label": "capdl",
-          "pattern": "capdl-loader|ELF-loader",
+          "label": "elfloader",
+          "pattern": "ELF-loader started on CPU",
           "source": "tty0",
-          "next": "wait_vm_boot"
+          "next": "parallel_vm_boot_split"
         }
       ],
       "on_timeout": "filter_logs_fail"
     },
-    "wait_vm_boot": {
-      "type": "call_chain",
-      "chain": "vm_wait_boot",
+    "parallel_vm_boot_split": {
+      "type": "parallel_split",
+      "group": "vm_boot_and_ftrace_watch",
+      "branches": [
+        {
+          "name": "main_vm_boot",
+          "chain": "vm_wait_boot"
+        },
+        {
+          "name": "ftrace_watchdog",
+          "chain": "monitor_ftrace_storage_full",
+          "monitor": true
+        }
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "parallel_vm_boot_join"
+        }
+      ],
+      "on_timeout": "filter_logs_fail"
+    },
+    "parallel_vm_boot_join": {
+      "type": "parallel_join",
+      "group": "vm_boot_and_ftrace_watch",
+      "timeout_s": 300,
       "outcomes": [
         {
           "label": "pass",
@@ -123,7 +160,7 @@
       "command": [
         "bash",
         "-lc",
-        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; if grep -a -q \"FTRACE: Storage full\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: FTRACE_OVERFLOW_EARLY (storage full before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\"; fi"
+        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; if ! grep -a -q \"ELF-loader started on CPU\" \"{result_dir}/console/tty0.raw\"; then printf \"\\nAUTOPILOT_FAIL: ELFLOADER_NOT_REACHED (missing ELF-loader start marker within timeout)\\n\" >> \"{result_dir}/console/sel4.log\"; elif grep -a -q \"FTRACE: Storage full\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: FTRACE_OVERFLOW_EARLY (storage full before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\"; fi"
       ],
       "outcomes": [
         {
@@ -197,7 +234,7 @@
       "outcomes": [
         {
           "label": "pass",
-          "next": "wait_capdl"
+          "next": "elfloader_started"
         },
         {
           "label": "fail",

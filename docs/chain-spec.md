@@ -21,7 +21,7 @@ Required fields:
 - `steps`: dictionary of step definitions.
 
 There is no `subchains` object. Reuse is done by referencing other chain files
-with `fork` (async) or `call_chain` (sync).
+with `fork` (async), `call_chain` (sync), and parallel-group steps.
 
 ## Step Definition
 
@@ -67,6 +67,8 @@ Action steps:
 - `fork`
 - `call_chain`
 - `join`
+- `parallel_split`
+- `parallel_join`
 - `set_overrides`
 
 Terminal steps:
@@ -79,6 +81,16 @@ For steps that reference another chain (`fork`, `call_chain`):
 - `chain` must be a bare chain name (no path, no `.json`).
 - Resolution path is fixed: `<code_root>/chains/<name>.json`.
 - Names must match `[A-Za-z0-9._-]+`.
+
+For `parallel_split` branch entries:
+- each branch must include `name` and `chain`,
+- branch names must be unique within the split step,
+- monitor branches must be explicitly marked with `"monitor": true`.
+
+Monitor branch policy:
+- monitor branches are fail-only,
+- monitor branches must not contain terminal `pass` steps (directly or through `call_chain`),
+- validation rejects monitor branches that can reach `pass`.
 
 ## Example: fork
 
@@ -109,6 +121,42 @@ For steps that reference another chain (`fork`, `call_chain`):
 
 `call_chain` runs the target chain synchronously in the same request context.
 The calling step must define outcomes for `pass` and `fail` labels.
+
+## Example: parallel_split + parallel_join
+
+```json
+{
+  "type": "parallel_split",
+  "group": "vm_boot_and_ftrace_watch",
+  "branches": [
+    { "name": "main_vm_boot", "chain": "vm_wait_boot_qemu_virtio" },
+    { "name": "ftrace_watchdog", "chain": "monitor_ftrace_storage_full", "monitor": true }
+  ],
+  "outcomes": [
+    { "label": "ok", "next": "parallel_join_vm_boot" }
+  ],
+  "on_timeout": "fail"
+}
+```
+
+```json
+{
+  "type": "parallel_join",
+  "group": "vm_boot_and_ftrace_watch",
+  "timeout_s": 300,
+  "outcomes": [
+    { "label": "pass", "next": "filter_logs_pass" },
+    { "label": "fail", "next": "filter_logs_fail" }
+  ],
+  "on_timeout": "filter_logs_fail"
+}
+```
+
+Parallel-group semantics:
+- branch chains execute concurrently after `parallel_split`,
+- first terminal result (`pass` or `fail`) is latched as winner,
+- non-winner branches are canceled,
+- `parallel_join` returns the winner label once branches converge.
 
 ## Upload Methods
 

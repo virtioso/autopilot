@@ -61,3 +61,11 @@ After every test run, Autopilot extracts guest DTB dumps from logs into
 
 If guest behavior is abnormal, always inspect the generated `.dts` files as part
 of first-pass triage.
+
+## Parallel Chain Policy (Mandatory)
+
+- Use `parallel_split` + `parallel_join` for fail-fast concurrent monitoring.
+- `parallel_join` returns the first terminal branch result (`pass` or `fail`).
+- Monitor branches must be fail-only by design.
+- Monitor branches must never contain terminal `pass` steps.
+- Runtime validation rejects monitor branches that can reach `pass`.

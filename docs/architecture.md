@@ -15,8 +15,9 @@ operator interaction.
 - Chain files live in `<code_root>/chains`.
 - The chain runner executes steps and routes based on regex outcomes.
 - Chains can invoke other chains:
-  - `fork` for parallel/asynchronous execution
+  - `fork` for asynchronous execution
   - `call_chain` for synchronous inline execution
+  - `parallel_split`/`parallel_join` for concurrent groups with first-result-wins join
 - UART sources are dynamically mapped at runtime via chain steps.
 
 ## Core Components

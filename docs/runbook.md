@@ -161,6 +161,19 @@ the board to stock Linux while log parsing continues. The main chain reports
 results immediately; the recovery runs in the background unless a join is
 explicitly requested.
 
+### Parallel Groups
+
+For fail-fast watchdog scenarios, use `parallel_split` + `parallel_join`:
+- `parallel_split` starts named branch chains concurrently.
+- First branch terminal result (`pass`/`fail`) is latched as winner.
+- Remaining branches are canceled.
+- `parallel_join` returns the latched winner label.
+
+Monitor policy:
+- monitor branches must be fail-only,
+- monitor branches must never contain terminal `pass`,
+- runtime validation rejects monitor branches that can reach `pass`.
+
 ## tmux Controls
 
 Autopilot is controlled through tmux keybindings and pane clients.
@@ -269,7 +282,7 @@ Executable chains live in `<code_root>/chains` as one file per chain (`<name>.js
 
 Each request field `profile` selects the root chain file by name (`chains/<profile>.json`).
 
-Reusable flow is expressed by referencing other chain files via `fork` and `call_chain`.
+Reusable flow is expressed by referencing other chain files via `fork`, `call_chain`, and parallel group branches.
 
 Console login/prompt profiles remain in `<code_root>/profiles` (for example
 `linux-yocto.json`, `ubuntu-22.json`).
@@ -286,6 +299,7 @@ Example step types:
 - `send_cmd`
 - `interactive_console`
 - `fork`, `call_chain`, `join`
+- `parallel_split`, `parallel_join`
 - `set_overrides`
 - `pass`, `fail`
 

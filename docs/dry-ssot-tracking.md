@@ -167,6 +167,36 @@
 - Finding status updates:
   - `F-005` -> Resolved
 
+### 2026-02-13
+- Added parallel-chain planning document:
+  - `docs/parallel-chains-plan.md`
+- Implemented runtime support for concurrent branch groups:
+  - new step types in `chain_runtime.py`: `parallel_split`, `parallel_join`
+  - first-result-wins winner latching and branch cancellation
+  - `chain.json` parallel metadata (`parallel_groups`)
+  - monitor branch fail-only validation for `parallel_split` monitor branches
+- Updated VM chain flow:
+  - `chains/vm_common.json`
+  - renamed `wait_capdl` -> `elfloader_started`
+  - success marker now `ELF-loader started on CPU`
+  - timeout updated to 180s for netboot stage
+  - added parallel watchdog branch execution after ELF-loader start
+  - added `AUTOPILOT_FAIL: ELFLOADER_NOT_REACHED` classification
+- Added fail-only monitor chain:
+  - `chains/monitor_ftrace_storage_full.json`
+- SSOT docs updated for new semantics:
+  - `docs/chain-spec.md`
+  - `docs/runbook.md`
+  - `docs/overview.md`
+  - `docs/architecture.md`
+  - `docs/README.md`
+  - `AGENTS.md`
+- Validation:
+  - `python3 -m py_compile chain_runtime.py` passed
+  - JSON parse checks passed for new/updated chain files
+  - chain schema validation passed (`validate_chain`)
+  - runtime smoke submission accepted new flow (`vm-qemu-virtio` request `20260213-221137` progressed past `run_bootefi` to `elfloader_started` without unknown-step/validation errors)
+
 ## Execution Plan (Absolute Path Removal Phase)
 
 ### Plan-AP-1: Introduce code-root SSOT

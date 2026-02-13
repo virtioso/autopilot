@@ -55,48 +55,62 @@ class ChainRecorder:
         self.result_dir = result_dir
         self.steps: List[dict] = []
         self.forks: Dict[str, dict] = {}
+        self.parallel_groups: Dict[str, dict] = {}
         self.overall_status: Optional[str] = None
         self.abort_reason: Optional[str] = None
         self.path = result_dir / filename
+        self._lock = threading.Lock()
 
     def record_step(self, result: StepResult) -> None:
-        entry = {
-            "step": result.step,
-            "status": result.status,
-            "started_at": result.started_at,
-            "finished_at": result.finished_at,
-            "error_code": result.error_code,
-            "error_message": result.error_message,
-            "chain_name": result.chain_name,
-            "chain_stack": result.chain_stack,
-        }
-        if result.outcome:
-            entry.update({
-                "outcome_label": result.outcome.label,
-                "next_step": result.outcome.next_step,
-                "pattern": result.outcome.pattern,
-                "source": result.outcome.source,
-                "log_path": result.outcome.log_path,
-                "log_offset": result.outcome.log_offset,
-            })
-        self.steps.append(entry)
-        self._flush()
+        with self._lock:
+            entry = {
+                "step": result.step,
+                "status": result.status,
+                "started_at": result.started_at,
+                "finished_at": result.finished_at,
+                "error_code": result.error_code,
+                "error_message": result.error_message,
+                "chain_name": result.chain_name,
+                "chain_stack": result.chain_stack,
+            }
+            if result.outcome:
+                entry.update({
+                    "outcome_label": result.outcome.label,
+                    "next_step": result.outcome.next_step,
+                    "pattern": result.outcome.pattern,
+                    "source": result.outcome.source,
+                    "log_path": result.outcome.log_path,
+                    "log_offset": result.outcome.log_offset,
+                })
+            self.steps.append(entry)
+            self._flush_unlocked()
 
     def record_fork(self, name: str, status: str) -> None:
-        self.forks[name] = {"status": status, "updated_at": time.time()}
-        self._flush()
+        with self._lock:
+            self.forks[name] = {"status": status, "updated_at": time.time()}
+            self._flush_unlocked()
+
+    def record_parallel_group(self, name: str, state: dict) -> None:
+        with self._lock:
+            self.parallel_groups[name] = {
+                "updated_at": time.time(),
+                **state,
+            }
+            self._flush_unlocked()
 
     def finalize(self, status: str, abort_reason: Optional[str] = None) -> None:
-        self.overall_status = status
-        self.abort_reason = abort_reason
-        self._flush()
+        with self._lock:
+            self.overall_status = status
+            self.abort_reason = abort_reason
+            self._flush_unlocked()
 
-    def _flush(self) -> None:
+    def _flush_unlocked(self) -> None:
         payload = {
             "overall_status": self.overall_status,
             "abort_reason": self.abort_reason,
             "steps": self.steps,
             "forks": self.forks,
+            "parallel_groups": self.parallel_groups,
         }
         self.path.write_text(json.dumps(payload, indent=2))
 
@@ -106,6 +120,9 @@ class NoopChainRecorder:
         return
 
     def record_fork(self, name: str, status: str) -> None:
+        return
+
+    def record_parallel_group(self, name: str, state: dict) -> None:
         return
 
     def finalize(self, status: str, abort_reason: Optional[str] = None) -> None:
@@ -141,6 +158,9 @@ class SourceBinding:
         self._total_bytes = 0
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._serial = serial.Serial(self.tty, baudrate=self.baud, timeout=0.1)
+        # Always start from an empty UART state for deterministic pattern matching.
+        self._serial.reset_input_buffer()
+        self._serial.reset_output_buffer()
         self._thread.start()
 
     def _run(self) -> None:
@@ -193,6 +213,14 @@ class SourceBinding:
             self._serial.close()
         except Exception:
             pass
+
+    def purge(self) -> None:
+        with self._lock:
+            self._serial.reset_input_buffer()
+            self._serial.reset_output_buffer()
+            self._buffer = bytearray()
+            self._base_offset = 0
+            self._total_bytes = 0
 
 
 class SourceManager:
@@ -264,6 +292,31 @@ def validate_chain(chain: dict) -> None:
                 raise ChainValidationError(
                     f"step {name} call_chain requires outcomes for labels 'pass' and 'fail'"
                 )
+        if step.get("type") == "parallel_join":
+            labels = {outcome.get("label") for outcome in step.get("outcomes", [])}
+            if "pass" not in labels or "fail" not in labels:
+                raise ChainValidationError(
+                    f"step {name} parallel_join requires outcomes for labels 'pass' and 'fail'"
+                )
+        if step.get("type") == "parallel_split":
+            branches = step.get("branches")
+            if not isinstance(branches, list) or not branches:
+                raise ChainValidationError(f"step {name} parallel_split requires non-empty branches list")
+            names = set()
+            for branch in branches:
+                if not isinstance(branch, dict):
+                    raise ChainValidationError(f"step {name} has invalid branch entry")
+                branch_name = str(branch.get("name", "")).strip()
+                chain_name = str(branch.get("chain", "")).strip()
+                if not branch_name or not chain_name:
+                    raise ChainValidationError(
+                        f"step {name} branch requires non-empty name and chain"
+                    )
+                if branch_name in names:
+                    raise ChainValidationError(
+                        f"step {name} duplicate branch name: {branch_name}"
+                    )
+                names.add(branch_name)
 
 
 class ChainRunner:
@@ -357,6 +410,8 @@ class ChainRunner:
             return self._simple_outcome(step)
         if step_type == "map_source":
             return self._step_map_source(step)
+        if step_type == "purge_sources":
+            return self._step_purge_sources(step)
         if step_type == "map_window":
             return self._step_map_window(step)
         if step_type == "send_cmd":
@@ -381,6 +436,10 @@ class ChainRunner:
             return self._step_call_chain(step)
         if step_type == "join":
             return self._step_join(step)
+        if step_type == "parallel_split":
+            return self._step_parallel_split(step)
+        if step_type == "parallel_join":
+            return self._step_parallel_join(step)
         if step_type == "analyze_logs":
             return self._step_analyze_logs(step)
         if step_type == "interactive_console":
@@ -429,6 +488,16 @@ class ChainRunner:
         ui = self.ctx.get("ui")
         if ui and hasattr(ui, "bind_window"):
             ui.bind_window(window, source, title=title)
+        return self._simple_outcome(step)
+
+    def _step_purge_sources(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        names = step.get("sources")
+        if names is None:
+            names = list(self.ctx["sources"].sources.keys())
+        for name in names:
+            binding = self.ctx["sources"].get(name)
+            if binding:
+                binding.purge()
         return self._simple_outcome(step)
 
     def _step_send_cmd(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -804,6 +873,166 @@ class ChainRunner:
                 fork["thread"].join()
         return self._simple_outcome(step)
 
+    def _match_labeled_outcome(self, step: dict, label: str) -> Tuple[str, OutcomeMatch]:
+        outcomes = step.get("outcomes", [])
+        for outcome in outcomes:
+            if outcome.get("label") == label:
+                next_step = outcome.get("next", step.get("on_timeout", "fail"))
+                return next_step, OutcomeMatch(label, next_step, None, None, None, None)
+        next_step = step.get("on_timeout", "fail")
+        return next_step, OutcomeMatch(label, next_step, None, None, None, None)
+
+    def _snapshot_parallel_group(self, group: dict) -> dict:
+        with group["lock"]:
+            winner = group.get("winner")
+            winner_copy = None
+            if winner:
+                winner_copy = {
+                    "branch": winner.get("branch"),
+                    "status": winner.get("status"),
+                    "finished_at": winner.get("finished_at"),
+                }
+            branches = {}
+            for name, state in group.get("branches", {}).items():
+                branches[name] = {
+                    "chain": state.get("chain"),
+                    "monitor": bool(state.get("monitor", False)),
+                    "status": state.get("status"),
+                    "finished_at": state.get("finished_at"),
+                }
+            return {
+                "winner": winner_copy,
+                "branches": branches,
+            }
+
+    def _record_parallel_group_state(self, group_name: str) -> None:
+        groups = self.ctx.get("parallel_groups", {})
+        group = groups.get(group_name)
+        if not group:
+            return
+        self.recorder.record_parallel_group(group_name, self._snapshot_parallel_group(group))
+
+    def _run_parallel_branch(self, group_name: str, branch_name: str, branch: dict) -> None:
+        groups = self.ctx.get("parallel_groups", {})
+        group = groups[group_name]
+        branch_chain_name = branch["chain"]
+        status = "fail"
+        try:
+            chain = self._load_named_chain(branch_chain_name)
+            cancel_flag = group["cancel_flags"][branch_name]
+            sub_ctx = dict(self.ctx)
+            sub_ctx["cancel_flag"] = cancel_flag
+            sub_ctx["chain_name"] = branch_chain_name
+            sub_ctx["chain_stack"] = list(self.ctx.get("chain_stack", [])) + [f"{group_name}:{branch_name}", branch_chain_name]
+            safe_group = re.sub(r"[^A-Za-z0-9._-]+", "_", group_name)
+            safe_branch = re.sub(r"[^A-Za-z0-9._-]+", "_", branch_name)
+            recorder = ChainRecorder(
+                self.ctx["result_dir"],
+                filename=f"chain.parallel.{safe_group}.{safe_branch}.json",
+            )
+            runner = ChainRunner(chain, sub_ctx, recorder)
+            result = runner.run()
+            status = "pass" if result == "pass" else "fail"
+        except Exception:
+            status = "fail"
+        finally:
+            with group["lock"]:
+                branch_state = group["branches"][branch_name]
+                branch_state["status"] = status
+                branch_state["finished_at"] = time.time()
+                if group.get("winner") is None and status in ("pass", "fail"):
+                    group["winner"] = {
+                        "branch": branch_name,
+                        "status": status,
+                        "finished_at": branch_state["finished_at"],
+                    }
+                    group["winner_event"].set()
+                    for other_name, cancel in group["cancel_flags"].items():
+                        if other_name != branch_name:
+                            cancel.set()
+            self._record_parallel_group_state(group_name)
+
+    def _step_parallel_split(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        group_name = str(step.get("group", "")).strip()
+        if not group_name:
+            raise ValueError("parallel_split requires non-empty group")
+        branches_cfg = step.get("branches", [])
+        groups = self.ctx.setdefault("parallel_groups", {})
+        if group_name in groups:
+            raise ValueError(f"parallel_split group already exists: {group_name}")
+
+        group = {
+            "lock": threading.Lock(),
+            "winner_event": threading.Event(),
+            "winner": None,
+            "branches": {},
+            "cancel_flags": {},
+            "threads": {},
+        }
+        groups[group_name] = group
+
+        for branch in branches_cfg:
+            branch_name = str(branch["name"]).strip()
+            branch_chain_name = str(branch["chain"]).strip()
+            monitor = bool(branch.get("monitor", False))
+            cancel_flag = threading.Event()
+            group["cancel_flags"][branch_name] = cancel_flag
+            group["branches"][branch_name] = {
+                "chain": branch_chain_name,
+                "monitor": monitor,
+                "status": "running",
+                "finished_at": None,
+            }
+            thread = threading.Thread(
+                target=self._run_parallel_branch,
+                args=(group_name, branch_name, {"chain": branch_chain_name}),
+                daemon=True,
+            )
+            group["threads"][branch_name] = thread
+            thread.start()
+
+        self._record_parallel_group_state(group_name)
+        return self._simple_outcome(step)
+
+    def _step_parallel_join(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        group_name = str(step.get("group", "")).strip()
+        if not group_name:
+            raise ValueError("parallel_join requires non-empty group")
+        groups = self.ctx.get("parallel_groups", {})
+        group = groups.get(group_name)
+        if not group:
+            raise ValueError(f"parallel_join unknown group: {group_name}")
+
+        timeout_s = int(step.get("timeout_s", 60))
+        deadline = time.time() + timeout_s
+
+        while time.time() < deadline:
+            self._check_cancel()
+            winner_label = None
+            completed = False
+            final_state = None
+            with group["lock"]:
+                winner = dict(group["winner"]) if group.get("winner") else None
+                threads = list(group["threads"].values())
+                if winner:
+                    for branch_name, cancel in group["cancel_flags"].items():
+                        if branch_name != winner["branch"]:
+                            cancel.set()
+                    all_stopped = all(not t.is_alive() for t in threads)
+                    if all_stopped:
+                        winner_label = winner["status"]
+                        final_state = self._snapshot_parallel_group(group)
+                        groups.pop(group_name, None)
+                        completed = True
+            if completed:
+                if final_state is not None:
+                    self.recorder.record_parallel_group(group_name, final_state)
+                return self._match_labeled_outcome(step, winner_label)
+            time.sleep(0.1)
+
+        self._record_parallel_group_state(group_name)
+        return self._match_labeled_outcome(step, "timeout")
+
     def _step_analyze_logs(self, step: dict) -> Tuple[str, OutcomeMatch]:
         import subprocess
         cmd = step.get("command")
@@ -1079,23 +1308,64 @@ class ChainRunner:
                 current[key] = value
 
     def _validate_external_refs(self) -> None:
+        monitor_validation_cache: Dict[str, bool] = {}
         for step_name, step in self.chain.get("steps", {}).items():
             step_type = step.get("type")
-            if step_type not in ("fork", "call_chain"):
+            if step_type in ("fork", "call_chain"):
+                chain_name = step.get("chain")
+                if not chain_name:
+                    raise ChainValidationError(f"step {step_name} missing chain name")
+                try:
+                    self._load_named_chain(str(chain_name))
+                except Exception as exc:
+                    raise ChainValidationError(
+                        f"step {step_name} references unknown chain {chain_name}: {exc}"
+                    ) from exc
                 continue
-            chain_name = step.get("chain")
-            if not chain_name:
-                raise ChainValidationError(f"step {step_name} missing chain name")
-            try:
-                self._load_named_chain(str(chain_name))
-            except Exception as exc:
-                raise ChainValidationError(
-                    f"step {step_name} references unknown chain {chain_name}: {exc}"
-                ) from exc
+            if step_type == "parallel_split":
+                for branch in step.get("branches", []):
+                    branch_name = str(branch.get("name", "")).strip()
+                    chain_name = str(branch.get("chain", "")).strip()
+                    if not chain_name:
+                        raise ChainValidationError(
+                            f"step {step_name} branch {branch_name} missing chain"
+                        )
+                    try:
+                        self._load_named_chain(chain_name)
+                    except Exception as exc:
+                        raise ChainValidationError(
+                            f"step {step_name} branch {branch_name} references unknown chain {chain_name}: {exc}"
+                        ) from exc
+                    if branch.get("monitor", False):
+                        if chain_name not in monitor_validation_cache:
+                            monitor_validation_cache[chain_name] = self._is_fail_only_chain(chain_name, set())
+                        if not monitor_validation_cache[chain_name]:
+                            raise ChainValidationError(
+                                f"step {step_name} branch {branch_name} monitor chain {chain_name} is not fail-only"
+                            )
+
+    def _is_fail_only_chain(self, chain_name: str, visited: set) -> bool:
+        resolved_name = self._resolve_chain_name(chain_name)
+        if resolved_name in visited:
+            return True
+        visited.add(resolved_name)
+        chain = self._load_named_chain(resolved_name)
+        steps = chain.get("steps", {})
+        for step in steps.values():
+            if step.get("type") == "pass":
+                return False
+            if step.get("type") == "call_chain":
+                nested = str(step.get("chain", "")).strip()
+                if nested and not self._is_fail_only_chain(nested, visited):
+                    return False
+        return True
 
     def _handle_abort(self) -> None:
         for fork in self.ctx["forks"].values():
             fork["cancel"].set()
+        for group in self.ctx.get("parallel_groups", {}).values():
+            for cancel in group.get("cancel_flags", {}).values():
+                cancel.set()
         recovery = self.ctx.get("abort_recovery_chain")
         if recovery:
             step = {"type": "fork", "chain": recovery, "outcomes": [{"label": "started", "next": "fail"}]}
