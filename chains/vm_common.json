@@ -58,62 +58,27 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "boot_stock"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "boot_stock": {
-      "type": "boot_menu",
-      "source": "tty0",
-      "boot_option": "1",
-      "outcomes": [
-        {
-          "label": "menu",
-          "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot",
-          "source": "tty0",
-          "next": "wait_stock_prompt"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "wait_stock_prompt": {
-      "type": "wait_pattern",
-      "timeout_s": 180,
-      "outcomes": [
-        {
-          "label": "prompt",
-          "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
-          "source": "tty0",
-          "next": "interactive_stock"
-        }
-      ],
-      "on_timeout": "run_bootefi"
-    },
-    "interactive_stock": {
-      "type": "interactive_console",
-      "hold_open": false,
-      "exit_after_shell": false,
-      "sessions": [
-        {
-          "name": "tty0",
-          "port": "/dev/ttyACM0",
-          "source": "tty0",
-          "profile": "ubuntu-22"
-        }
-      ],
-      "outcomes": [
-        {
-          "label": "ok",
           "next": "run_bootefi"
         }
       ],
-      "on_timeout": "run_bootefi"
+      "on_timeout": "fail"
     },
     "wait_capdl": {
       "type": "wait_pattern",
       "timeout_s": 120,
       "outcomes": [
+        {
+          "label": "ftrace_overflow",
+          "pattern": "FTRACE: Storage full",
+          "source": "tty0",
+          "next": "filter_logs_fail_ftrace_overflow"
+        },
+        {
+          "label": "kernel_data_abort",
+          "pattern": "KERNEL DATA ABORT!|Kernel entry via VCPUFault",
+          "source": "tty0",
+          "next": "filter_logs_fail_vm0_abort"
+        },
         {
           "label": "capdl",
           "pattern": "capdl-loader|ELF-loader",
@@ -158,7 +123,37 @@
       "command": [
         "bash",
         "-lc",
-        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\""
+        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; if grep -a -q \"FTRACE: Storage full\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: FTRACE_OVERFLOW_EARLY (storage full before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\"; fi"
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fork_recovery_fail"
+        }
+      ],
+      "on_timeout": "fork_recovery_fail"
+    },
+    "filter_logs_fail_ftrace_overflow": {
+      "type": "analyze_logs",
+      "command": [
+        "bash",
+        "-lc",
+        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; printf \"\\nAUTOPILOT_FAIL: FTRACE_OVERFLOW_EARLY (storage full before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\""
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fork_recovery_fail"
+        }
+      ],
+      "on_timeout": "fork_recovery_fail"
+    },
+    "filter_logs_fail_vm0_abort": {
+      "type": "analyze_logs",
+      "command": [
+        "bash",
+        "-lc",
+        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\""
       ],
       "outcomes": [
         {

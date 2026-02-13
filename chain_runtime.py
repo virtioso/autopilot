@@ -51,13 +51,13 @@ class StepResult:
 
 
 class ChainRecorder:
-    def __init__(self, result_dir: Path):
+    def __init__(self, result_dir: Path, filename: str = "chain.json"):
         self.result_dir = result_dir
         self.steps: List[dict] = []
         self.forks: Dict[str, dict] = {}
         self.overall_status: Optional[str] = None
         self.abort_reason: Optional[str] = None
-        self.path = result_dir / "chain.json"
+        self.path = result_dir / filename
 
     def record_step(self, result: StepResult) -> None:
         entry = {
@@ -742,9 +742,10 @@ class ChainRunner:
         sub_ctx = dict(self.ctx)
         sub_ctx["cancel_flag"] = cancel_flag
         sub_ctx["chain_name"] = name
-        sub_ctx["chain_stack"] = list(self.ctx.get("chain_stack", []))
+        sub_ctx["chain_stack"] = list(self.ctx.get("chain_stack", [])) + [name]
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
         recorder = self.ctx["fork_recorders"].setdefault(
-            name, ChainRecorder(self.ctx["result_dir"])
+            name, ChainRecorder(self.ctx["result_dir"], filename=f"chain.fork.{safe_name}.json")
         )
         runner = ChainRunner(subchain, sub_ctx, recorder)
         thread = threading.Thread(target=runner.run, daemon=True)
