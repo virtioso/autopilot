@@ -314,3 +314,36 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - Commit: `c7a4f57`
 - Message: `runtime: add parallel_join reducers and join_groups schema`
+
+## Step 2026-02-14-13
+
+Summary:
+- Add initial verdict/workflow state separation to runtime recorder and status APIs.
+
+Pre-step DRY/SSOT gate:
+- Canonical semantic source: `docs/chain-spec.md` verdict/workflow model.
+- Runtime/API targets: `chain_runtime.py`, `sel4_client.py`.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Recorder now persists:
+  - `test_verdict`
+  - `workflow_state`
+- Added runtime step type:
+  - `set_test_verdict` (`verdict=pass|fail`)
+- Status APIs now include `chain_summary` with:
+  - `overall_status`, `test_verdict`, `workflow_state`, `abort_reason`
+
+Verification:
+- `python3 -m py_compile chain_runtime.py sel4_client.py`
+- Recorder smoke check confirmed serialized verdict/workflow fields.
+
+Post-step DRY/SSOT gate:
+- Runtime/API data model aligned with verdict/workflow separation direction.
+
+Post-step commit gate:
+- Commit: `2691cdd`
+- Message: `runtime: add test verdict state and expose it in status APIs`

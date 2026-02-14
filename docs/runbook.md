@@ -239,6 +239,9 @@ Autopilot status also distinguishes:
 - `test_verdict`: authoritative test result
 - `workflow_state`: execution lifecycle (can remain active for housekeeping)
 
+Chains can set verdict before workflow completion via:
+- `set_test_verdict` step (`verdict=pass|fail`)
+
 ## Submit a Request (Example)
 
 Requests reference a profile that contains a chain definition.

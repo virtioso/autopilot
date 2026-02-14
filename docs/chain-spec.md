@@ -70,6 +70,7 @@ Action steps:
 - `parallel_split`
 - `parallel_join`
 - `set_overrides`
+- `set_test_verdict`
 
 Terminal steps:
 - `pass`
@@ -191,6 +192,19 @@ Runtime reporting separates:
 - `workflow_state`: runtime lifecycle (`running`/`housekeeping`/`completed`/`failed`).
 
 This allows housekeeping/preparation flows to continue after verdict is known.
+
+## Example: set_test_verdict
+
+```json
+{
+  "type": "set_test_verdict",
+  "verdict": "fail",
+  "outcomes": [
+    { "label": "ok", "next": "prepare_next_run" }
+  ],
+  "on_timeout": "prepare_next_run"
+}
+```
 
 ## Upload Methods
 
