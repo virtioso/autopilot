@@ -9,8 +9,9 @@ Scope: `/home/hlyytine/autopilot`
 Define and implement a structured parallel-chain execution model that replaces ad-hoc fail-unaware `fork` usage for critical monitoring paths (notably ftrace overflow detection after ELF-loader start).
 
 Terminology:
-- canonical step names are `split` and `join`,
-- no compatibility aliases are maintained.
+- staged migration naming is mandatory:
+- use `parallel_split` + `parallel_join` until legacy `fork`/`join` semantics are fully eliminated,
+- only then rename to canonical `split` + `join`.
 
 ## Problem Statement
 
@@ -25,13 +26,13 @@ This makes it unsuitable for fail-fast watchdog scenarios such as `FTRACE: Stora
 
 Add explicit parallel execution semantics via two pseudosteps:
 
-1. `split`
+1. `parallel_split` (renamed to `split` in final cutover)
 - starts N branch chains concurrently under a named group,
 - each branch gets its own cancellation token,
 - branch statuses are tracked in group state,
 - execution continues to normal steps in each branch.
 
-2. `join`
+2. `parallel_join` (renamed to `join` in final cutover)
 - consumes the first terminal outcome (`pass` or `fail`) produced by any branch,
 - immediately cancels remaining branches,
 - routes according to join outcomes (`pass` / `fail`).
@@ -40,7 +41,37 @@ First terminal result wins (latched).
 
 ### Canonical Step Schema (Implementation Contract)
 
-`split` example:
+Current migration-stage schema (`parallel_split` / `parallel_join`) example:
+
+```json
+{
+  "type": "parallel_split",
+  "group": "vm_boot_and_ftrace_watch",
+  "branches": [
+    { "name": "main_vm_boot", "chain": "vm_wait_boot_qemu_virtio" },
+    { "name": "ftrace_watchdog", "chain": "monitor_ftrace_storage_full", "monitor": true }
+  ],
+  "outcomes": [
+    { "label": "ok", "next": "parallel_join_vm_boot" }
+  ],
+  "on_timeout": "fail"
+}
+```
+
+```json
+{
+  "type": "parallel_join",
+  "group": "vm_boot_and_ftrace_watch",
+  "timeout_s": 300,
+  "outcomes": [
+    { "label": "pass", "next": "filter_logs_pass" },
+    { "label": "fail", "next": "filter_logs_fail" }
+  ],
+  "on_timeout": "filter_logs_fail"
+}
+```
+
+Final target schema after legacy `fork`/`join` removal (`split` / `join`) example:
 
 ```json
 {
@@ -56,8 +87,6 @@ First terminal result wins (latched).
   "on_timeout": "fail"
 }
 ```
-
-`join` example:
 
 ```json
 {
@@ -109,7 +138,7 @@ Files:
 - `docs/architecture.md`
 
 Runtime additions:
-1. New step types: `split`, `join`.
+1. New coordinated parallel step types: `parallel_split`, `parallel_join` (final rename target: `split`, `join`).
 2. Group runtime state in context (`parallel_groups`).
 3. Winner latching with timestamp + branch name.
 4. Branch cancellation propagation.
@@ -241,26 +270,27 @@ resolved in-step or dispositioned by explicit human instruction.
 - preserve `results/<id>/chain.json` artifacts.
 3. Immediate cutover policy:
 - no compatibility window,
-- coordinated/winner-based behavior must use `split/join` only,
-- legacy `parallel_split`/`parallel_join` naming and compatibility paths are removed.
+- during migration, coordinated/winner-based behavior must use `parallel_split`/`parallel_join`,
+- do not introduce new coordinated `fork`/legacy `join` flow dependencies,
+- final rename to `split`/`join` occurs only after legacy `fork`/`join` semantics are fully removed.
 4. Create a migration step log that captures:
 - pre-step DRY/SSOT gate result,
 - post-step DRY/SSOT gate result,
 - evidence references.
 
 Acceptance criteria:
-- `docs/chain-spec.md` is updated first and is the canonical source for `split/join`.
-- no stale `parallel_split`/`parallel_join` references remain in current-policy docs:
+- `docs/chain-spec.md` is updated first and is the canonical source for migration-stage naming and final rename criteria.
+- no contradictory naming guidance remains in current-policy docs:
   `docs/README.md`, `docs/overview.md`, `docs/runbook.md`, `docs/architecture.md`, `AGENTS.md` (if applicable).
 - baseline pass/fail run artifacts and step log template are committed.
 - all affected repos are clean before phase work starts.
 
 ### Phase 1: Runtime Canonicalization (`~/autopilot`)
 
-1. Remove `parallel_split`/`parallel_join` compatibility handling.
-2. Make coordinated parallel control use `split`/`join` only.
+1. Keep coordinated parallel control on `parallel_split`/`parallel_join` during migration.
+2. Ensure legacy fork-join semantics remain non-ambiguous while migration is in progress.
 3. Enforce validation rules:
-- `join` must reference a valid active group.
+- `parallel_join` must reference a valid active group.
 - monitor branches must be fail-only (must not reach terminal `pass`).
 4. Extend recorder output in `chain.json` with stable group metadata:
 - group id,
@@ -273,9 +303,9 @@ Acceptance criteria:
 - deterministic winner reporting.
 
 Acceptance criteria:
-- runtime accepts `split/join` and rejects legacy parallel step names.
+- runtime accepts and enforces `parallel_split`/`parallel_join` semantics with no ambiguity against legacy `join`.
 - validation rejects monitor branches that can reach terminal `pass`.
-- recorder writes complete winner metadata in `chain.json` for split/join groups.
+- recorder writes complete winner metadata in `chain.json` for parallel groups.
 - automated tests cover winner-latch and branch-cancel behavior.
 - all phase-generated changes are committed in atomic logical commits; no carried uncommitted changes remain.
 
@@ -284,11 +314,11 @@ Acceptance criteria:
 1. Inventory all `fork`/`join` usage.
 2. Classify each usage:
 - side-task fire-and-forget: keep as `fork`,
-- parent-outcome-dependent parallel logic: migrate to `split/join`.
+- parent-outcome-dependent parallel logic: migrate to `parallel_split`/`parallel_join` first.
 3. Migrate critical chains first (including `vm_common` / `vm-qemu-virtio` paths).
 4. Enforce hard migration:
-- no merged chains may retain `parallel_split`/`parallel_join` names,
-- no merged chains may depend on compatibility alias behavior.
+- no merged chains may use coordinated `fork`/legacy `join` where winner-based parallel behavior is required,
+- all migrated coordinated flows use `parallel_split`/`parallel_join`.
 5. Preserve behavior with incremental PRs:
 - one chain family at a time,
 - validated by dynamic run evidence.
@@ -297,8 +327,8 @@ Acceptance criteria:
 - avoid multi-chain bulk rewrites in single change.
 
 Acceptance criteria:
-- all migrated chains use `split/join` for coordinated parallel behavior.
-- no migrated chain contains `parallel_split`/`parallel_join`.
+- all migrated chains use `parallel_split`/`parallel_join` for coordinated parallel behavior.
+- no coordinated migrated flow depends on legacy `fork`/`join` semantics.
 - dynamic runs verify both pass-first and fail-first outcomes for critical chains.
 - all affected repos pass pre-step cleanliness checks for each migration step and finish clean after commits.
 
@@ -308,13 +338,13 @@ Acceptance criteria:
 - group status,
 - winner branch/result/time,
 - cancellation of non-winner branches.
-2. Remove compatibility paths and require consumers to use canonical `split/join`-era fields.
+2. Remove compatibility paths and require consumers to use migration-stage `parallel_split`/`parallel_join` fields (until final rename cutover).
 3. Add integration validation:
 - monitor-triggered fail-first run must surface winner=`fail` at MCP level.
 
 Acceptance criteria:
 - MCP status outputs include group status, winner branch/result/timestamp, canceled branches.
-- MCP consumers used in runbooks can read canonical fields without compatibility shims.
+- MCP consumers used in runbooks can read required fields for the current migration stage without compatibility shims.
 - integration test confirms winner metadata is visible end-to-end.
 - step outputs are committed in one or more logically grouped commits with no leftover working-tree noise.
 
@@ -323,15 +353,18 @@ Acceptance criteria:
 1. `~/autopilot/docs/chain-spec.md` stays canonical for semantics.
 2. Update `~/autopilot/docs/{README,overview,runbook,architecture}.md`:
 - remove coordinated-monitor guidance based on `fork`,
-- reference canonical `split/join` semantics.
+- during migration, reference `parallel_split`/`parallel_join` semantics;
+- after final rename cutover, update docs to canonical `split`/`join`.
 3. Update `~/tii-sel4/projects/virtioso-camkes-vm/AGENTS.md`:
-- explicit policy: use `split/join` for coordinated parallel control,
+- explicit policy: use `parallel_split`/`parallel_join` for coordinated parallel control during migration;
+- after final rename cutover, use `split`/`join`,
 - `fork` only for non-blocking side tasks.
 4. Update `~/tii-sel4/projects/virtioso-camkes-vm/docs/agents/*` runbooks:
 - examples, expected outcomes, and troubleshooting aligned to winner metadata.
 
 Acceptance criteria:
-- terminology is consistent (`split/join`) across all updated docs.
+- terminology is consistent for the current migration stage
+  (`parallel_split`/`parallel_join` before final rename, `split`/`join` after cutover).
 - runbook examples and troubleshooting steps match current runtime behavior.
 - no contradictory guidance remains for coordinated `fork` usage.
 - affected repos are clean at step start and clean at step end after commits.
@@ -339,20 +372,21 @@ Acceptance criteria:
 ### Phase 5: `~/tii-sel4` Side Tooling
 
 1. Update visualization/parsing tools to consume `parallel_groups` metadata.
-2. Model `split/join` topology correctly in diagrams:
-- `split` must fan out to all configured branch entry paths (not a single edge),
-- `join` must fan in from all participating branch terminal paths (not a single edge),
+2. Model coordinated parallel topology correctly in diagrams:
+- `parallel_split` must fan out to all configured branch entry paths (not a single edge),
+- `parallel_join` must fan in from all participating branch terminal paths (not a single edge),
 - branch identity/group identity must be visible in node or edge labels.
 3. Show winner branch/result and canceled branches by default where applicable.
-4. Update tooling to assume canonical `split/join` metadata for current/future runs.
+4. Update tooling to assume `parallel_split`/`parallel_join` metadata during migration,
+   then switch to `split`/`join` after final rename cutover.
 5. Add visualization acceptance checks:
-- static fixture for a 2+ branch split/join group must render multi-edge fan-out/fan-in,
+- static fixture for a 2+ branch parallel_split/parallel_join group must render multi-edge fan-out/fan-in,
 - runtime trace fixture must render winner and canceled branches distinctly,
-- regression check fails if any split/join group collapses to single-edge representation.
+- regression check fails if any parallel group collapses to single-edge representation.
 
 Acceptance criteria:
-- graph for each split node has one outgoing edge per configured branch.
-- graph for each join node has one incoming edge per participating branch terminal path.
+- graph for each parallel_split node has one outgoing edge per configured branch.
+- graph for each parallel_join node has one incoming edge per participating branch terminal path.
 - winner/canceled branch states are visually distinguishable in trace output.
 - tooling/doc changes from each migration step are fully committed in logical units.
 
@@ -368,8 +402,16 @@ Acceptance criteria:
 3. Rollout rule:
 - runtime + chain behavior lands before broad docs/consumer updates finalize.
 4. Enforcement rule:
-- fail validation on `parallel_split`/`parallel_join` usage,
+- while legacy fork/join exists: fail validation on coordinated logic implemented via legacy `fork`/`join`,
+- after legacy fork/join elimination: rename `parallel_split` -> `split` and `parallel_join` -> `join`,
+- after rename: fail validation on `parallel_split`/`parallel_join` usage,
 - fail validation on coordinated logic implemented via legacy `fork`.
+
+5. Final rename safety verification (mandatory before/after rename):
+- inventory all code/docs/chains/tooling/MCP consumers for expected `join` semantics,
+- confirm no remaining consumer expects legacy fork-join `join` behavior,
+- run end-to-end tests and visualization checks on renamed schema,
+- block release if any old-join semantic assumption remains.
 
 Acceptance criteria:
 - static validation fails on forbidden legacy names/usages.
@@ -377,3 +419,4 @@ Acceptance criteria:
 - DRY/SSOT pre/post gates pass for every completed migration step.
 - repo hygiene and post-step commit gates pass for every completed migration step.
 - suspected obvious bugs/problems are explicitly dispositioned with recorded human direction.
+- final rename to `split`/`join` is complete and verified safe against legacy `join` semantic expectations.
