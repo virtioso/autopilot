@@ -278,3 +278,39 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - Commit: `0ca4875`
 - Message: `docs: define reducer-based parallel join and verdict separation`
+
+## Step 2026-02-14-12
+
+Summary:
+- Implement reducer-based `parallel_join` runtime schema and migrate `vm_common` join step.
+
+Pre-step DRY/SSOT gate:
+- Canonical behavior source: `docs/chain-spec.md`.
+- Runtime implementation target: `chain_runtime.py`.
+- Chain migration target: `chains/vm_common.json`.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- `parallel_join` now requires:
+  - `join_groups` (non-empty list),
+  - `reduce` (`any_pass` or `all_pass`).
+- Validation rejects legacy `group` on `parallel_join`.
+- Validation enforces join targets exist in chain `parallel_split` groups.
+- Runtime reducer decisions are recorded under parallel-group `join` metadata.
+- Updated `vm_common` to use:
+  - `join_groups: [\"vm_boot_and_ftrace_watch\"]`
+  - `reduce: \"any_pass\"`
+
+Verification:
+- `python3 -m py_compile /home/hlyytine/autopilot/chain_runtime.py`
+- `validate_chain(vm_common)` returns `ok`.
+
+Post-step DRY/SSOT gate:
+- Runtime and canonical schema now match reducer-based join direction.
+
+Post-step commit gate:
+- Commit: `c7a4f57`
+- Message: `runtime: add parallel_join reducers and join_groups schema`
