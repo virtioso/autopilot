@@ -222,12 +222,14 @@ If `consume=true`, decrements counter when matched.
 ## Runtime Trace Metadata (`chain.json`)
 
 When parallel groups are used, `chain.json` includes:
+- `parallel_groups.<group>.split_step`, `parallel_groups.<group>.split_chain`:
+  - split origin step/chain for topology-aware tooling
 - `parallel_groups.<group>.winner`:
   - `branch`, `status`, `finished_at`
 - `parallel_groups.<group>.branches.<name>`:
   - `chain`, `monitor`, `status`, `finished_at`, `cancel_reason`
 - `parallel_groups.<group>.join`:
-  - `reduce`, `decision`, `joined_groups`
+  - `step`, `chain`, `reduce`, `decision`, `joined_groups`
 
 `decision` contains reducer output evidence used by `parallel_join`.
 

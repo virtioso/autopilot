@@ -228,9 +228,10 @@ Autopilot publishes runtime state and tmux renders the status line. It shows:
 - `validation_error`
 
 For parallel groups, `chain.json` also includes `parallel_groups` with:
+- split origin metadata (`split_step`, `split_chain`)
 - winner metadata (`branch`, `status`, `finished_at`)
 - branch state metadata (`chain`, `monitor`, `status`, `finished_at`, `cancel_reason`)
-- join decision metadata (`reduce`, `decision`, `joined_groups`)
+- join decision metadata (`step`, `chain`, `reduce`, `decision`, `joined_groups`)
 
 When a non-winner branch is canceled after winner latch, `cancel_reason` is set
 to `winner:<branch-name>`.

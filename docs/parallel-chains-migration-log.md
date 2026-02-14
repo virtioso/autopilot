@@ -530,3 +530,71 @@ Verification:
 Post-step DRY/SSOT gate:
 - Remaining critical chains now follow the same task/signal prep-for-next-run model and explicit verdict/workflow split.
 - Coordinated parallel progression remains on `parallel_split`/`parallel_join` (no rename cutover yet).
+
+Post-step commit gate:
+- Commit: `d666040`
+- Message: `chains: migrate remaining recovery fork flows to task/signal joins`
+
+## Step 2026-02-14-19
+
+Summary:
+- Add trace metadata so visualization can map parallel branches to split/join steps.
+
+Pre-step DRY/SSOT gate:
+- Canonical schema/runtime source: `chain_runtime.py` + `docs/chain-spec.md`.
+- Tooling requirement source: `docs/parallel-chains-plan.md` Phase 5 fan-out/fan-in rendering acceptance.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- `chain_runtime.py` now records:
+  - `parallel_groups.<group>.split_step`
+  - `parallel_groups.<group>.split_chain`
+  - `parallel_groups.<group>.join.step`
+  - `parallel_groups.<group>.join.chain`
+- Added execution-context tracking of current step name for precise metadata capture.
+
+Verification:
+- `python3 -m py_compile chain_runtime.py`
+
+Post-step DRY/SSOT gate:
+- Runtime now emits the join/split provenance metadata needed by visualization tools to render true parallel topology.
+
+Post-step commit gate:
+- `~/autopilot` commit: `d215a10`
+- Message: `runtime: record split/join step metadata for parallel groups`
+
+## Step 2026-02-14-20
+
+Summary:
+- Fix trace diagram topology so parallel_split and parallel_join are rendered as real fan-out/fan-in, not single-path sequence only.
+
+Pre-step DRY/SSOT gate:
+- Canonical metadata source: `chain_runtime.py` `parallel_groups` fields.
+- Tool target: `projects/virtioso-camkes-vm/tools/autopilot_chain_viz.py`.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Trace rendering now maps step names to rendered trace nodes.
+- Parallel-group subgraph now links:
+  - split step node -> each branch node (fan-out),
+  - each branch node -> join step node (fan-in).
+- Group labels now include split/join step names when present.
+
+Verification:
+- `python3 -m py_compile tools/autopilot_chain_viz.py`
+- Synthetic trace fixture check confirms explicit fan-out/fan-in edges:
+  - split -> branch edges for all configured branches
+  - branch -> join edges for all configured branches
+
+Post-step DRY/SSOT gate:
+- Trace visualization now reflects actual parallel topology and reducer context instead of only chronological adjacency.
+
+Post-step commit gate:
+- `~/tii-sel4/projects/virtioso-camkes-vm` commit: `fe55f56`
+- Message: `tools: render parallel split/join fanout in trace diagrams`
