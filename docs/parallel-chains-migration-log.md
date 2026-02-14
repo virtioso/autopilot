@@ -408,3 +408,34 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - Commit: `f9bef48`
 - Message: `runtime: add persistent task registry and signal chain ops`
+
+## Step 2026-02-14-16
+
+Summary:
+- Update visualization tooling to expose reducer join/task/signal step metadata.
+
+Pre-step DRY/SSOT gate:
+- Canonical step schema source: `docs/chain-spec.md`.
+- Tool target: `tools/autopilot_chain_viz.py`.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Added verbose label fields for:
+  - `parallel_join` (`join_groups`, `reduce`)
+  - `task_spawn` (`task`, `chain`, `chain_file`)
+  - `task_join` (`tasks`, `reduce`)
+  - `signal_set` / `signal_wait` (`signal`, `consume`)
+
+Verification:
+- `python3 -m py_compile tools/autopilot_chain_viz.py`
+- Render sanity check confirmed reducer fields in `vm_common` diagram.
+
+Post-step DRY/SSOT gate:
+- Tool labels align with updated runtime/schema semantics.
+
+Post-step commit gate:
+- Commit: `2b70ad0`
+- Message: `tools: visualize reducer joins and task/signal step fields`
