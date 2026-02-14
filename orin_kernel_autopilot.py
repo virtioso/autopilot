@@ -93,6 +93,7 @@ def run_bootstrap_chain(
     exit_flag: threading.Event,
     console_manager: ConsoleManager,
     platform_overrides: dict,
+    task_registry: dict,
 ) -> None:
     chain = load_chain(chain_name)
     bootstrap_dir = RUNTIME_DIR / chain_name
@@ -121,6 +122,7 @@ def run_bootstrap_chain(
         "exit_flag": exit_flag,
         "load_chain": load_chain,
         "platform_overrides": platform_overrides,
+        "task_registry": task_registry,
         "code_root": str(SCRIPT_DIR),
         "chains_dir": str(CHAINS_DIR),
         "profiles_dir": str(SCRIPT_DIR / "profiles"),
@@ -193,6 +195,13 @@ def main() -> None:
 
     source_manager = SourceManager(RESULTS_DIR, ui=ui)
     platform_overrides = {}
+    task_registry_lock = threading.Lock()
+    task_registry = {
+        "lock": task_registry_lock,
+        "cond": threading.Condition(task_registry_lock),
+        "tasks": {},
+        "signals": {},
+    }
 
     def _on_abort() -> None:
         event_queue.put(Event("abort"))
@@ -227,6 +236,7 @@ def main() -> None:
             exit_flag=exit_flag,
             console_manager=console_manager,
             platform_overrides=platform_overrides,
+            task_registry=task_registry,
         )
     except ValueError as exc:
         if "chain not found: startup" not in str(exc):
@@ -248,6 +258,7 @@ def main() -> None:
                 exit_flag=exit_flag,
                 console_manager=console_manager,
                 platform_overrides=platform_overrides,
+                task_registry=task_registry,
             )
             print(
                 f"Platform init complete: {platform_chain_name} overrides={json.dumps(platform_overrides)}",
@@ -348,6 +359,7 @@ def main() -> None:
             "exit_flag": exit_flag,
             "load_chain": load_chain,
             "platform_overrides": platform_overrides,
+            "task_registry": task_registry,
             "code_root": str(SCRIPT_DIR),
             "chains_dir": str(CHAINS_DIR),
             "profiles_dir": str(SCRIPT_DIR / "profiles"),

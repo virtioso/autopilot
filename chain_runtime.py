@@ -311,6 +311,36 @@ def validate_chain(chain: dict) -> None:
                 raise ChainValidationError(
                     f"step {name} call_chain requires outcomes for labels 'pass' and 'fail'"
                 )
+        if step.get("type") == "task_spawn":
+            task_name = str(step.get("task", "")).strip()
+            chain_name = str(step.get("chain", "")).strip()
+            if not task_name:
+                raise ChainValidationError(f"step {name} task_spawn requires non-empty task")
+            if not chain_name:
+                raise ChainValidationError(f"step {name} task_spawn requires non-empty chain")
+        if step.get("type") == "task_join":
+            tasks = step.get("tasks")
+            if not isinstance(tasks, list) or not tasks:
+                raise ChainValidationError(f"step {name} task_join requires non-empty tasks list")
+            for task_name in tasks:
+                if not isinstance(task_name, str) or not task_name.strip():
+                    raise ChainValidationError(f"step {name} task_join has invalid task name: {task_name}")
+            reduce_mode = str(step.get("reduce", "")).strip()
+            if reduce_mode not in ("any_pass", "all_pass"):
+                raise ChainValidationError(f"step {name} task_join requires reduce=any_pass|all_pass")
+            labels = {outcome.get("label") for outcome in step.get("outcomes", [])}
+            if "pass" not in labels or "fail" not in labels:
+                raise ChainValidationError(
+                    f"step {name} task_join requires outcomes for labels 'pass' and 'fail'"
+                )
+        if step.get("type") == "signal_set":
+            signal_name = str(step.get("signal", "")).strip()
+            if not signal_name:
+                raise ChainValidationError(f"step {name} signal_set requires non-empty signal")
+        if step.get("type") == "signal_wait":
+            signal_name = str(step.get("signal", "")).strip()
+            if not signal_name:
+                raise ChainValidationError(f"step {name} signal_wait requires non-empty signal")
         if step.get("type") == "parallel_join":
             if "chain" in step:
                 raise ChainValidationError(
@@ -501,6 +531,14 @@ class ChainRunner:
             return self._step_call_chain(step)
         if step_type == "join":
             return self._step_join(step)
+        if step_type == "task_spawn":
+            return self._step_task_spawn(step)
+        if step_type == "task_join":
+            return self._step_task_join(step)
+        if step_type == "signal_set":
+            return self._step_signal_set(step)
+        if step_type == "signal_wait":
+            return self._step_signal_wait(step)
         if step_type == "parallel_split":
             return self._step_parallel_split(step)
         if step_type == "parallel_join":
@@ -939,6 +977,162 @@ class ChainRunner:
             for fork in self.ctx["forks"].values():
                 fork["thread"].join()
         return self._simple_outcome(step)
+
+    def _task_registry(self) -> dict:
+        registry = self.ctx.get("task_registry")
+        if not registry:
+            raise ValueError("task_registry not configured")
+        return registry
+
+    def _run_registry_task(self, task_name: str, chain_name: str) -> None:
+        registry = self._task_registry()
+        status = "fail"
+        try:
+            chain = self._load_named_chain(chain_name)
+            with registry["lock"]:
+                task = registry["tasks"][task_name]
+                cancel_flag = task["cancel"]
+            sub_ctx = dict(self.ctx)
+            sub_ctx["cancel_flag"] = cancel_flag
+            sub_ctx["chain_name"] = chain_name
+            sub_ctx["chain_stack"] = list(self.ctx.get("chain_stack", [])) + [f"task:{task_name}", chain_name]
+            safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", task_name)
+            recorder = ChainRecorder(
+                self.ctx["result_dir"],
+                filename=f"chain.task.{safe_name}.json",
+            )
+            runner = ChainRunner(chain, sub_ctx, recorder)
+            result = runner.run()
+            status = "pass" if result == "pass" else "fail"
+        except Exception:
+            status = "fail"
+        finally:
+            with registry["lock"]:
+                task = registry["tasks"].get(task_name)
+                if task:
+                    task["status"] = status
+                    task["finished_at"] = time.time()
+
+    def _step_task_spawn(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        task_name = str(step.get("task", "")).strip()
+        chain_name = str(step.get("chain", "")).strip()
+        if not task_name:
+            raise ValueError("task_spawn requires non-empty task")
+        if not chain_name:
+            raise ValueError("task_spawn requires non-empty chain")
+
+        # Validate chain reference before spawning thread.
+        self._load_named_chain(chain_name)
+        registry = self._task_registry()
+        with registry["lock"]:
+            existing = registry["tasks"].get(task_name)
+            if existing and existing.get("thread") and existing["thread"].is_alive():
+                raise ValueError(f"task_spawn task already running: {task_name}")
+            cancel_flag = threading.Event()
+            task = {
+                "name": task_name,
+                "chain": chain_name,
+                "status": "running",
+                "started_at": time.time(),
+                "finished_at": None,
+                "owner_request_id": self.ctx.get("request_id"),
+                "cancel": cancel_flag,
+                "thread": None,
+            }
+            thread = threading.Thread(
+                target=self._run_registry_task,
+                args=(task_name, chain_name),
+                daemon=True,
+            )
+            task["thread"] = thread
+            registry["tasks"][task_name] = task
+            thread.start()
+        return self._simple_outcome(step)
+
+    def _step_task_join(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        task_names = [str(task).strip() for task in step.get("tasks", [])]
+        if not task_names or any(not t for t in task_names):
+            raise ValueError("task_join requires non-empty tasks list")
+        reduce_mode = str(step.get("reduce", "")).strip()
+        if reduce_mode not in ("any_pass", "all_pass"):
+            raise ValueError("task_join requires reduce=any_pass|all_pass")
+        timeout_s = int(step.get("timeout_s", 60))
+        deadline = time.time() + timeout_s
+        registry = self._task_registry()
+        latched_decision = None
+
+        while time.time() < deadline:
+            self._check_cancel()
+            with registry["lock"]:
+                missing = [name for name in task_names if name not in registry["tasks"]]
+                if missing:
+                    raise ValueError(f"task_join unknown tasks: {', '.join(missing)}")
+                tasks = [registry["tasks"][name] for name in task_names]
+                statuses = [str(task.get("status", "running")) for task in tasks]
+                all_stopped = all(not task["thread"].is_alive() for task in tasks)
+
+                if latched_decision is None:
+                    if reduce_mode == "any_pass":
+                        if any(status == "pass" for status in statuses):
+                            latched_decision = "pass"
+                        elif all_stopped and all(status in ("fail", "canceled") for status in statuses):
+                            latched_decision = "fail"
+                    elif reduce_mode == "all_pass":
+                        if any(status == "fail" for status in statuses):
+                            latched_decision = "fail"
+                        elif all_stopped:
+                            latched_decision = "pass" if all(status == "pass" for status in statuses) else "fail"
+
+                    if latched_decision == "pass" and reduce_mode == "any_pass":
+                        for task in tasks:
+                            if task.get("status") == "running":
+                                task["cancel"].set()
+                    if latched_decision == "fail" and reduce_mode == "all_pass":
+                        for task in tasks:
+                            if task.get("status") == "running":
+                                task["cancel"].set()
+
+                if latched_decision is not None and all_stopped:
+                    return self._match_labeled_outcome(step, latched_decision)
+            time.sleep(0.1)
+
+        return self._match_labeled_outcome(step, "timeout")
+
+    def _step_signal_set(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        signal_name = str(step.get("signal", "")).strip()
+        if not signal_name:
+            raise ValueError("signal_set requires non-empty signal")
+        registry = self._task_registry()
+        with registry["cond"]:
+            state = registry["signals"].setdefault(signal_name, {"count": 0, "updated_at": None})
+            state["count"] = int(state.get("count", 0)) + 1
+            state["updated_at"] = time.time()
+            registry["cond"].notify_all()
+        return self._simple_outcome(step)
+
+    def _step_signal_wait(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        signal_name = str(step.get("signal", "")).strip()
+        if not signal_name:
+            raise ValueError("signal_wait requires non-empty signal")
+        timeout_s = int(step.get("timeout_s", 60))
+        consume = bool(step.get("consume", True))
+        deadline = time.time() + timeout_s
+        registry = self._task_registry()
+        with registry["cond"]:
+            while time.time() < deadline:
+                self._check_cancel()
+                state = registry["signals"].setdefault(signal_name, {"count": 0, "updated_at": None})
+                count = int(state.get("count", 0))
+                if count > 0:
+                    if consume:
+                        state["count"] = count - 1
+                        state["updated_at"] = time.time()
+                    return self._simple_outcome(step)
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                registry["cond"].wait(timeout=min(0.2, remaining))
+        return self._match_labeled_outcome(step, "timeout")
 
     def _match_labeled_outcome(self, step: dict, label: str) -> Tuple[str, OutcomeMatch]:
         outcomes = step.get("outcomes", [])
@@ -1458,6 +1652,17 @@ class ChainRunner:
                     raise ChainValidationError(f"step {step_name} missing chain name")
                 try:
                     self._load_named_chain(str(chain_name))
+                except Exception as exc:
+                    raise ChainValidationError(
+                        f"step {step_name} references unknown chain {chain_name}: {exc}"
+                    ) from exc
+                continue
+            if step_type == "task_spawn":
+                chain_name = str(step.get("chain", "")).strip()
+                if not chain_name:
+                    raise ChainValidationError(f"step {step_name} missing chain name")
+                try:
+                    self._load_named_chain(chain_name)
                 except Exception as exc:
                     raise ChainValidationError(
                         f"step {step_name} references unknown chain {chain_name}: {exc}"
