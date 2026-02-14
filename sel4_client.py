@@ -375,6 +375,22 @@ def _read_chain_last_step(result_dir: Path) -> Optional[dict]:
     }
 
 
+def _read_chain_summary(result_dir: Path) -> Optional[dict]:
+    chain_path = result_dir / "chain.json"
+    if not chain_path.exists():
+        return None
+    try:
+        chain = json.loads(chain_path.read_text())
+    except Exception:
+        return None
+    return {
+        "overall_status": chain.get("overall_status"),
+        "test_verdict": chain.get("test_verdict"),
+        "workflow_state": chain.get("workflow_state"),
+        "abort_reason": chain.get("abort_reason"),
+    }
+
+
 def get_autopilot_status(autopilot_dir: str = None) -> dict:
     paths = get_paths(autopilot_dir)
     pending = list_pending(autopilot_dir=autopilot_dir)
@@ -396,6 +412,7 @@ def get_autopilot_status(autopilot_dir: str = None) -> dict:
             "binary_name": req.get("binary_name"),
             "result_dir": str(result_dir),
             "last_step": _read_chain_last_step(result_dir),
+            "chain_summary": _read_chain_summary(result_dir),
         })
 
     return {
@@ -419,6 +436,7 @@ def get_test_status(timestamp: str, autopilot_dir: str = None) -> dict:
         "result_dir": str(status["result_dir"]) if "result_dir" in status else None,
         "request": get_request_info(timestamp, autopilot_dir=autopilot_dir),
         "last_step": _read_chain_last_step(result_dir),
+        "chain_summary": _read_chain_summary(result_dir),
         "error": error_text,
     }
 
@@ -429,6 +447,8 @@ def _write_canceled_result(result_dir: Path, request: dict) -> None:
     (result_dir / "error.txt").write_text("Canceled by user\n")
     chain = {
         "overall_status": "failed",
+        "test_verdict": "fail",
+        "workflow_state": "failed",
         "abort_reason": "canceled",
         "steps": [],
         "forks": {},

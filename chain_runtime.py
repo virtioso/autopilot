@@ -57,6 +57,8 @@ class ChainRecorder:
         self.forks: Dict[str, dict] = {}
         self.parallel_groups: Dict[str, dict] = {}
         self.overall_status: Optional[str] = None
+        self.test_verdict: Optional[str] = None
+        self.workflow_state: str = "running"
         self.abort_reason: Optional[str] = None
         self.path = result_dir / filename
         self._lock = threading.Lock()
@@ -101,12 +103,25 @@ class ChainRecorder:
     def finalize(self, status: str, abort_reason: Optional[str] = None) -> None:
         with self._lock:
             self.overall_status = status
+            if self.test_verdict is None and status in ("pass", "fail"):
+                self.test_verdict = status
+            if status in ("pass", "fail"):
+                self.workflow_state = "completed"
+            else:
+                self.workflow_state = "failed"
             self.abort_reason = abort_reason
+            self._flush_unlocked()
+
+    def set_test_verdict(self, verdict: str) -> None:
+        with self._lock:
+            self.test_verdict = verdict
             self._flush_unlocked()
 
     def _flush_unlocked(self) -> None:
         payload = {
             "overall_status": self.overall_status,
+            "test_verdict": self.test_verdict,
+            "workflow_state": self.workflow_state,
             "abort_reason": self.abort_reason,
             "steps": self.steps,
             "forks": self.forks,
@@ -126,6 +141,9 @@ class NoopChainRecorder:
         return
 
     def finalize(self, status: str, abort_reason: Optional[str] = None) -> None:
+        return
+
+    def set_test_verdict(self, verdict: str) -> None:
         return
 
 
@@ -345,6 +363,12 @@ def validate_chain(chain: dict) -> None:
             if not group_name:
                 raise ChainValidationError(f"step {name} parallel_split requires non-empty group")
             split_groups.add(group_name)
+        if step.get("type") == "set_test_verdict":
+            verdict = str(step.get("verdict", "")).strip()
+            if verdict not in ("pass", "fail"):
+                raise ChainValidationError(
+                    f"step {name} set_test_verdict requires verdict=pass|fail"
+                )
         if step.get("type") == "join":
             if "group" in step:
                 raise ChainValidationError(
@@ -487,6 +511,8 @@ class ChainRunner:
             return self._step_interactive_console(step)
         if step_type == "set_overrides":
             return self._step_set_overrides(step)
+        if step_type == "set_test_verdict":
+            return self._step_set_test_verdict(step)
         raise ChainValidationError(f"unknown step type: {step_type}")
 
     def _simple_outcome(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -1405,6 +1431,14 @@ class ChainRunner:
             raise ValueError("set_overrides requires dictionary field 'overrides'")
         current = self.ctx.setdefault("platform_overrides", {})
         self._deep_merge_dict(current, updates)
+        return self._simple_outcome(step)
+
+    def _step_set_test_verdict(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        verdict = str(step.get("verdict", "")).strip()
+        if verdict not in ("pass", "fail"):
+            raise ValueError("set_test_verdict requires verdict=pass|fail")
+        self.ctx["test_verdict"] = verdict
+        self.recorder.set_test_verdict(verdict)
         return self._simple_outcome(step)
 
     def _deep_merge_dict(self, current: dict, updates: dict) -> None:
