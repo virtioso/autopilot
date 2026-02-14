@@ -1,7 +1,7 @@
 # Parallel Chains Plan
 
 Date: 2026-02-13
-Status: Implemented (Phase 1)
+Status: Implemented (Phases 1-6, post-cutover)
 Scope: `/home/hlyytine/autopilot`
 
 ## Goal
@@ -9,9 +9,8 @@ Scope: `/home/hlyytine/autopilot`
 Define and implement a structured parallel-chain execution model that replaces ad-hoc fail-unaware `fork` usage for critical monitoring paths (notably ftrace overflow detection after ELF-loader start).
 
 Terminology:
-- staged migration naming is mandatory:
-- use `parallel_split` + `parallel_join` until legacy `fork`/`join` semantics are fully eliminated,
-- only then rename to canonical `split` + `join`.
+- canonical op names are now `split` and `join`,
+- legacy `parallel_split` / `parallel_join` names are deprecated and rejected by runtime validation.
 
 ## Problem Statement
 
@@ -24,15 +23,15 @@ This makes it unsuitable for fail-fast watchdog scenarios such as `FTRACE: Stora
 
 ## Proposed Model
 
-Add explicit parallel execution semantics via two pseudosteps:
+Add explicit parallel execution semantics via two steps:
 
-1. `parallel_split` (renamed to `split` in final cutover)
+1. `split`
 - starts N branch chains concurrently under a named group,
 - each branch gets its own cancellation token,
 - branch statuses are tracked in group state,
 - execution continues to normal steps in each branch.
 
-2. `parallel_join` (renamed to `join` in final cutover)
+2. `join`
 - joins one or more named parallel groups,
 - applies an explicit reducer to joined branch results,
 - routes according to reducer output (`pass` / `fail`),
@@ -44,18 +43,18 @@ Reducer policy:
 
 ### Canonical Step Schema (Implementation Contract)
 
-Current migration-stage schema (`parallel_split` / `parallel_join`) example:
+Canonical schema (`split` / `join`) example:
 
 ```json
 {
-  "type": "parallel_split",
+  "type": "split",
   "group": "vm_boot_and_ftrace_watch",
   "branches": [
     { "name": "main_vm_boot", "chain": "vm_wait_boot_qemu_virtio" },
     { "name": "ftrace_watchdog", "chain": "monitor_ftrace_storage_full", "monitor": true }
   ],
   "outcomes": [
-    { "label": "ok", "next": "parallel_join_vm_boot" }
+    { "label": "ok", "next": "join_vm_boot" }
   ],
   "on_timeout": "fail"
 }
@@ -63,7 +62,7 @@ Current migration-stage schema (`parallel_split` / `parallel_join`) example:
 
 ```json
 {
-  "type": "parallel_join",
+  "type": "join",
   "join_groups": ["vm_boot_and_ftrace_watch"],
   "reduce": "any_pass",
   "timeout_s": 300,
