@@ -250,3 +250,31 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - Commit: `8ec5175`
 - Message: `docs: inventory fork/join and parallel group usage`
+
+## Step 2026-02-14-11
+
+Summary:
+- Redefine parallel model toward reducer-based joins and decoupled verdict/workflow state.
+
+Pre-step DRY/SSOT gate:
+- Canonical semantic source: `docs/chain-spec.md`.
+- Derived docs to align: `docs/parallel-chains-plan.md`, `docs/runbook.md`,
+  `docs/architecture.md`, `docs/overview.md`.
+- Drift found: older first-result-wins-only wording and no explicit verdict/workflow split.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Added reducer semantics for `parallel_join` (`any_pass`, `all_pass`).
+- Added strict join-target validation requirement (`join_groups` exists and is known).
+- Added persistent task registry/signal model direction in plan.
+- Added explicit `test_verdict` vs `workflow_state` separation to docs.
+
+Post-step DRY/SSOT gate:
+- Canonical and derived docs are aligned on reducer joins and verdict separation.
+
+Post-step commit gate:
+- Commit: `0ca4875`
+- Message: `docs: define reducer-based parallel join and verdict separation`
