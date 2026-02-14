@@ -480,3 +480,53 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - Commit: `3e164dd`
 - Message: `chains: prototype prepare-next-run task via task/signal ops`
+
+## Step 2026-02-14-18
+
+Summary:
+- Migrate remaining `fork_recovery_*` chain flows to `task_spawn` + `signal_set` + `task_join`.
+
+Pre-step DRY/SSOT gate:
+- Canonical migration direction: `docs/parallel-chains-plan.md` (task registry/signals and explicit verdict model).
+- Canonical runtime semantics: `chain_runtime.py` + `docs/chain-spec.md`.
+- Migration targets:
+  - `chains/linux-kernel.json`
+  - `chains/linux-kernel-multi.json`
+  - `chains/sel4test.json`
+  - `chains/boot-interactive.json`
+  - `chains/boot-interactive-efi.json`
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Removed legacy `fork_recovery_pass` / `fork_recovery_fail` flow from target chains.
+- Added per-chain prep-task lifecycle:
+  - `task_spawn` for `prepare_next_run` using `prepare_next_run_task`,
+  - `set_test_verdict` (`pass`/`fail`) before housekeeping join,
+  - `signal_set(prepare_next_run_go)`,
+  - `task_join(tasks=[prepare_next_run], reduce=all_pass)`,
+  - relay fallback on join fail/timeout before terminal step.
+- Routed post-spawn failure and timeout paths to verdict+signal+join path so spawned prep tasks are not leaked.
+- Updated `run_bootefi` fail paths in EFI-based chains to go through verdict+join flow.
+
+Verification:
+- JSON validity:
+  - `python3 -m json.tool chains/linux-kernel.json`
+  - `python3 -m json.tool chains/linux-kernel-multi.json`
+  - `python3 -m json.tool chains/boot-interactive.json`
+  - `python3 -m json.tool chains/boot-interactive-efi.json`
+  - `python3 -m json.tool chains/sel4test.json`
+- Runtime validation:
+  - `validate_chain(linux-kernel)` returns `ok`
+  - `validate_chain(linux-kernel-multi)` returns `ok`
+  - `validate_chain(boot-interactive)` returns `ok`
+  - `validate_chain(boot-interactive-efi)` returns `ok`
+  - `validate_chain(sel4test)` returns `ok`
+- Legacy-removal check:
+  - `rg "fork_recovery|\"type\": \"fork\"|\"type\": \"join\"" chains` returned no matches.
+
+Post-step DRY/SSOT gate:
+- Remaining critical chains now follow the same task/signal prep-for-next-run model and explicit verdict/workflow split.
+- Coordinated parallel progression remains on `parallel_split`/`parallel_join` (no rename cutover yet).

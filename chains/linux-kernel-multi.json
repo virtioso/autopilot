@@ -32,6 +32,18 @@
       "outcomes": [
         {
           "label": "ok",
+          "next": "spawn_prepare_task"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "spawn_prepare_task": {
+      "type": "task_spawn",
+      "task": "prepare_next_run",
+      "chain": "prepare_next_run_task",
+      "outcomes": [
+        {
+          "label": "ok",
           "next": "boot_stock"
         }
       ],
@@ -49,7 +61,7 @@
           "next": "wait_stock_prompt"
         }
       ],
-      "on_timeout": "fail"
+      "on_timeout": "set_verdict_fail"
     },
     "wait_stock_prompt": {
       "type": "wait_pattern",
@@ -62,7 +74,7 @@
           "next": "interactive_stock"
         }
       ],
-      "on_timeout": "fail"
+      "on_timeout": "set_verdict_fail"
     },
     "interactive_stock": {
       "type": "interactive_console",
@@ -108,7 +120,7 @@
           "next": "boot_test"
         }
       ],
-      "on_timeout": "fail"
+      "on_timeout": "set_verdict_fail"
     },
     "boot_test": {
       "type": "boot_menu",
@@ -122,7 +134,7 @@
           "next": "wait_kernel"
         }
       ],
-      "on_timeout": "fail"
+      "on_timeout": "set_verdict_fail"
     },
     "wait_kernel": {
       "type": "wait_pattern",
@@ -132,40 +144,120 @@
           "label": "panic",
           "pattern": "Kernel panic",
           "source": "tty0",
-          "next": "fork_recovery_fail"
+          "next": "set_verdict_fail"
         },
         {
           "label": "smmu",
           "pattern": "Unexpected global fault|callbacks suppressed",
           "source": "tty0",
-          "next": "fork_recovery_fail"
+          "next": "set_verdict_fail"
         },
         {
           "label": "shell",
           "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
           "source": "tty0",
-          "next": "fork_recovery_pass"
+          "next": "set_verdict_pass"
         }
       ],
-      "on_timeout": "fork_recovery_fail"
+      "on_timeout": "set_verdict_fail"
     },
-    "fork_recovery_pass": {
-      "type": "fork",
-      "chain": "recovery_boot",
+    "set_verdict_pass": {
+      "type": "set_test_verdict",
+      "verdict": "pass",
       "outcomes": [
         {
-          "label": "started",
+          "label": "ok",
+          "next": "signal_prepare_pass"
+        }
+      ],
+      "on_timeout": "signal_prepare_pass"
+    },
+    "set_verdict_fail": {
+      "type": "set_test_verdict",
+      "verdict": "fail",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "signal_prepare_fail"
+        }
+      ],
+      "on_timeout": "signal_prepare_fail"
+    },
+    "signal_prepare_pass": {
+      "type": "signal_set",
+      "signal": "prepare_next_run_go",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "join_prepare_pass"
+        }
+      ],
+      "on_timeout": "join_prepare_pass"
+    },
+    "join_prepare_pass": {
+      "type": "task_join",
+      "tasks": [
+        "prepare_next_run"
+      ],
+      "reduce": "all_pass",
+      "timeout_s": 240,
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "pass"
+        },
+        {
+          "label": "fail",
+          "next": "relay_fallback_pass"
+        }
+      ],
+      "on_timeout": "relay_fallback_pass"
+    },
+    "signal_prepare_fail": {
+      "type": "signal_set",
+      "signal": "prepare_next_run_go",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "join_prepare_fail"
+        }
+      ],
+      "on_timeout": "join_prepare_fail"
+    },
+    "join_prepare_fail": {
+      "type": "task_join",
+      "tasks": [
+        "prepare_next_run"
+      ],
+      "reduce": "all_pass",
+      "timeout_s": 240,
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "fail"
+        },
+        {
+          "label": "fail",
+          "next": "relay_fallback_fail"
+        }
+      ],
+      "on_timeout": "relay_fallback_fail"
+    },
+    "relay_fallback_pass": {
+      "type": "relay",
+      "outcomes": [
+        {
+          "label": "ok",
           "next": "pass"
         }
       ],
       "on_timeout": "pass"
     },
-    "fork_recovery_fail": {
-      "type": "fork",
-      "chain": "recovery_boot",
+    "relay_fallback_fail": {
+      "type": "relay",
       "outcomes": [
         {
-          "label": "started",
+          "label": "ok",
           "next": "fail"
         }
       ],
