@@ -200,6 +200,22 @@ For every migration step in every phase, execute two gates:
 
 A migration step is not complete until both gates pass.
 
+### Mandatory Repo Hygiene and Commit Gates (Per Step)
+
+For every migration step:
+1. Pre-step repo hygiene gate (all affected repos):
+- verify clean git state (`no staged`, `no unstaged`, `no untracked`),
+- if any affected repo is dirty, stop and ask human for explicit instruction per repo
+  (`commit`, `stash`, or `discard`),
+- do not start implementation for the step until all affected repos are clean.
+2. Post-step commit gate:
+- commit all code/doc changes produced by the step,
+- if the step contains multiple logical changes, create multiple atomic commits
+  grouped by related purpose,
+- do not carry uncommitted or unrelated changes into the next migration step.
+
+A migration step is not complete until repo hygiene and commit gates also pass.
+
 ### Phase 0: Preflight and Baseline
 
 1. Confirm target trees and owners:
@@ -223,6 +239,7 @@ Acceptance criteria:
 - no stale `parallel_split`/`parallel_join` references remain in current-policy docs:
   `docs/README.md`, `docs/overview.md`, `docs/runbook.md`, `docs/architecture.md`, `AGENTS.md` (if applicable).
 - baseline pass/fail run artifacts and step log template are committed.
+- all affected repos are clean before phase work starts.
 
 ### Phase 1: Runtime Canonicalization (`~/autopilot`)
 
@@ -246,6 +263,7 @@ Acceptance criteria:
 - validation rejects monitor branches that can reach terminal `pass`.
 - recorder writes complete winner metadata in `chain.json` for split/join groups.
 - automated tests cover winner-latch and branch-cancel behavior.
+- all phase-generated changes are committed in atomic logical commits; no carried uncommitted changes remain.
 
 ### Phase 2: Chain Migration (`~/autopilot/chains`)
 
@@ -268,6 +286,7 @@ Acceptance criteria:
 - all migrated chains use `split/join` for coordinated parallel behavior.
 - no migrated chain contains `parallel_split`/`parallel_join`.
 - dynamic runs verify both pass-first and fail-first outcomes for critical chains.
+- all affected repos pass pre-step cleanliness checks for each migration step and finish clean after commits.
 
 ### Phase 3: MCP Server and API Surfaces
 
@@ -283,6 +302,7 @@ Acceptance criteria:
 - MCP status outputs include group status, winner branch/result/timestamp, canceled branches.
 - MCP consumers used in runbooks can read canonical fields without compatibility shims.
 - integration test confirms winner metadata is visible end-to-end.
+- step outputs are committed in one or more logically grouped commits with no leftover working-tree noise.
 
 ### Phase 4: Docs, Runbooks, and AGENTS
 
@@ -300,6 +320,7 @@ Acceptance criteria:
 - terminology is consistent (`split/join`) across all updated docs.
 - runbook examples and troubleshooting steps match current runtime behavior.
 - no contradictory guidance remains for coordinated `fork` usage.
+- affected repos are clean at step start and clean at step end after commits.
 
 ### Phase 5: `~/tii-sel4` Side Tooling
 
@@ -319,6 +340,7 @@ Acceptance criteria:
 - graph for each split node has one outgoing edge per configured branch.
 - graph for each join node has one incoming edge per participating branch terminal path.
 - winner/canceled branch states are visually distinguishable in trace output.
+- tooling/doc changes from each migration step are fully committed in logical units.
 
 ### Phase 6: Validation, Rollout, and Deprecation
 
@@ -339,3 +361,4 @@ Acceptance criteria:
 - static validation fails on forbidden legacy names/usages.
 - dynamic validation reproduces expected pass/fail-fast behavior on target flows.
 - DRY/SSOT pre/post gates pass for every completed migration step.
+- repo hygiene and post-step commit gates pass for every completed migration step.
