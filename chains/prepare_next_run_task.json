@@ -1,0 +1,39 @@
+{
+  "entry": "wait_prepare_signal",
+  "steps": {
+    "wait_prepare_signal": {
+      "type": "signal_wait",
+      "signal": "prepare_next_run_go",
+      "consume": true,
+      "timeout_s": 86400,
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "run_prepare"
+        }
+      ],
+      "on_timeout": "wait_prepare_signal"
+    },
+    "run_prepare": {
+      "type": "call_chain",
+      "chain": "recovery_boot",
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "pass"
+        },
+        {
+          "label": "fail",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    }
+  }
+}
