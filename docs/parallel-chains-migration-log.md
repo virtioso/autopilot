@@ -693,3 +693,48 @@ Verification:
 
 Post-step DRY/SSOT gate:
 - Visualization now tracks only active chain semantics and artifacts.
+
+## Step 2026-02-14-24
+
+Summary:
+- Execute final op-name cutover from `parallel_split`/`parallel_join` to canonical `split`/`join`.
+
+Pre-step DRY/SSOT gate:
+- Legacy `fork`/legacy `join` runtime paths were removed in previous step.
+- Cutover precondition satisfied: no chain JSON relies on old fork-join semantics.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- `chain_runtime.py`:
+  - dispatch/validation now treat `split` and `join` as canonical ops,
+  - validation rejects deprecated `parallel_split`/`parallel_join`,
+  - internal step handlers renamed accordingly.
+- `chains/vm_common.json`:
+  - switched op types to `split` and `join`.
+- `tools/autopilot_chain_viz.py`:
+  - static parser/renderer updated to detect `split`/`join`.
+
+Verification:
+- `python3 -m py_compile chain_runtime.py orin_kernel_autopilot.py sel4_client.py`
+- `python3 -m py_compile tools/autopilot_chain_viz.py`
+- `validate_chain(...)` passes for all chain JSON under `chains/`.
+- Regenerated docs diagrams from live chains.
+
+Post-step DRY/SSOT gate:
+- Runtime, chains, and tooling now agree on canonical `split`/`join` semantics.
+
+## Step 2026-02-14-25
+
+Summary:
+- Align active docs to post-cutover terminology and remove stale migration-stage wording.
+
+Implementation:
+- Updated active docs (`README`, `overview`, `architecture`, `runbook`, `chain-spec`,
+  `parallel-chains-inventory`, `dry-ssot-tracking`) to canonical naming where applicable.
+- Regenerated reference chain diagrams in `tii-sel4` docs.
+
+Post-step DRY/SSOT gate:
+- Active operator/developer docs now describe canonical `split`/`join` semantics.

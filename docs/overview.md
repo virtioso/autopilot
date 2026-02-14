@@ -88,7 +88,7 @@ Each chain file defines:
 There is no `subchains` schema. Reuse is done via:
 - `task_spawn`/`task_join` for persistent asynchronous/background tasks
 - `call_chain` for synchronous inline chain execution
-- `parallel_split`/`parallel_join` for concurrent branch groups with fail-fast monitoring
+- `split`/`join` for concurrent branch groups with fail-fast monitoring
 
 Console login/prompt profiles remain in:
 

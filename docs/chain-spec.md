@@ -65,8 +65,8 @@ Action steps:
 - `interactive_console`
 - `analyze_logs`
 - `call_chain`
-- `parallel_split`
-- `parallel_join`
+- `split`
+- `join`
 - `task_spawn`
 - `task_join`
 - `signal_set`
@@ -85,7 +85,7 @@ For steps that reference another chain (`task_spawn`, `call_chain`):
 - Resolution path is fixed: `<code_root>/chains/<name>.json`.
 - Names must match `[A-Za-z0-9._-]+`.
 
-For `parallel_split` branch entries:
+For `split` branch entries:
 - each branch must include `name` and `chain`,
 - branch names must be unique within the split step,
 - monitor branches must be explicitly marked with `"monitor": true`.
@@ -112,18 +112,18 @@ Monitor branch policy:
 `call_chain` runs the target chain synchronously in the same request context.
 The calling step must define outcomes for `pass` and `fail` labels.
 
-## Example: parallel_split + parallel_join
+## Example: split + join
 
 ```json
 {
-  "type": "parallel_split",
+  "type": "split",
   "group": "vm_boot_and_ftrace_watch",
   "branches": [
     { "name": "main_vm_boot", "chain": "vm_wait_boot_qemu_virtio" },
     { "name": "ftrace_watchdog", "chain": "monitor_ftrace_storage_full", "monitor": true }
   ],
   "outcomes": [
-    { "label": "ok", "next": "parallel_join_vm_boot" }
+    { "label": "ok", "next": "join_vm_boot" }
   ],
   "on_timeout": "fail"
 }
@@ -131,7 +131,7 @@ The calling step must define outcomes for `pass` and `fail` labels.
 
 ```json
 {
-  "type": "parallel_join",
+  "type": "join",
   "join_groups": ["vm_boot_and_ftrace_watch"],
   "reduce": "any_pass",
   "timeout_s": 300,
@@ -144,8 +144,8 @@ The calling step must define outcomes for `pass` and `fail` labels.
 ```
 
 Parallel-group semantics:
-- branch chains execute concurrently after `parallel_split`,
-- `parallel_join` joins one or more named groups and applies a reducer,
+- branch chains execute concurrently after `split`,
+- `join` joins one or more named groups and applies a reducer,
 - reducer `any_pass`: returns `pass` when any joined branch passes; otherwise `fail` when all joined branches fail,
 - reducer `all_pass`: returns `fail` when any joined branch fails; otherwise `pass` when all joined branches pass,
 - missing/unknown join targets are validation errors (strict mode),
@@ -153,7 +153,7 @@ Parallel-group semantics:
 
 ## Join Validation Rules
 
-For `parallel_join`:
+For `join`:
 - use `join_groups` (non-empty list of group names),
 - use `reduce` (`any_pass` or `all_pass`),
 - `join_groups` targets must exist and be valid for the workflow scope,
@@ -216,7 +216,7 @@ When parallel groups are used, `chain.json` includes:
 - `parallel_groups.<group>.join`:
   - `step`, `chain`, `reduce`, `decision`, `joined_groups`
 
-`decision` contains reducer output evidence used by `parallel_join`.
+`decision` contains reducer output evidence used by `join`.
 
 `cancel_reason` is set when a branch is canceled due to another branch winning
 (for example `winner:ftrace_watchdog`).

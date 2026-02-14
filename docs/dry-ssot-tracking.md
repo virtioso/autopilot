@@ -171,10 +171,10 @@
 - Added parallel-chain planning document:
   - `docs/parallel-chains-plan.md`
 - Implemented runtime support for concurrent branch groups:
-  - new step types in `chain_runtime.py`: `parallel_split`, `parallel_join`
+  - new step types in `chain_runtime.py`: `split`, `join`
   - first-result-wins winner latching and branch cancellation
   - `chain.json` parallel metadata (`parallel_groups`)
-  - monitor branch fail-only validation for `parallel_split` monitor branches
+  - monitor branch fail-only validation for `split` monitor branches
 - Updated VM chain flow:
   - `chains/vm_common.json`
   - renamed `wait_capdl` -> `elfloader_started`

@@ -5,12 +5,12 @@ Scope: `/home/hlyytine/autopilot/chains/*.json`
 
 ## Coordinated Parallel Flows
 
-These are winner-based concurrent flows and must remain on
-`parallel_split`/`parallel_join` during current migration stage.
+These are winner-based concurrent flows using canonical
+`split`/`join` semantics.
 
 1. `chains/vm_common.json`
-- `parallel_vm_boot_split` (`type=parallel_split`, `group=vm_boot_and_ftrace_watch`)
-- `parallel_vm_boot_join` (`type=parallel_join`, `join_groups=["vm_boot_and_ftrace_watch"]`)
+- `parallel_vm_boot_split` (`type=split`, `group=vm_boot_and_ftrace_watch`)
+- `parallel_vm_boot_join` (`type=join`, `join_groups=["vm_boot_and_ftrace_watch"]`)
 - Classification: coordinated parallel control (already migrated).
 
 ## Legacy `fork`/`join` Usage
@@ -20,11 +20,10 @@ Current `fork` usage count: `0`.
 
 ## Final-Rename Blockers
 
-Per migration policy, rename `parallel_split` -> `split` and `parallel_join` -> `join`
-only after all legacy `fork`/`join` references are eliminated.
+Final rename cutover status (`parallel_split`/`parallel_join` -> `split`/`join`):
 
-Current blockers:
+Current status:
 - legacy `fork` in chain JSON: eliminated.
 - legacy `join` in chain JSON: eliminated.
-- runtime and tooling still expose migration-stage names (`parallel_split`/`parallel_join`);
-  final rename cutover remains pending.
+- runtime rejects `parallel_split`/`parallel_join` usage.
+- active chains and tooling use canonical `split`/`join`.

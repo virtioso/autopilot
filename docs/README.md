@@ -82,7 +82,7 @@ JSON schema and step definitions for the chain-based execution model.
 **Topics**:
 - Chain and step schema
 - Step types and examples
-- task_spawn/task_join/signal_set/signal_wait/call_chain/parallel_split/parallel_join and map_source/map_window (tmux-native runtime binding)
+- task_spawn/task_join/signal_set/signal_wait/call_chain/split/join and map_source/map_window (tmux-native runtime binding)
 
 **Best for**: Authors of new profiles and test flows
 

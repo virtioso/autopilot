@@ -163,9 +163,9 @@ join the task (`signal_set` + `task_join`) before terminal pass/fail.
 
 ### Parallel Groups
 
-For fail-fast watchdog scenarios, use `parallel_split` + `parallel_join`:
-- `parallel_split` starts named branch chains concurrently.
-- `parallel_join` joins named groups and applies reducer policy:
+For fail-fast watchdog scenarios, use `split` + `join`:
+- `split` starts named branch chains concurrently.
+- `join` joins named groups and applies reducer policy:
   - `reduce=any_pass`: pass if any joined branch passes; fail if all fail.
   - `reduce=all_pass`: fail if any joined branch fails; pass only if all pass.
 - join targets are strict: missing/unknown groups are validation/startup errors.
@@ -323,7 +323,7 @@ Example step types:
 - `send_cmd`
 - `interactive_console`
 - `task_spawn`, `task_join`, `signal_set`, `signal_wait`, `call_chain`
-- `parallel_split`, `parallel_join`
+- `split`, `join`
 - `set_overrides`
 - `pass`, `fail`
 
