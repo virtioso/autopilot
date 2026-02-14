@@ -115,7 +115,7 @@
       "on_timeout": "filter_logs_fail"
     },
     "parallel_vm_boot_split": {
-      "type": "parallel_split",
+      "type": "split",
       "group": "vm_boot_and_ftrace_watch",
       "branches": [
         {
@@ -137,7 +137,7 @@
       "on_timeout": "filter_logs_fail"
     },
     "parallel_vm_boot_join": {
-      "type": "parallel_join",
+      "type": "join",
       "join_groups": [
         "vm_boot_and_ftrace_watch"
       ],

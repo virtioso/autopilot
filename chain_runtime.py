@@ -295,9 +295,13 @@ def validate_chain(chain: dict) -> None:
                     raise ChainValidationError(f"step {name} outcome target missing: {outcome['next']}")
         if "on_timeout" in step and step["on_timeout"] not in steps:
             raise ChainValidationError(f"step {name} on_timeout target missing")
-        if step.get("type") in ("fork", "join"):
+        if step.get("type") == "fork":
             raise ChainValidationError(
-                f"step {name} uses deprecated type={step.get('type')}; use task_spawn/task_join or parallel_split/parallel_join"
+                f"step {name} uses deprecated type=fork; use task_spawn/task_join or split/join"
+            )
+        if step.get("type") in ("parallel_split", "parallel_join"):
+            raise ChainValidationError(
+                f"step {name} uses deprecated type={step.get('type')}; use split/join"
             )
         if step.get("type") == "call_chain":
             labels = {outcome.get("label") for outcome in step.get("outcomes", [])}
@@ -335,39 +339,39 @@ def validate_chain(chain: dict) -> None:
             signal_name = str(step.get("signal", "")).strip()
             if not signal_name:
                 raise ChainValidationError(f"step {name} signal_wait requires non-empty signal")
-        if step.get("type") == "parallel_join":
+        if step.get("type") == "join":
             if "chain" in step:
                 raise ChainValidationError(
-                    f"step {name} parallel_join must not define 'chain'"
+                    f"step {name} join must not define 'chain'"
                 )
             if "group" in step:
                 raise ChainValidationError(
-                    f"step {name} parallel_join must use 'join_groups', not legacy 'group'"
+                    f"step {name} join must use 'join_groups', not legacy 'group'"
                 )
             join_groups = step.get("join_groups")
             if not isinstance(join_groups, list) or not join_groups:
                 raise ChainValidationError(
-                    f"step {name} parallel_join requires non-empty join_groups list"
+                    f"step {name} join requires non-empty join_groups list"
                 )
             for group_name in join_groups:
                 if not isinstance(group_name, str) or not group_name.strip():
                     raise ChainValidationError(
-                        f"step {name} parallel_join has invalid join_groups entry: {group_name}"
+                        f"step {name} join has invalid join_groups entry: {group_name}"
                     )
             reduce_mode = str(step.get("reduce", "")).strip()
             if reduce_mode not in ("any_pass", "all_pass"):
                 raise ChainValidationError(
-                    f"step {name} parallel_join requires reduce=any_pass|all_pass"
+                    f"step {name} join requires reduce=any_pass|all_pass"
                 )
             labels = {outcome.get("label") for outcome in step.get("outcomes", [])}
             if "pass" not in labels or "fail" not in labels:
                 raise ChainValidationError(
-                    f"step {name} parallel_join requires outcomes for labels 'pass' and 'fail'"
+                    f"step {name} join requires outcomes for labels 'pass' and 'fail'"
                 )
-        if step.get("type") == "parallel_split":
+        if step.get("type") == "split":
             branches = step.get("branches")
             if not isinstance(branches, list) or not branches:
-                raise ChainValidationError(f"step {name} parallel_split requires non-empty branches list")
+                raise ChainValidationError(f"step {name} split requires non-empty branches list")
             names = set()
             for branch in branches:
                 if not isinstance(branch, dict):
@@ -385,7 +389,7 @@ def validate_chain(chain: dict) -> None:
                 names.add(branch_name)
             group_name = str(step.get("group", "")).strip()
             if not group_name:
-                raise ChainValidationError(f"step {name} parallel_split requires non-empty group")
+                raise ChainValidationError(f"step {name} split requires non-empty group")
             split_groups.add(group_name)
         if step.get("type") == "set_test_verdict":
             verdict = str(step.get("verdict", "")).strip()
@@ -394,7 +398,7 @@ def validate_chain(chain: dict) -> None:
                     f"step {name} set_test_verdict requires verdict=pass|fail"
                 )
     for name, step in steps.items():
-        if step.get("type") != "parallel_join":
+        if step.get("type") != "join":
             continue
         for group_name in step.get("join_groups", []):
             if str(group_name).strip() not in split_groups:
@@ -527,10 +531,10 @@ class ChainRunner:
                 return self._step_signal_set(step)
             if step_type == "signal_wait":
                 return self._step_signal_wait(step)
-            if step_type == "parallel_split":
-                return self._step_parallel_split(step)
-            if step_type == "parallel_join":
-                return self._step_parallel_join(step)
+            if step_type == "split":
+                return self._step_split(step)
+            if step_type == "join":
+                return self._step_join(step)
             if step_type == "analyze_logs":
                 return self._step_analyze_logs(step)
             if step_type == "interactive_console":
@@ -1194,14 +1198,14 @@ class ChainRunner:
                                 other_state["cancel_reason"] = f"winner:{branch_name}"
             self._record_parallel_group_state(group_name)
 
-    def _step_parallel_split(self, step: dict) -> Tuple[str, OutcomeMatch]:
+    def _step_split(self, step: dict) -> Tuple[str, OutcomeMatch]:
         group_name = str(step.get("group", "")).strip()
         if not group_name:
-            raise ValueError("parallel_split requires non-empty group")
+            raise ValueError("split requires non-empty group")
         branches_cfg = step.get("branches", [])
         groups = self.ctx.setdefault("parallel_groups", {})
         if group_name in groups:
-            raise ValueError(f"parallel_split group already exists: {group_name}")
+            raise ValueError(f"split group already exists: {group_name}")
 
         group = {
             "lock": threading.Lock(),
@@ -1239,23 +1243,23 @@ class ChainRunner:
         self._record_parallel_group_state(group_name)
         return self._simple_outcome(step)
 
-    def _step_parallel_join(self, step: dict) -> Tuple[str, OutcomeMatch]:
+    def _step_join(self, step: dict) -> Tuple[str, OutcomeMatch]:
         join_groups = step.get("join_groups", [])
         if not isinstance(join_groups, list) or not join_groups:
-            raise ValueError("parallel_join requires non-empty join_groups")
+            raise ValueError("join requires non-empty join_groups")
         group_names = []
         for group_name in join_groups:
             group_name = str(group_name).strip()
             if not group_name:
-                raise ValueError("parallel_join join_groups contains empty group name")
+                raise ValueError("join join_groups contains empty group name")
             group_names.append(group_name)
         reduce_mode = str(step.get("reduce", "")).strip()
         if reduce_mode not in ("any_pass", "all_pass"):
-            raise ValueError("parallel_join requires reduce=any_pass|all_pass")
+            raise ValueError("join requires reduce=any_pass|all_pass")
         groups = self.ctx.get("parallel_groups", {})
         for group_name in group_names:
             if group_name not in groups:
-                raise ValueError(f"parallel_join unknown group: {group_name}")
+                raise ValueError(f"join unknown group: {group_name}")
 
         timeout_s = int(step.get("timeout_s", 60))
         deadline = time.time() + timeout_s
@@ -1636,7 +1640,7 @@ class ChainRunner:
                         f"step {step_name} references unknown chain {chain_name}: {exc}"
                     ) from exc
                 continue
-            if step_type == "parallel_split":
+            if step_type == "split":
                 for branch in step.get("branches", []):
                     branch_name = str(branch.get("name", "")).strip()
                     chain_name = str(branch.get("chain", "")).strip()
