@@ -907,6 +907,7 @@ class ChainRunner:
                 "monitor": bool(state.get("monitor", False)),
                 "status": state.get("status"),
                 "finished_at": state.get("finished_at"),
+                "cancel_reason": state.get("cancel_reason"),
             }
         return {
             "winner": winner_copy,
@@ -962,6 +963,9 @@ class ChainRunner:
                     for other_name, cancel in group["cancel_flags"].items():
                         if other_name != branch_name:
                             cancel.set()
+                            other_state = group["branches"].get(other_name)
+                            if other_state and other_state.get("status") == "running":
+                                other_state["cancel_reason"] = f"winner:{branch_name}"
             self._record_parallel_group_state(group_name)
 
     def _step_parallel_split(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -994,6 +998,7 @@ class ChainRunner:
                 "monitor": monitor,
                 "status": "running",
                 "finished_at": None,
+                "cancel_reason": None,
             }
             thread = threading.Thread(
                 target=self._run_parallel_branch,
@@ -1030,6 +1035,9 @@ class ChainRunner:
                     for branch_name, cancel in group["cancel_flags"].items():
                         if branch_name != winner["branch"]:
                             cancel.set()
+                            other_state = group["branches"].get(branch_name)
+                            if other_state and other_state.get("status") == "running":
+                                other_state["cancel_reason"] = f"winner:{winner['branch']}"
                     all_stopped = all(not t.is_alive() for t in threads)
                     if all_stopped:
                         winner_label = winner["status"]
