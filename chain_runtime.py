@@ -54,7 +54,6 @@ class ChainRecorder:
     def __init__(self, result_dir: Path, filename: str = "chain.json"):
         self.result_dir = result_dir
         self.steps: List[dict] = []
-        self.forks: Dict[str, dict] = {}
         self.parallel_groups: Dict[str, dict] = {}
         self.overall_status: Optional[str] = None
         self.test_verdict: Optional[str] = None
@@ -85,11 +84,6 @@ class ChainRecorder:
                     "log_offset": result.outcome.log_offset,
                 })
             self.steps.append(entry)
-            self._flush_unlocked()
-
-    def record_fork(self, name: str, status: str) -> None:
-        with self._lock:
-            self.forks[name] = {"status": status, "updated_at": time.time()}
             self._flush_unlocked()
 
     def record_parallel_group(self, name: str, state: dict) -> None:
@@ -124,7 +118,6 @@ class ChainRecorder:
             "workflow_state": self.workflow_state,
             "abort_reason": self.abort_reason,
             "steps": self.steps,
-            "forks": self.forks,
             "parallel_groups": self.parallel_groups,
         }
         self.path.write_text(json.dumps(payload, indent=2))
@@ -132,9 +125,6 @@ class ChainRecorder:
 
 class NoopChainRecorder:
     def record_step(self, result: StepResult) -> None:
-        return
-
-    def record_fork(self, name: str, status: str) -> None:
         return
 
     def record_parallel_group(self, name: str, state: dict) -> None:
@@ -305,6 +295,10 @@ def validate_chain(chain: dict) -> None:
                     raise ChainValidationError(f"step {name} outcome target missing: {outcome['next']}")
         if "on_timeout" in step and step["on_timeout"] not in steps:
             raise ChainValidationError(f"step {name} on_timeout target missing")
+        if step.get("type") in ("fork", "join"):
+            raise ChainValidationError(
+                f"step {name} uses deprecated type={step.get('type')}; use task_spawn/task_join or parallel_split/parallel_join"
+            )
         if step.get("type") == "call_chain":
             labels = {outcome.get("label") for outcome in step.get("outcomes", [])}
             if "pass" not in labels or "fail" not in labels:
@@ -344,7 +338,7 @@ def validate_chain(chain: dict) -> None:
         if step.get("type") == "parallel_join":
             if "chain" in step:
                 raise ChainValidationError(
-                    f"step {name} parallel_join must not define 'chain' (use legacy 'join' for fork joins)"
+                    f"step {name} parallel_join must not define 'chain'"
                 )
             if "group" in step:
                 raise ChainValidationError(
@@ -398,11 +392,6 @@ def validate_chain(chain: dict) -> None:
             if verdict not in ("pass", "fail"):
                 raise ChainValidationError(
                     f"step {name} set_test_verdict requires verdict=pass|fail"
-                )
-        if step.get("type") == "join":
-            if "group" in step:
-                raise ChainValidationError(
-                    f"step {name} join uses legacy fork semantics; use parallel_join for grouped branch joins"
                 )
     for name, step in steps.items():
         if step.get("type") != "parallel_join":
@@ -528,12 +517,8 @@ class ChainRunner:
                 return self._step_reboot(step)
             if step_type == "ssh_cmd":
                 return self._step_ssh_cmd(step)
-            if step_type == "fork":
-                return self._step_fork(step)
             if step_type == "call_chain":
                 return self._step_call_chain(step)
-            if step_type == "join":
-                return self._step_join(step)
             if step_type == "task_spawn":
                 return self._step_task_spawn(step)
             if step_type == "task_join":
@@ -917,28 +902,6 @@ class ChainRunner:
             subprocess.run(run_args, check=True, timeout=int(timeout_s))
         return self._simple_outcome(step)
 
-    def _step_fork(self, step: dict) -> Tuple[str, OutcomeMatch]:
-        name = step["chain"]
-        subchain = self._load_named_chain(name)
-        cancel_flag = threading.Event()
-        sub_ctx = dict(self.ctx)
-        sub_ctx["cancel_flag"] = cancel_flag
-        sub_ctx["chain_name"] = name
-        sub_ctx["chain_stack"] = list(self.ctx.get("chain_stack", [])) + [name]
-        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
-        recorder = self.ctx["fork_recorders"].setdefault(
-            name, ChainRecorder(self.ctx["result_dir"], filename=f"chain.fork.{safe_name}.json")
-        )
-        runner = ChainRunner(subchain, sub_ctx, recorder)
-        thread = threading.Thread(target=runner.run, daemon=True)
-        self.ctx["forks"][name] = {
-            "thread": thread,
-            "cancel": cancel_flag,
-        }
-        thread.start()
-        self.recorder.record_fork(name, "running")
-        return self._simple_outcome(step)
-
     def _step_call_chain(self, step: dict) -> Tuple[str, OutcomeMatch]:
         name = step["chain"]
         chain = self._load_named_chain(name)
@@ -974,17 +937,6 @@ class ChainRunner:
             child_outcome.log_path if child_outcome else None,
             child_outcome.log_offset if child_outcome else None,
         )
-
-    def _step_join(self, step: dict) -> Tuple[str, OutcomeMatch]:
-        name = step.get("chain")
-        if name:
-            fork = self.ctx["forks"].get(name)
-            if fork:
-                fork["thread"].join()
-        else:
-            for fork in self.ctx["forks"].values():
-                fork["thread"].join()
-        return self._simple_outcome(step)
 
     def _task_registry(self) -> dict:
         registry = self.ctx.get("task_registry")
@@ -1662,7 +1614,7 @@ class ChainRunner:
         monitor_validation_cache: Dict[str, bool] = {}
         for step_name, step in self.chain.get("steps", {}).items():
             step_type = step.get("type")
-            if step_type in ("fork", "call_chain"):
+            if step_type == "call_chain":
                 chain_name = step.get("chain")
                 if not chain_name:
                     raise ChainValidationError(f"step {step_name} missing chain name")
@@ -1722,17 +1674,37 @@ class ChainRunner:
                     return False
         return True
 
+    def _spawn_detached_chain(self, chain_name: str, filename_prefix: str) -> None:
+        subchain = self._load_named_chain(chain_name)
+        cancel_flag = threading.Event()
+        sub_ctx = dict(self.ctx)
+        sub_ctx["cancel_flag"] = cancel_flag
+        sub_ctx["chain_name"] = chain_name
+        sub_ctx["chain_stack"] = list(self.ctx.get("chain_stack", [])) + [chain_name]
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", chain_name)
+        recorder = ChainRecorder(
+            self.ctx["result_dir"],
+            filename=f"{filename_prefix}.{safe_name}.json",
+        )
+        runner = ChainRunner(subchain, sub_ctx, recorder)
+        thread = threading.Thread(target=runner.run, daemon=True)
+        thread.start()
+
     def _handle_abort(self) -> None:
-        for fork in self.ctx["forks"].values():
-            fork["cancel"].set()
+        registry = self.ctx.get("task_registry")
+        if registry:
+            with registry["lock"]:
+                for task in registry.get("tasks", {}).values():
+                    cancel = task.get("cancel")
+                    if cancel:
+                        cancel.set()
         for group in self.ctx.get("parallel_groups", {}).values():
             for cancel in group.get("cancel_flags", {}).values():
                 cancel.set()
         recovery = self.ctx.get("abort_recovery_chain")
         if recovery:
-            step = {"type": "fork", "chain": recovery, "outcomes": [{"label": "started", "next": "fail"}]}
             try:
-                self._step_fork(step)
+                self._spawn_detached_chain(str(recovery), "chain.abort_recovery")
             except Exception:
                 pass
         raise AbortRun()

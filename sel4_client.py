@@ -451,7 +451,7 @@ def _write_canceled_result(result_dir: Path, request: dict) -> None:
         "workflow_state": "failed",
         "abort_reason": "canceled",
         "steps": [],
-        "forks": {},
+        "parallel_groups": {},
     }
     (result_dir / "chain.json").write_text(json.dumps(chain, indent=2))
 
