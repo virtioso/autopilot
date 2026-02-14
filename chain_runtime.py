@@ -882,28 +882,31 @@ class ChainRunner:
         next_step = step.get("on_timeout", "fail")
         return next_step, OutcomeMatch(label, next_step, None, None, None, None)
 
+    def _snapshot_parallel_group_unlocked(self, group: dict) -> dict:
+        winner = group.get("winner")
+        winner_copy = None
+        if winner:
+            winner_copy = {
+                "branch": winner.get("branch"),
+                "status": winner.get("status"),
+                "finished_at": winner.get("finished_at"),
+            }
+        branches = {}
+        for name, state in group.get("branches", {}).items():
+            branches[name] = {
+                "chain": state.get("chain"),
+                "monitor": bool(state.get("monitor", False)),
+                "status": state.get("status"),
+                "finished_at": state.get("finished_at"),
+            }
+        return {
+            "winner": winner_copy,
+            "branches": branches,
+        }
+
     def _snapshot_parallel_group(self, group: dict) -> dict:
         with group["lock"]:
-            winner = group.get("winner")
-            winner_copy = None
-            if winner:
-                winner_copy = {
-                    "branch": winner.get("branch"),
-                    "status": winner.get("status"),
-                    "finished_at": winner.get("finished_at"),
-                }
-            branches = {}
-            for name, state in group.get("branches", {}).items():
-                branches[name] = {
-                    "chain": state.get("chain"),
-                    "monitor": bool(state.get("monitor", False)),
-                    "status": state.get("status"),
-                    "finished_at": state.get("finished_at"),
-                }
-            return {
-                "winner": winner_copy,
-                "branches": branches,
-            }
+            return self._snapshot_parallel_group_unlocked(group)
 
     def _record_parallel_group_state(self, group_name: str) -> None:
         groups = self.ctx.get("parallel_groups", {})
@@ -1021,7 +1024,7 @@ class ChainRunner:
                     all_stopped = all(not t.is_alive() for t in threads)
                     if all_stopped:
                         winner_label = winner["status"]
-                        final_state = self._snapshot_parallel_group(group)
+                        final_state = self._snapshot_parallel_group_unlocked(group)
                         groups.pop(group_name, None)
                         completed = True
             if completed:
