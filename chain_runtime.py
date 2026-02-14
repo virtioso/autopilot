@@ -495,63 +495,71 @@ class ChainRunner:
 
     def _dispatch_step(self, name: str, step: dict) -> Tuple[str, OutcomeMatch]:
         self._check_cancel()
-        step_type = step["type"]
-        if step_type == "pass":
-            return "pass", OutcomeMatch("pass", "pass", None, None, None, None)
-        if step_type == "fail":
-            return "fail", OutcomeMatch("fail", "fail", None, None, None, None)
-        if step_type == "relay":
-            self.ctx["board"].boot(False)
-            return self._simple_outcome(step)
-        if step_type == "map_source":
-            return self._step_map_source(step)
-        if step_type == "purge_sources":
-            return self._step_purge_sources(step)
-        if step_type == "map_window":
-            return self._step_map_window(step)
-        if step_type == "send_cmd":
-            return self._step_send_cmd(step)
-        if step_type == "boot_menu":
-            return self._step_boot_menu(step)
-        if step_type == "uefi_shell_run":
-            return self._step_uefi_shell_run(step)
-        if step_type == "wait_pattern":
-            return self._step_wait_pattern(step)
-        if step_type == "upload_kernel":
-            return self._step_upload(step, kind="kernel")
-        if step_type == "upload_efi":
-            return self._step_upload(step, kind="efi")
-        if step_type == "reboot":
-            return self._step_reboot(step)
-        if step_type == "ssh_cmd":
-            return self._step_ssh_cmd(step)
-        if step_type == "fork":
-            return self._step_fork(step)
-        if step_type == "call_chain":
-            return self._step_call_chain(step)
-        if step_type == "join":
-            return self._step_join(step)
-        if step_type == "task_spawn":
-            return self._step_task_spawn(step)
-        if step_type == "task_join":
-            return self._step_task_join(step)
-        if step_type == "signal_set":
-            return self._step_signal_set(step)
-        if step_type == "signal_wait":
-            return self._step_signal_wait(step)
-        if step_type == "parallel_split":
-            return self._step_parallel_split(step)
-        if step_type == "parallel_join":
-            return self._step_parallel_join(step)
-        if step_type == "analyze_logs":
-            return self._step_analyze_logs(step)
-        if step_type == "interactive_console":
-            return self._step_interactive_console(step)
-        if step_type == "set_overrides":
-            return self._step_set_overrides(step)
-        if step_type == "set_test_verdict":
-            return self._step_set_test_verdict(step)
-        raise ChainValidationError(f"unknown step type: {step_type}")
+        prev_step = self.ctx.get("_current_step_name")
+        self.ctx["_current_step_name"] = name
+        try:
+            step_type = step["type"]
+            if step_type == "pass":
+                return "pass", OutcomeMatch("pass", "pass", None, None, None, None)
+            if step_type == "fail":
+                return "fail", OutcomeMatch("fail", "fail", None, None, None, None)
+            if step_type == "relay":
+                self.ctx["board"].boot(False)
+                return self._simple_outcome(step)
+            if step_type == "map_source":
+                return self._step_map_source(step)
+            if step_type == "purge_sources":
+                return self._step_purge_sources(step)
+            if step_type == "map_window":
+                return self._step_map_window(step)
+            if step_type == "send_cmd":
+                return self._step_send_cmd(step)
+            if step_type == "boot_menu":
+                return self._step_boot_menu(step)
+            if step_type == "uefi_shell_run":
+                return self._step_uefi_shell_run(step)
+            if step_type == "wait_pattern":
+                return self._step_wait_pattern(step)
+            if step_type == "upload_kernel":
+                return self._step_upload(step, kind="kernel")
+            if step_type == "upload_efi":
+                return self._step_upload(step, kind="efi")
+            if step_type == "reboot":
+                return self._step_reboot(step)
+            if step_type == "ssh_cmd":
+                return self._step_ssh_cmd(step)
+            if step_type == "fork":
+                return self._step_fork(step)
+            if step_type == "call_chain":
+                return self._step_call_chain(step)
+            if step_type == "join":
+                return self._step_join(step)
+            if step_type == "task_spawn":
+                return self._step_task_spawn(step)
+            if step_type == "task_join":
+                return self._step_task_join(step)
+            if step_type == "signal_set":
+                return self._step_signal_set(step)
+            if step_type == "signal_wait":
+                return self._step_signal_wait(step)
+            if step_type == "parallel_split":
+                return self._step_parallel_split(step)
+            if step_type == "parallel_join":
+                return self._step_parallel_join(step)
+            if step_type == "analyze_logs":
+                return self._step_analyze_logs(step)
+            if step_type == "interactive_console":
+                return self._step_interactive_console(step)
+            if step_type == "set_overrides":
+                return self._step_set_overrides(step)
+            if step_type == "set_test_verdict":
+                return self._step_set_test_verdict(step)
+            raise ChainValidationError(f"unknown step type: {step_type}")
+        finally:
+            if prev_step is None:
+                self.ctx.pop("_current_step_name", None)
+            else:
+                self.ctx["_current_step_name"] = prev_step
 
     def _simple_outcome(self, step: dict) -> Tuple[str, OutcomeMatch]:
         outcomes = step.get("outcomes", [])
@@ -1165,12 +1173,16 @@ class ChainRunner:
         join_copy = None
         if isinstance(join_state, dict):
             join_copy = {
+                "step": join_state.get("step"),
+                "chain": join_state.get("chain"),
                 "reduce": join_state.get("reduce"),
                 "decision": join_state.get("decision"),
                 "joined_groups": list(join_state.get("joined_groups", [])),
                 "decided_at": join_state.get("decided_at"),
             }
         return {
+            "split_step": group.get("split_step"),
+            "split_chain": group.get("split_chain"),
             "winner": winner_copy,
             "branches": branches,
             "join": join_copy,
@@ -1243,6 +1255,8 @@ class ChainRunner:
             "lock": threading.Lock(),
             "winner_event": threading.Event(),
             "winner": None,
+            "split_step": self.ctx.get("_current_step_name"),
+            "split_chain": self.ctx.get("chain_name"),
             "branches": {},
             "cancel_flags": {},
             "threads": {},
@@ -1343,6 +1357,8 @@ class ChainRunner:
                                     if other_state and other_state.get("status") == "running":
                                         other_state["cancel_reason"] = "join_decision:fail"
                             group["join"] = {
+                                "step": self.ctx.get("_current_step_name"),
+                                "chain": self.ctx.get("chain_name"),
                                 "reduce": reduce_mode,
                                 "decision": decision,
                                 "joined_groups": list(group_names),
