@@ -1,0 +1,39 @@
+flowchart TD
+subgraph vm_wait_boot_qemu_virtio[vm_wait_boot_qemu_virtio]
+vm_wait_boot_qemu_virtio_start((start))
+vm_wait_boot_qemu_virtio_start --> vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell
+vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell["wait_vm0_login_or_shell<br/>type=wait_pattern<br/>timeout_s=180"]
+vm_wait_boot_qemu_virtio__send_root_login["send_root_login<br/>type=send_cmd<br/>source=tty0<br/>cmd=root"]
+vm_wait_boot_qemu_virtio__wait_vm0_shell["wait_vm0_shell<br/>type=wait_pattern<br/>timeout_s=120"]
+vm_wait_boot_qemu_virtio__arm_ftrace_late["arm_ftrace_late<br/>type=send_cmd<br/>source=tty0<br/>cmd=if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x1; elif co..."]
+vm_wait_boot_qemu_virtio__run_qemu_rnd_helper["run_qemu_rnd_helper<br/>type=send_cmd<br/>source=tty0<br/>cmd=qemu-rnd-helper >/tmp/qemu-rnd-helper.log 2>&1 &"]
+vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow["wait_vm1_boot_or_ftrace_overflow<br/>type=wait_pattern<br/>timeout_s=240"]
+vm_wait_boot_qemu_virtio__dump_ftrace_after_dwell["dump_ftrace_after_dwell<br/>type=send_cmd<br/>source=tty0<br/>cmd=sleep 25; if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x..."]
+vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker["emit_ftrace_overflow_marker<br/>type=send_cmd<br/>source=tty0<br/>cmd=echo 'AUTOPILOT_FAIL: FTRACE_OVERFLOW_EARLY (storage full before VM1 trace wi..."]
+vm_wait_boot_qemu_virtio__pass["pass<br/>type=pass"]
+vm_wait_boot_qemu_virtio__fail["fail<br/>type=fail"]
+vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -->|label=ftrace_overflow, src=tty0, pat=FTRACE: Storage full| vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker
+vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -->|label=shell, src=tty0, pat=root@.*:~#| vm_wait_boot_qemu_virtio__arm_ftrace_late
+vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -->|label=login, src=tty0, pat=login:| vm_wait_boot_qemu_virtio__send_root_login
+vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__send_root_login -->|label=ok| vm_wait_boot_qemu_virtio__wait_vm0_shell
+vm_wait_boot_qemu_virtio__send_root_login -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__wait_vm0_shell -->|label=ftrace_overflow, src=tty0, pat=FTRACE: Storage full| vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker
+vm_wait_boot_qemu_virtio__wait_vm0_shell -->|label=shell, src=tty0, pat=root@.*:~#| vm_wait_boot_qemu_virtio__arm_ftrace_late
+vm_wait_boot_qemu_virtio__wait_vm0_shell -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__arm_ftrace_late -->|label=ok| vm_wait_boot_qemu_virtio__run_qemu_rnd_helper
+vm_wait_boot_qemu_virtio__arm_ftrace_late -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__run_qemu_rnd_helper -->|label=ok| vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow
+vm_wait_boot_qemu_virtio__run_qemu_rnd_helper -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow -->|label=ftrace_overflow, src=tty0, pat=FTRACE: Storage full| vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker
+vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow -->|label=vm1, src=tty1, pat=Booting Linux/driver-vm login:/login:| vm_wait_boot_qemu_virtio__dump_ftrace_after_dwell
+vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__dump_ftrace_after_dwell -->|label=ok| vm_wait_boot_qemu_virtio__pass
+vm_wait_boot_qemu_virtio__dump_ftrace_after_dwell -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker -->|label=ok| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker -.->|timeout| vm_wait_boot_qemu_virtio__fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class vm_wait_boot_qemu_virtio__pass pass;
+class vm_wait_boot_qemu_virtio__fail fail;

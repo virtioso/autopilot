@@ -1,0 +1,12 @@
+flowchart TD
+subgraph monitor_ftrace_storage_full[monitor_ftrace_storage_full]
+monitor_ftrace_storage_full_start((start))
+monitor_ftrace_storage_full_start --> monitor_ftrace_storage_full__watch_storage_full
+monitor_ftrace_storage_full__watch_storage_full["watch_storage_full<br/>type=wait_pattern<br/>timeout_s=30"]
+monitor_ftrace_storage_full__fail["fail<br/>type=fail"]
+monitor_ftrace_storage_full__watch_storage_full -->|label=overflow, src=tty0, pat=FTRACE: Storage full| monitor_ftrace_storage_full__fail
+monitor_ftrace_storage_full__watch_storage_full -.->|timeout| monitor_ftrace_storage_full__watch_storage_full
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class monitor_ftrace_storage_full__fail fail;

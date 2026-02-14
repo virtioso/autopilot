@@ -1,0 +1,18 @@
+flowchart TD
+subgraph vm_minimal[vm-minimal]
+vm_minimal_start((start))
+vm_minimal_start --> vm_minimal__set_vm_wait_boot_alias
+vm_minimal__set_vm_wait_boot_alias["set_vm_wait_boot_alias<br/>type=set_overrides"]
+vm_minimal__run_vm_common["run_vm_common<br/>type=call_chain<br/>chain=vm_common<br/>chain_file=/home/hlyytine/autopilot/chains/vm_common.json"]
+vm_minimal__pass["pass<br/>type=pass"]
+vm_minimal__fail["fail<br/>type=fail"]
+vm_minimal__set_vm_wait_boot_alias -->|label=ok| vm_minimal__run_vm_common
+vm_minimal__set_vm_wait_boot_alias -.->|timeout| vm_minimal__fail
+vm_minimal__run_vm_common -->|label=pass| vm_minimal__pass
+vm_minimal__run_vm_common -->|label=fail| vm_minimal__fail
+vm_minimal__run_vm_common -.->|timeout| vm_minimal__fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class vm_minimal__pass pass;
+class vm_minimal__fail fail;

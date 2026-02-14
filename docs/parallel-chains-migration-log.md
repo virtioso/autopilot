@@ -598,3 +598,36 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - `~/tii-sel4/projects/virtioso-camkes-vm` commit: `fe55f56`
 - Message: `tools: render parallel split/join fanout in trace diagrams`
+
+## Step 2026-02-14-21
+
+Summary:
+- Remove stale fork-recovery wording from docs and regenerate chain reference diagrams from current chains.
+
+Pre-step DRY/SSOT gate:
+- Canonical runtime semantics: `chains/*.json` + `chain_runtime.py`.
+- Docs must not claim legacy `fork_recovery_*` flow after migration completion.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Updated `~/autopilot/docs` wording to current task/signal model:
+  - `README.md`
+  - `overview.md`
+  - `runbook.md`
+  - `architecture.md`
+  - `parallel-chains-inventory.md` (fork/join chain usage now zero; blockers adjusted)
+- Regenerated chain diagrams from live chain JSON using:
+  - `python3 tools/autopilot_chain_viz.py --all --docs --profiles-dir /home/hlyytine/autopilot/chains`
+- Kept generated `~/autopilot/diagrams/*.mmd` by explicit human direction.
+- Updated generated reference page:
+  - `~/tii-sel4/projects/virtioso-camkes-vm/docs/reference/autopilot-chain-diagrams.md`
+
+Verification:
+- `rg "fork_recovery|type=fork|fork: recovery_boot" docs/reference/autopilot-chain-diagrams.md` -> no matches.
+- Generated diagram set includes migrated chains and task/signal-based flows.
+
+Post-step DRY/SSOT gate:
+- Autopilot docs and generated diagrams are now aligned with migrated chain behavior and no longer describe removed fork-recovery paths.

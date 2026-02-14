@@ -13,7 +13,7 @@ AI tools.
 
 - **Chain-Based Execution**: All test logic is defined in chain files.
 - **Branching Outcomes**: Regex-driven outcomes route to next steps.
-- **Reusable Chains**: Chains can call other chains via `call_chain`, `fork`, and parallel groups.
+- **Reusable Chains**: Chains can call other chains via `call_chain`, `task_spawn`, and parallel groups.
 - **Parallel Groups**: Concurrent branch execution with reducer-based join semantics (`any_pass` / `all_pass`).
 - **UART Source Mapping**: Dynamic `map_source` ties tty devices to logical sources.
 - **tmux-Native Operator UI**: Window switching, status, and abort control are handled by tmux.
@@ -86,7 +86,7 @@ Each chain file defines:
 - `steps`: dictionary of steps
 
 There is no `subchains` schema. Reuse is done via:
-- `fork` for asynchronous/background chain execution
+- `task_spawn`/`task_join` for persistent asynchronous/background tasks
 - `call_chain` for synchronous inline chain execution
 - `parallel_split`/`parallel_join` for concurrent branch groups with fail-fast monitoring
 

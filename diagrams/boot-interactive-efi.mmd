@@ -1,0 +1,65 @@
+flowchart TD
+subgraph boot_interactive_efi[boot-interactive-efi]
+boot_interactive_efi_start((start))
+boot_interactive_efi_start --> boot_interactive_efi__map_tty0
+boot_interactive_efi__map_tty0["map_tty0<br/>type=map_source<br/>source=tty0<br/>tty=env:AUTOPILOT_TTY0<br/>log=console/tty0.jsonl"]
+boot_interactive_efi__window1["window1<br/>type=map_window<br/>window=1<br/>source=tty0<br/>title=TTY0"]
+boot_interactive_efi__relay_power["relay_power<br/>type=relay"]
+boot_interactive_efi__spawn_prepare_task["spawn_prepare_task<br/>type=task_spawn<br/>task=prepare_next_run<br/>chain=prepare_next_run_task<br/>chain_file=/home/hlyytine/autopilot/chains/prepare_next_run_task.json"]
+boot_interactive_efi__boot_stock["boot_stock<br/>type=boot_menu<br/>source=tty0<br/>boot_option=1"]
+boot_interactive_efi__wait_stock_prompt["wait_stock_prompt<br/>type=wait_pattern<br/>timeout_s=180"]
+boot_interactive_efi__wait_efi["wait_efi<br/>type=wait_pattern<br/>timeout_s=180"]
+boot_interactive_efi__interactive["interactive<br/>type=interactive_console<br/>sessions=tty0/ubuntu-22"]
+boot_interactive_efi__set_verdict_pass["set_verdict_pass<br/>type=set_test_verdict"]
+boot_interactive_efi__set_verdict_fail["set_verdict_fail<br/>type=set_test_verdict"]
+boot_interactive_efi__signal_prepare_pass["signal_prepare_pass<br/>type=signal_set<br/>signal=prepare_next_run_go"]
+boot_interactive_efi__join_prepare_pass["join_prepare_pass<br/>type=task_join<br/>tasks=['prepare_next_run']<br/>reduce=all_pass"]
+boot_interactive_efi__signal_prepare_fail["signal_prepare_fail<br/>type=signal_set<br/>signal=prepare_next_run_go"]
+boot_interactive_efi__join_prepare_fail["join_prepare_fail<br/>type=task_join<br/>tasks=['prepare_next_run']<br/>reduce=all_pass"]
+boot_interactive_efi__relay_fallback_pass["relay_fallback_pass<br/>type=relay"]
+boot_interactive_efi__relay_fallback_fail["relay_fallback_fail<br/>type=relay"]
+boot_interactive_efi__pass["pass<br/>type=pass"]
+boot_interactive_efi__fail["fail<br/>type=fail"]
+boot_interactive_efi__run_bootefi["run_bootefi<br/>type=call_chain<br/>chain=bootefi_common<br/>chain_file=/home/hlyytine/autopilot/chains/bootefi_common.json"]
+boot_interactive_efi__map_tty0 -->|label=ok| boot_interactive_efi__window1
+boot_interactive_efi__map_tty0 -.->|timeout| boot_interactive_efi__fail
+boot_interactive_efi__window1 -->|label=ok| boot_interactive_efi__relay_power
+boot_interactive_efi__window1 -.->|timeout| boot_interactive_efi__fail
+boot_interactive_efi__relay_power -->|label=ok| boot_interactive_efi__spawn_prepare_task
+boot_interactive_efi__relay_power -.->|timeout| boot_interactive_efi__fail
+boot_interactive_efi__spawn_prepare_task -->|label=ok| boot_interactive_efi__boot_stock
+boot_interactive_efi__spawn_prepare_task -.->|timeout| boot_interactive_efi__fail
+boot_interactive_efi__boot_stock -->|label=menu, src=tty0, pat=Press any .*boot default/Press ESCAPE for boot options/Enter to continue boot| boot_interactive_efi__wait_stock_prompt
+boot_interactive_efi__boot_stock -.->|timeout| boot_interactive_efi__fail
+boot_interactive_efi__wait_stock_prompt -->|label=prompt, src=tty0, pat=ubuntu@tegra-ubuntu:~\\$/tegra-ubuntu login:| boot_interactive_efi__run_bootefi
+boot_interactive_efi__wait_stock_prompt -.->|timeout| boot_interactive_efi__set_verdict_fail
+boot_interactive_efi__wait_efi -->|label=ok, src=tty0, pat=seL4/ELF-loader/driver-vm login:/root@driver-vm:~#| boot_interactive_efi__interactive
+boot_interactive_efi__wait_efi -.->|timeout| boot_interactive_efi__set_verdict_fail
+boot_interactive_efi__interactive -->|label=ok| boot_interactive_efi__set_verdict_pass
+boot_interactive_efi__interactive -.->|timeout| boot_interactive_efi__set_verdict_fail
+boot_interactive_efi__set_verdict_pass -->|label=ok| boot_interactive_efi__signal_prepare_pass
+boot_interactive_efi__set_verdict_pass -.->|timeout| boot_interactive_efi__signal_prepare_pass
+boot_interactive_efi__set_verdict_fail -->|label=ok| boot_interactive_efi__signal_prepare_fail
+boot_interactive_efi__set_verdict_fail -.->|timeout| boot_interactive_efi__signal_prepare_fail
+boot_interactive_efi__signal_prepare_pass -->|label=ok| boot_interactive_efi__join_prepare_pass
+boot_interactive_efi__signal_prepare_pass -.->|timeout| boot_interactive_efi__join_prepare_pass
+boot_interactive_efi__join_prepare_pass -->|label=pass| boot_interactive_efi__pass
+boot_interactive_efi__join_prepare_pass -->|label=fail| boot_interactive_efi__relay_fallback_pass
+boot_interactive_efi__join_prepare_pass -.->|timeout| boot_interactive_efi__relay_fallback_pass
+boot_interactive_efi__signal_prepare_fail -->|label=ok| boot_interactive_efi__join_prepare_fail
+boot_interactive_efi__signal_prepare_fail -.->|timeout| boot_interactive_efi__join_prepare_fail
+boot_interactive_efi__join_prepare_fail -->|label=pass| boot_interactive_efi__fail
+boot_interactive_efi__join_prepare_fail -->|label=fail| boot_interactive_efi__relay_fallback_fail
+boot_interactive_efi__join_prepare_fail -.->|timeout| boot_interactive_efi__relay_fallback_fail
+boot_interactive_efi__relay_fallback_pass -->|label=ok| boot_interactive_efi__pass
+boot_interactive_efi__relay_fallback_pass -.->|timeout| boot_interactive_efi__pass
+boot_interactive_efi__relay_fallback_fail -->|label=ok| boot_interactive_efi__fail
+boot_interactive_efi__relay_fallback_fail -.->|timeout| boot_interactive_efi__fail
+boot_interactive_efi__run_bootefi -->|label=pass| boot_interactive_efi__wait_efi
+boot_interactive_efi__run_bootefi -->|label=fail| boot_interactive_efi__set_verdict_fail
+boot_interactive_efi__run_bootefi -.->|timeout| boot_interactive_efi__set_verdict_fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class boot_interactive_efi__pass pass;
+class boot_interactive_efi__fail fail;

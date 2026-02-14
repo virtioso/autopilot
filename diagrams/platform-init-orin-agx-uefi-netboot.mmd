@@ -1,0 +1,14 @@
+flowchart TD
+subgraph platform_init_orin_agx_uefi_netboot[platform-init-orin-agx-uefi-netboot]
+platform_init_orin_agx_uefi_netboot_start((start))
+platform_init_orin_agx_uefi_netboot_start --> platform_init_orin_agx_uefi_netboot__set_overrides
+platform_init_orin_agx_uefi_netboot__set_overrides["set_overrides<br/>type=set_overrides"]
+platform_init_orin_agx_uefi_netboot__pass["pass<br/>type=pass"]
+platform_init_orin_agx_uefi_netboot__fail["fail<br/>type=fail"]
+platform_init_orin_agx_uefi_netboot__set_overrides -->|label=ok| platform_init_orin_agx_uefi_netboot__pass
+platform_init_orin_agx_uefi_netboot__set_overrides -.->|timeout| platform_init_orin_agx_uefi_netboot__fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class platform_init_orin_agx_uefi_netboot__pass pass;
+class platform_init_orin_agx_uefi_netboot__fail fail;

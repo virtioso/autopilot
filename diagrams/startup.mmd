@@ -1,0 +1,23 @@
+flowchart TD
+subgraph startup[startup]
+startup_start((start))
+startup_start --> startup__map_tty0
+startup__map_tty0["map_tty0<br/>type=map_source<br/>source=tty0<br/>tty=env:AUTOPILOT_TTY0<br/>log=console/tty0.jsonl"]
+startup__map_tty1["map_tty1<br/>type=map_source<br/>source=tty1<br/>tty=env:AUTOPILOT_TTY1<br/>log=console/tty1.jsonl"]
+startup__window1["window1<br/>type=map_window<br/>window=1<br/>source=tty0<br/>title=TTY0"]
+startup__window2["window2<br/>type=map_window<br/>window=2<br/>source=tty1<br/>title=TTY1"]
+startup__pass["pass<br/>type=pass"]
+startup__fail["fail<br/>type=fail"]
+startup__map_tty0 -->|label=ok| startup__map_tty1
+startup__map_tty0 -.->|timeout| startup__fail
+startup__map_tty1 -->|label=ok| startup__window1
+startup__map_tty1 -.->|timeout| startup__fail
+startup__window1 -->|label=ok| startup__window2
+startup__window1 -.->|timeout| startup__fail
+startup__window2 -->|label=ok| startup__pass
+startup__window2 -.->|timeout| startup__fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class startup__pass pass;
+class startup__fail fail;

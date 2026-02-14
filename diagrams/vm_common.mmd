@@ -1,0 +1,91 @@
+flowchart TD
+subgraph vm_common[vm_common]
+vm_common_start((start))
+vm_common_start --> vm_common__map_tty0
+vm_common__map_tty0["map_tty0<br/>type=map_source<br/>source=tty0<br/>tty=env:AUTOPILOT_TTY0<br/>log=console/tty0.raw"]
+vm_common__map_tty1["map_tty1<br/>type=map_source<br/>source=tty1<br/>tty=env:AUTOPILOT_TTY1<br/>log=console/tty1.raw"]
+vm_common__window1["window1<br/>type=map_window<br/>window=1<br/>source=tty0<br/>title=TTY0"]
+vm_common__window2["window2<br/>type=map_window<br/>window=2<br/>source=tty1<br/>title=TTY1"]
+vm_common__purge_uarts["purge_uarts<br/>type=purge_sources"]
+vm_common__relay_power["relay_power<br/>type=relay"]
+vm_common__spawn_prepare_task["spawn_prepare_task<br/>type=task_spawn<br/>task=prepare_next_run<br/>chain=prepare_next_run_task<br/>chain_file=/home/hlyytine/autopilot/chains/prepare_next_run_task.json"]
+vm_common__elfloader_started["elfloader_started<br/>type=wait_pattern<br/>timeout_s=300"]
+vm_common__parallel_vm_boot_split["parallel_vm_boot_split<br/>type=parallel_split"]
+vm_common__parallel_vm_boot_join["parallel_vm_boot_join<br/>type=parallel_join<br/>join_groups=['vm_boot_and_ftrace_watch']<br/>reduce=any_pass"]
+vm_common__filter_logs_pass["filter_logs_pass<br/>type=analyze_logs<br/>command=['bash', '-lc', '{code_root}/filter_capdl_start.py < \\'{result_dir}/console/t..."]
+vm_common__filter_logs_fail["filter_logs_fail<br/>type=analyze_logs<br/>command=['bash', '-lc', '{code_root}/filter_capdl_start.py < \\'{result_dir}/console/t..."]
+vm_common__filter_logs_fail_ftrace_overflow["filter_logs_fail_ftrace_overflow<br/>type=analyze_logs<br/>command=['bash', '-lc', '{code_root}/filter_capdl_start.py < \\'{result_dir}/console/t..."]
+vm_common__filter_logs_fail_vm0_abort["filter_logs_fail_vm0_abort<br/>type=analyze_logs<br/>command=['bash', '-lc', '{code_root}/filter_capdl_start.py < \\'{result_dir}/console/t..."]
+vm_common__set_verdict_pass["set_verdict_pass<br/>type=set_test_verdict"]
+vm_common__set_verdict_fail["set_verdict_fail<br/>type=set_test_verdict"]
+vm_common__signal_prepare_pass["signal_prepare_pass<br/>type=signal_set<br/>signal=prepare_next_run_go"]
+vm_common__join_prepare_pass["join_prepare_pass<br/>type=task_join<br/>tasks=['prepare_next_run']<br/>reduce=all_pass"]
+vm_common__signal_prepare_fail["signal_prepare_fail<br/>type=signal_set<br/>signal=prepare_next_run_go"]
+vm_common__join_prepare_fail["join_prepare_fail<br/>type=task_join<br/>tasks=['prepare_next_run']<br/>reduce=all_pass"]
+vm_common__relay_fallback_pass["relay_fallback_pass<br/>type=relay"]
+vm_common__relay_fallback_fail["relay_fallback_fail<br/>type=relay"]
+vm_common__pass["pass<br/>type=pass"]
+vm_common__fail["fail<br/>type=fail"]
+vm_common__run_bootefi["run_bootefi<br/>type=call_chain<br/>chain=bootefi_orin_netboot<br/>chain_file=/home/hlyytine/autopilot/chains/bootefi_orin_netboot.json"]
+vm_common__parallel_vm_boot_split__branch__main_vm_boot["parallel_vm_boot_split:main_vm_boot<br/>type=parallel_branch<br/>chain=vm_wait_boot"]
+vm_common__parallel_vm_boot_split__branch__ftrace_watchdog["parallel_vm_boot_split:ftrace_watchdog<br/>type=parallel_branch<br/>chain=monitor_ftrace_storage_full<br/>chain_file=/home/hlyytine/autopilot/chains/monitor_ftrace_storage_full.json"]
+vm_common__map_tty0 -->|label=ok| vm_common__map_tty1
+vm_common__map_tty0 -.->|timeout| vm_common__fail
+vm_common__map_tty1 -->|label=ok| vm_common__window1
+vm_common__map_tty1 -.->|timeout| vm_common__fail
+vm_common__window1 -->|label=ok| vm_common__window2
+vm_common__window1 -.->|timeout| vm_common__fail
+vm_common__window2 -->|label=ok| vm_common__purge_uarts
+vm_common__window2 -.->|timeout| vm_common__fail
+vm_common__purge_uarts -->|label=ok| vm_common__relay_power
+vm_common__purge_uarts -.->|timeout| vm_common__fail
+vm_common__relay_power -->|label=ok| vm_common__spawn_prepare_task
+vm_common__relay_power -.->|timeout| vm_common__fail
+vm_common__spawn_prepare_task -->|label=ok| vm_common__run_bootefi
+vm_common__spawn_prepare_task -.->|timeout| vm_common__fail
+vm_common__elfloader_started -->|label=ftrace_overflow, src=tty0, pat=FTRACE: Storage full| vm_common__filter_logs_fail_ftrace_overflow
+vm_common__elfloader_started -->|label=kernel_data_abort, src=tty0, pat=KERNEL DATA ABORT!/Kernel entry via VCPUFault| vm_common__filter_logs_fail_vm0_abort
+vm_common__elfloader_started -->|label=elfloader, src=tty0, pat=ELF-loader started on CPU| vm_common__parallel_vm_boot_split
+vm_common__elfloader_started -.->|timeout| vm_common__filter_logs_fail
+vm_common__parallel_vm_boot_split -->|branch=main_vm_boot| vm_common__parallel_vm_boot_split__branch__main_vm_boot
+vm_common__parallel_vm_boot_split -->|branch=ftrace_watchdog| vm_common__parallel_vm_boot_split__branch__ftrace_watchdog
+vm_common__parallel_vm_boot_split__branch__main_vm_boot -->|label=ok| vm_common__parallel_vm_boot_join
+vm_common__parallel_vm_boot_split__branch__ftrace_watchdog -->|label=ok| vm_common__parallel_vm_boot_join
+vm_common__parallel_vm_boot_split -.->|timeout| vm_common__filter_logs_fail
+vm_common__parallel_vm_boot_join -->|label=pass| vm_common__filter_logs_pass
+vm_common__parallel_vm_boot_join -->|label=fail| vm_common__filter_logs_fail
+vm_common__parallel_vm_boot_join -.->|timeout| vm_common__filter_logs_fail
+vm_common__filter_logs_pass -->|label=ok| vm_common__set_verdict_pass
+vm_common__filter_logs_pass -.->|timeout| vm_common__set_verdict_fail
+vm_common__filter_logs_fail -->|label=ok| vm_common__set_verdict_fail
+vm_common__filter_logs_fail -.->|timeout| vm_common__set_verdict_fail
+vm_common__filter_logs_fail_ftrace_overflow -->|label=ok| vm_common__set_verdict_fail
+vm_common__filter_logs_fail_ftrace_overflow -.->|timeout| vm_common__set_verdict_fail
+vm_common__filter_logs_fail_vm0_abort -->|label=ok| vm_common__set_verdict_fail
+vm_common__filter_logs_fail_vm0_abort -.->|timeout| vm_common__set_verdict_fail
+vm_common__set_verdict_pass -->|label=ok| vm_common__signal_prepare_pass
+vm_common__set_verdict_pass -.->|timeout| vm_common__signal_prepare_pass
+vm_common__set_verdict_fail -->|label=ok| vm_common__signal_prepare_fail
+vm_common__set_verdict_fail -.->|timeout| vm_common__signal_prepare_fail
+vm_common__signal_prepare_pass -->|label=ok| vm_common__join_prepare_pass
+vm_common__signal_prepare_pass -.->|timeout| vm_common__join_prepare_pass
+vm_common__join_prepare_pass -->|label=pass| vm_common__pass
+vm_common__join_prepare_pass -->|label=fail| vm_common__relay_fallback_pass
+vm_common__join_prepare_pass -.->|timeout| vm_common__relay_fallback_pass
+vm_common__signal_prepare_fail -->|label=ok| vm_common__join_prepare_fail
+vm_common__signal_prepare_fail -.->|timeout| vm_common__join_prepare_fail
+vm_common__join_prepare_fail -->|label=pass| vm_common__fail
+vm_common__join_prepare_fail -->|label=fail| vm_common__relay_fallback_fail
+vm_common__join_prepare_fail -.->|timeout| vm_common__relay_fallback_fail
+vm_common__relay_fallback_pass -->|label=ok| vm_common__pass
+vm_common__relay_fallback_pass -.->|timeout| vm_common__pass
+vm_common__relay_fallback_fail -->|label=ok| vm_common__fail
+vm_common__relay_fallback_fail -.->|timeout| vm_common__fail
+vm_common__run_bootefi -->|label=pass| vm_common__elfloader_started
+vm_common__run_bootefi -->|label=fail| vm_common__set_verdict_fail
+vm_common__run_bootefi -.->|timeout| vm_common__set_verdict_fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class vm_common__pass pass;
+class vm_common__fail fail;

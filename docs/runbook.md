@@ -154,12 +154,12 @@ typically binds:
 
 This ensures tmux source windows can be created immediately.
 
-### Forked Recovery Boot
+### Background Prepare-Next-Run Task
 
-During a test, Autopilot may start a **forked** recovery boot chain to return
-the board to stock Linux while log parsing continues. The main chain reports
-results immediately; the recovery runs in the background unless a join is
-explicitly requested.
+During a test, Autopilot may start a background prepare-next-run task
+(`task_spawn`) that waits for an explicit signal before running recovery boot.
+The main flow can continue log analysis and verdict handling, then signal and
+join the task (`signal_set` + `task_join`) before terminal pass/fail.
 
 ### Parallel Groups
 
@@ -194,8 +194,9 @@ Interactive sessions end when the login prompt appears again (e.g. after
 typing `exit`). The chain only ends **after** a shell prompt has been seen,
 so the initial login banner does not terminate the session.
 
-On success, the interactive chains **fork a recovery boot** to return the
-board to stock Linux in the background while the run reports `pass`.
+On success, interactive chains set verdict first, then signal/join the
+prepare-next-run task so recovery outcome can be observed before terminal
+status is finalized.
 
 If `hold_open` is set to `false`, the interactive step returns immediately
 while leaving the session active for humans or AI tools.
@@ -304,7 +305,8 @@ Executable chains live in `<code_root>/chains` as one file per chain (`<name>.js
 
 Each request field `profile` selects the root chain file by name (`chains/<profile>.json`).
 
-Reusable flow is expressed by referencing other chain files via `fork`, `call_chain`, and parallel group branches.
+Reusable flow is expressed by referencing other chain files via `task_spawn`,
+`call_chain`, and parallel group branches.
 
 Console login/prompt profiles remain in `<code_root>/profiles` (for example
 `linux-yocto.json`, `ubuntu-22.json`).
@@ -320,7 +322,7 @@ Example step types:
 - `map_window`
 - `send_cmd`
 - `interactive_console`
-- `fork`, `call_chain`, `join`
+- `task_spawn`, `task_join`, `signal_set`, `signal_wait`, `call_chain`, `join`
 - `parallel_split`, `parallel_join`
 - `set_overrides`
 - `pass`, `fail`
@@ -346,4 +348,4 @@ Example step types:
 
 ### Recovery Boot Not Completing
 1. Verify recovery chain definition in the profile.
-2. Check `results/<timestamp>/chain.json` fork status.
+2. Check `results/<timestamp>/chain.json` task and parallel-group status.

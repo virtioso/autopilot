@@ -1,0 +1,17 @@
+flowchart TD
+subgraph bootefi_orin_netboot[bootefi_orin_netboot]
+bootefi_orin_netboot_start((start))
+bootefi_orin_netboot_start --> bootefi_orin_netboot__upload_efi
+bootefi_orin_netboot__upload_efi["upload_efi<br/>type=upload_efi<br/>target_path=/tftp/efi/bootimg.efi"]
+bootefi_orin_netboot__reboot_efi["reboot_efi<br/>type=reboot<br/>method=relay"]
+bootefi_orin_netboot__pass["pass<br/>type=pass"]
+bootefi_orin_netboot__fail["fail<br/>type=fail"]
+bootefi_orin_netboot__upload_efi -->|label=ok| bootefi_orin_netboot__reboot_efi
+bootefi_orin_netboot__upload_efi -.->|timeout| bootefi_orin_netboot__fail
+bootefi_orin_netboot__reboot_efi -->|label=ok| bootefi_orin_netboot__pass
+bootefi_orin_netboot__reboot_efi -.->|timeout| bootefi_orin_netboot__fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class bootefi_orin_netboot__pass pass;
+class bootefi_orin_netboot__fail fail;

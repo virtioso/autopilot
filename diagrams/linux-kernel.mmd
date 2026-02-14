@@ -1,0 +1,72 @@
+flowchart TD
+subgraph linux_kernel[linux-kernel]
+linux_kernel_start((start))
+linux_kernel_start --> linux_kernel__map_tty0
+linux_kernel__map_tty0["map_tty0<br/>type=map_source<br/>source=tty0<br/>tty=env:AUTOPILOT_TTY0<br/>log=console/tty0.jsonl"]
+linux_kernel__window1["window1<br/>type=map_window<br/>window=1<br/>source=tty0<br/>title=TTY0"]
+linux_kernel__relay_power["relay_power<br/>type=relay"]
+linux_kernel__spawn_prepare_task["spawn_prepare_task<br/>type=task_spawn<br/>task=prepare_next_run<br/>chain=prepare_next_run_task<br/>chain_file=/home/hlyytine/autopilot/chains/prepare_next_run_task.json"]
+linux_kernel__boot_stock["boot_stock<br/>type=boot_menu<br/>source=tty0<br/>boot_option=1"]
+linux_kernel__wait_stock_prompt["wait_stock_prompt<br/>type=wait_pattern<br/>timeout_s=180"]
+linux_kernel__interactive_stock["interactive_stock<br/>type=interactive_console<br/>sessions=tty0/ubuntu-22"]
+linux_kernel__upload_kernel["upload_kernel<br/>type=upload_kernel<br/>target_user=root<br/>target_ip={target_ip}<br/>target_path=/boot/Image-{kernel_release}"]
+linux_kernel__reboot_test["reboot_test<br/>type=reboot<br/>method=ssh<br/>target_user=root<br/>target_ip={target_ip}"]
+linux_kernel__boot_test["boot_test<br/>type=boot_menu<br/>source=tty0<br/>boot_option=2"]
+linux_kernel__wait_kernel["wait_kernel<br/>type=wait_pattern<br/>timeout_s=300"]
+linux_kernel__set_verdict_pass["set_verdict_pass<br/>type=set_test_verdict"]
+linux_kernel__set_verdict_fail["set_verdict_fail<br/>type=set_test_verdict"]
+linux_kernel__signal_prepare_pass["signal_prepare_pass<br/>type=signal_set<br/>signal=prepare_next_run_go"]
+linux_kernel__join_prepare_pass["join_prepare_pass<br/>type=task_join<br/>tasks=['prepare_next_run']<br/>reduce=all_pass"]
+linux_kernel__signal_prepare_fail["signal_prepare_fail<br/>type=signal_set<br/>signal=prepare_next_run_go"]
+linux_kernel__join_prepare_fail["join_prepare_fail<br/>type=task_join<br/>tasks=['prepare_next_run']<br/>reduce=all_pass"]
+linux_kernel__relay_fallback_pass["relay_fallback_pass<br/>type=relay"]
+linux_kernel__relay_fallback_fail["relay_fallback_fail<br/>type=relay"]
+linux_kernel__pass["pass<br/>type=pass"]
+linux_kernel__fail["fail<br/>type=fail"]
+linux_kernel__map_tty0 -->|label=ok| linux_kernel__window1
+linux_kernel__map_tty0 -.->|timeout| linux_kernel__fail
+linux_kernel__window1 -->|label=ok| linux_kernel__relay_power
+linux_kernel__window1 -.->|timeout| linux_kernel__fail
+linux_kernel__relay_power -->|label=ok| linux_kernel__spawn_prepare_task
+linux_kernel__relay_power -.->|timeout| linux_kernel__fail
+linux_kernel__spawn_prepare_task -->|label=ok| linux_kernel__boot_stock
+linux_kernel__spawn_prepare_task -.->|timeout| linux_kernel__fail
+linux_kernel__boot_stock -->|label=menu, src=tty0, pat=Press any .*boot default/Press ESCAPE for boot options/Enter to continue boot| linux_kernel__wait_stock_prompt
+linux_kernel__boot_stock -.->|timeout| linux_kernel__set_verdict_fail
+linux_kernel__wait_stock_prompt -->|label=prompt, src=tty0, pat=ubuntu@tegra-ubuntu:~\\$/tegra-ubuntu login:| linux_kernel__interactive_stock
+linux_kernel__wait_stock_prompt -.->|timeout| linux_kernel__set_verdict_fail
+linux_kernel__interactive_stock -->|label=ok| linux_kernel__upload_kernel
+linux_kernel__interactive_stock -.->|timeout| linux_kernel__upload_kernel
+linux_kernel__upload_kernel -->|label=ok| linux_kernel__reboot_test
+linux_kernel__upload_kernel -.->|timeout| linux_kernel__set_verdict_fail
+linux_kernel__reboot_test -->|label=ok| linux_kernel__boot_test
+linux_kernel__reboot_test -.->|timeout| linux_kernel__set_verdict_fail
+linux_kernel__boot_test -->|label=menu, src=tty0, pat=Press any .*boot default/Press ESCAPE for boot options/Enter to continue boot| linux_kernel__wait_kernel
+linux_kernel__boot_test -.->|timeout| linux_kernel__set_verdict_fail
+linux_kernel__wait_kernel -->|label=panic, src=tty0, pat=Kernel panic| linux_kernel__set_verdict_fail
+linux_kernel__wait_kernel -->|label=smmu, src=tty0, pat=Unexpected global fault/callbacks suppressed| linux_kernel__set_verdict_fail
+linux_kernel__wait_kernel -->|label=shell, src=tty0, pat=ubuntu@tegra-ubuntu:~\\$/tegra-ubuntu login:| linux_kernel__set_verdict_pass
+linux_kernel__wait_kernel -.->|timeout| linux_kernel__set_verdict_fail
+linux_kernel__set_verdict_pass -->|label=ok| linux_kernel__signal_prepare_pass
+linux_kernel__set_verdict_pass -.->|timeout| linux_kernel__signal_prepare_pass
+linux_kernel__set_verdict_fail -->|label=ok| linux_kernel__signal_prepare_fail
+linux_kernel__set_verdict_fail -.->|timeout| linux_kernel__signal_prepare_fail
+linux_kernel__signal_prepare_pass -->|label=ok| linux_kernel__join_prepare_pass
+linux_kernel__signal_prepare_pass -.->|timeout| linux_kernel__join_prepare_pass
+linux_kernel__join_prepare_pass -->|label=pass| linux_kernel__pass
+linux_kernel__join_prepare_pass -->|label=fail| linux_kernel__relay_fallback_pass
+linux_kernel__join_prepare_pass -.->|timeout| linux_kernel__relay_fallback_pass
+linux_kernel__signal_prepare_fail -->|label=ok| linux_kernel__join_prepare_fail
+linux_kernel__signal_prepare_fail -.->|timeout| linux_kernel__join_prepare_fail
+linux_kernel__join_prepare_fail -->|label=pass| linux_kernel__fail
+linux_kernel__join_prepare_fail -->|label=fail| linux_kernel__relay_fallback_fail
+linux_kernel__join_prepare_fail -.->|timeout| linux_kernel__relay_fallback_fail
+linux_kernel__relay_fallback_pass -->|label=ok| linux_kernel__pass
+linux_kernel__relay_fallback_pass -.->|timeout| linux_kernel__pass
+linux_kernel__relay_fallback_fail -->|label=ok| linux_kernel__fail
+linux_kernel__relay_fallback_fail -.->|timeout| linux_kernel__fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class linux_kernel__pass pass;
+class linux_kernel__fail fail;

@@ -1,0 +1,14 @@
+flowchart TD
+subgraph vm_wait_boot_minimal[vm_wait_boot_minimal]
+vm_wait_boot_minimal_start((start))
+vm_wait_boot_minimal_start --> vm_wait_boot_minimal__wait_vm_boot
+vm_wait_boot_minimal__wait_vm_boot["wait_vm_boot<br/>type=wait_pattern<br/>timeout_s=120"]
+vm_wait_boot_minimal__pass["pass<br/>type=pass"]
+vm_wait_boot_minimal__fail["fail<br/>type=fail"]
+vm_wait_boot_minimal__wait_vm_boot -->|label=vm, src=tty0, pat=driver-vm login:| vm_wait_boot_minimal__pass
+vm_wait_boot_minimal__wait_vm_boot -.->|timeout| vm_wait_boot_minimal__fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class vm_wait_boot_minimal__pass pass;
+class vm_wait_boot_minimal__fail fail;

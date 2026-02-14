@@ -82,7 +82,7 @@ PlantUML sources live in `docs/diagrams/`.
 1. Request is read from `requests/pending`.
 2. Root chain is loaded from `chains/<profile>.json`.
 3. Chain is validated.
-4. Main chain runs with optional forked recovery boot.
+4. Main chain runs with optional background prepare-next-run task (`task_spawn` + signal/join).
 5. Results are written to `results/<ts>/` and `chain.json` is finalized.
 
 ## Result Artifacts

@@ -1,0 +1,18 @@
+flowchart TD
+subgraph prepare_next_run_task[prepare_next_run_task]
+prepare_next_run_task_start((start))
+prepare_next_run_task_start --> prepare_next_run_task__wait_prepare_signal
+prepare_next_run_task__wait_prepare_signal["wait_prepare_signal<br/>type=signal_wait<br/>signal=prepare_next_run_go<br/>consume=True"]
+prepare_next_run_task__run_prepare["run_prepare<br/>type=call_chain<br/>chain=recovery_boot<br/>chain_file=/home/hlyytine/autopilot/chains/recovery_boot.json"]
+prepare_next_run_task__pass["pass<br/>type=pass"]
+prepare_next_run_task__fail["fail<br/>type=fail"]
+prepare_next_run_task__wait_prepare_signal -->|label=ok| prepare_next_run_task__run_prepare
+prepare_next_run_task__wait_prepare_signal -.->|timeout| prepare_next_run_task__wait_prepare_signal
+prepare_next_run_task__run_prepare -->|label=pass| prepare_next_run_task__pass
+prepare_next_run_task__run_prepare -->|label=fail| prepare_next_run_task__fail
+prepare_next_run_task__run_prepare -.->|timeout| prepare_next_run_task__fail
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class prepare_next_run_task__pass pass;
+class prepare_next_run_task__fail fail;
