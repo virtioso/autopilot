@@ -152,3 +152,101 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - Commit: `9af56a1`
 - Message: `docs: document parallel branch cancel metadata in chain.json`
+
+## Step 2026-02-14-07
+
+Summary:
+- Add migration-stage semantic guards for `join` vs `parallel_join` field usage.
+
+Pre-step DRY/SSOT gate:
+- Canonical behavior source: `chain_runtime.py`.
+- Derived docs impacted: none (runtime-only validation tightening).
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Reject `parallel_join` steps that define `chain`.
+- Reject legacy `join` steps that define `group`.
+
+Post-step DRY/SSOT gate:
+- Legacy and coordinated join semantics are explicitly separated by validation.
+
+Post-step commit gate:
+- Commit: `b30f91c`
+- Message: `runtime: reject ambiguous join/parallel_join fields`
+
+## Step 2026-02-14-08
+
+Summary:
+- Add runtime `cancel_reason` metadata for canceled non-winner parallel branches.
+
+Pre-step DRY/SSOT gate:
+- Canonical runtime trace source: `chain_runtime.py`.
+- Derived consumer target: trace visualization.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Added `cancel_reason` field to recorded parallel branch state.
+- Populate `winner:<branch>` when cancellation is due to winner latch.
+
+Post-step DRY/SSOT gate:
+- Runtime metadata now carries explicit cancellation provenance.
+
+Post-step commit gate:
+- Commit: `1616f21`
+- Message: `runtime: record parallel branch cancel reason metadata`
+
+## Step 2026-02-14-09
+
+Summary:
+- Render `parallel_groups` winner/canceled state in trace diagrams.
+
+Pre-step DRY/SSOT gate:
+- Canonical visualization source: `tools/autopilot_chain_viz.py`.
+- Runtime metadata source: `chain_runtime.py` (`parallel_groups` + `cancel_reason`).
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Added dedicated trace subgraph for parallel groups.
+- Styled winner and canceled branches distinctly.
+
+Post-step DRY/SSOT gate:
+- Visualization and runtime metadata are aligned.
+
+Post-step commit gate:
+- Commit: `91c4b16`
+- Message: `tools: show parallel group winner and canceled branches in traces`
+
+## Step 2026-02-14-10
+
+Summary:
+- Inventory and classify all `fork`/`join`/parallel usage in chain files.
+
+Pre-step DRY/SSOT gate:
+- Canonical source: `chains/*.json`.
+- Derived output: migration inventory doc.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Created `docs/parallel-chains-inventory.md` with:
+  - coordinated parallel flows,
+  - legacy fork/join usage classification,
+  - final-rename blockers.
+
+Post-step DRY/SSOT gate:
+- Inventory establishes current baseline and blockers for rename gate.
+
+Post-step commit gate:
+- Commit: `8ec5175`
+- Message: `docs: inventory fork/join and parallel group usage`
