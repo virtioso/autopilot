@@ -347,3 +347,30 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - Commit: `2691cdd`
 - Message: `runtime: add test verdict state and expose it in status APIs`
+
+## Step 2026-02-14-14
+
+Summary:
+- Adopt explicit verdict-setting in `vm_common` before recovery tail steps.
+
+Pre-step DRY/SSOT gate:
+- Canonical behavior source: `docs/chain-spec.md` (`set_test_verdict`).
+- Chain migration target: `chains/vm_common.json`.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Added `set_verdict_pass` and `set_verdict_fail` using `set_test_verdict`.
+- Routed log-analysis pass/fail transitions through verdict steps before recovery forks.
+
+Verification:
+- `validate_chain(vm_common)` returns `ok`.
+
+Post-step DRY/SSOT gate:
+- Chain semantics now use explicit verdict-setting and remain behaviorally equivalent for current terminal routing.
+
+Post-step commit gate:
+- Commit: `af9acba`
+- Message: `chains: set explicit test verdict before vm_common recovery`
