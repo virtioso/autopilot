@@ -15,7 +15,7 @@ operator interaction.
 - Chain files live in `<code_root>/chains`.
 - The chain runner executes steps and routes based on regex outcomes.
 - Chains can invoke other chains:
-  - `fork` for asynchronous execution
+  - `task_spawn` for asynchronous execution
   - `call_chain` for synchronous inline execution
   - `parallel_split`/`parallel_join` for concurrent groups with reducer-based join
   - `task_spawn`/`task_join` for daemon-scoped background task orchestration

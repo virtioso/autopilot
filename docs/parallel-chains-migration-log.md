@@ -631,3 +631,65 @@ Verification:
 
 Post-step DRY/SSOT gate:
 - Autopilot docs and generated diagrams are now aligned with migrated chain behavior and no longer describe removed fork-recovery paths.
+
+Post-step commit gate:
+- `~/autopilot` commit: `dd895f6`
+- Message: `docs: sync runtime semantics and regenerate chain diagrams`
+- `~/tii-sel4/projects/virtioso-camkes-vm` commit: `24dbc81`
+- Message: `docs: refresh autopilot chain reference diagrams`
+
+## Step 2026-02-14-22
+
+Summary:
+- Remove remaining legacy `fork`/`join` runtime plumbing and corresponding trace fields.
+
+Pre-step DRY/SSOT gate:
+- Chains already migrated off legacy fork/join usage.
+- Runtime still contained legacy handlers and output fields (`forks`, `chain.fork.*` paths), violating no-transition direction.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- `chain_runtime.py`:
+  - removed legacy `fork`/`join` dispatch handlers and implementation paths,
+  - validation now rejects `type=fork` and `type=join`,
+  - removed `forks` recording from `chain.json`,
+  - replaced abort recovery `fork` path with detached chain runner (`chain.abort_recovery.*.json`).
+- `orin_kernel_autopilot.py`:
+  - removed legacy `forks`/`fork_recorders` context fields.
+- `sel4_client.py`:
+  - canceled result writer no longer emits `forks` metadata.
+
+Verification:
+- `python3 -m py_compile chain_runtime.py orin_kernel_autopilot.py sel4_client.py`
+- `validate_chain` passes for all chain JSON files under `chains/`.
+- grep check confirms no runtime code references to legacy fork/join handlers remain.
+
+Post-step DRY/SSOT gate:
+- Runtime semantics now match migrated chain model (task/signal + parallel groups) without legacy fork/join compatibility paths.
+
+## Step 2026-02-14-23
+
+Summary:
+- Remove legacy fork-trace rendering from visualization tooling.
+
+Pre-step DRY/SSOT gate:
+- Runtime no longer emits `chain.fork.*.json`; diagrams should not expose obsolete include-fork mode.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean before edits.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean before edits.
+
+Implementation:
+- `tools/autopilot_chain_viz.py`:
+  - removed `--include-forks` option and related trace rendering path,
+  - removed fork-specific static graph edge rendering logic.
+
+Verification:
+- `python3 -m py_compile tools/autopilot_chain_viz.py`
+- `python3 tools/autopilot_chain_viz.py --all --docs --profiles-dir /home/hlyytine/autopilot/chains`
+
+Post-step DRY/SSOT gate:
+- Visualization now tracks only active chain semantics and artifacts.

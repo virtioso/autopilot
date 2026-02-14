@@ -21,7 +21,7 @@ Required fields:
 - `steps`: dictionary of step definitions.
 
 There is no `subchains` object. Reuse is done by referencing other chain files
-with `fork` (async), `call_chain` (sync), and parallel-group steps.
+with `task_spawn` (async), `call_chain` (sync), and parallel-group steps.
 
 ## Step Definition
 
@@ -64,9 +64,7 @@ Action steps:
 - `send_cmd`
 - `interactive_console`
 - `analyze_logs`
-- `fork`
 - `call_chain`
-- `join`
 - `parallel_split`
 - `parallel_join`
 - `task_spawn`
@@ -82,7 +80,7 @@ Terminal steps:
 
 ## Chain Reference Rules
 
-For steps that reference another chain (`fork`, `call_chain`):
+For steps that reference another chain (`task_spawn`, `call_chain`):
 - `chain` must be a bare chain name (no path, no `.json`).
 - Resolution path is fixed: `<code_root>/chains/<name>.json`.
 - Names must match `[A-Za-z0-9._-]+`.
@@ -96,19 +94,6 @@ Monitor branch policy:
 - monitor branches are fail-only,
 - monitor branches must not contain terminal `pass` steps (directly or through `call_chain`),
 - validation rejects monitor branches that can reach `pass`.
-
-## Example: fork
-
-```json
-{
-  "type": "fork",
-  "chain": "recovery_boot",
-  "outcomes": [
-    { "label": "started", "next": "parse_results" }
-  ],
-  "on_timeout": "parse_results"
-}
-```
 
 ## Example: call_chain
 

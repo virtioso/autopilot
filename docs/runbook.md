@@ -322,7 +322,7 @@ Example step types:
 - `map_window`
 - `send_cmd`
 - `interactive_console`
-- `task_spawn`, `task_join`, `signal_set`, `signal_wait`, `call_chain`, `join`
+- `task_spawn`, `task_join`, `signal_set`, `signal_wait`, `call_chain`
 - `parallel_split`, `parallel_join`
 - `set_overrides`
 - `pass`, `fail`
