@@ -126,7 +126,10 @@
     },
     "parallel_vm_boot_join": {
       "type": "parallel_join",
-      "group": "vm_boot_and_ftrace_watch",
+      "join_groups": [
+        "vm_boot_and_ftrace_watch"
+      ],
+      "reduce": "any_pass",
       "timeout_s": 300,
       "outcomes": [
         {

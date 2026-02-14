@@ -273,6 +273,7 @@ def validate_chain(chain: dict) -> None:
     steps = chain["steps"]
     if chain["entry"] not in steps:
         raise ChainValidationError("entry step not found in steps")
+    split_groups = set()
     for name, step in steps.items():
         if "type" not in step:
             raise ChainValidationError(f"step {name} missing type")
@@ -296,6 +297,25 @@ def validate_chain(chain: dict) -> None:
             if "chain" in step:
                 raise ChainValidationError(
                     f"step {name} parallel_join must not define 'chain' (use legacy 'join' for fork joins)"
+                )
+            if "group" in step:
+                raise ChainValidationError(
+                    f"step {name} parallel_join must use 'join_groups', not legacy 'group'"
+                )
+            join_groups = step.get("join_groups")
+            if not isinstance(join_groups, list) or not join_groups:
+                raise ChainValidationError(
+                    f"step {name} parallel_join requires non-empty join_groups list"
+                )
+            for group_name in join_groups:
+                if not isinstance(group_name, str) or not group_name.strip():
+                    raise ChainValidationError(
+                        f"step {name} parallel_join has invalid join_groups entry: {group_name}"
+                    )
+            reduce_mode = str(step.get("reduce", "")).strip()
+            if reduce_mode not in ("any_pass", "all_pass"):
+                raise ChainValidationError(
+                    f"step {name} parallel_join requires reduce=any_pass|all_pass"
                 )
             labels = {outcome.get("label") for outcome in step.get("outcomes", [])}
             if "pass" not in labels or "fail" not in labels:
@@ -321,10 +341,22 @@ def validate_chain(chain: dict) -> None:
                         f"step {name} duplicate branch name: {branch_name}"
                     )
                 names.add(branch_name)
+            group_name = str(step.get("group", "")).strip()
+            if not group_name:
+                raise ChainValidationError(f"step {name} parallel_split requires non-empty group")
+            split_groups.add(group_name)
         if step.get("type") == "join":
             if "group" in step:
                 raise ChainValidationError(
                     f"step {name} join uses legacy fork semantics; use parallel_join for grouped branch joins"
+                )
+    for name, step in steps.items():
+        if step.get("type") != "parallel_join":
+            continue
+        for group_name in step.get("join_groups", []):
+            if str(group_name).strip() not in split_groups:
+                raise ChainValidationError(
+                    f"step {name} references unknown join group: {group_name}"
                 )
 
 
@@ -909,9 +941,19 @@ class ChainRunner:
                 "finished_at": state.get("finished_at"),
                 "cancel_reason": state.get("cancel_reason"),
             }
+        join_state = group.get("join")
+        join_copy = None
+        if isinstance(join_state, dict):
+            join_copy = {
+                "reduce": join_state.get("reduce"),
+                "decision": join_state.get("decision"),
+                "joined_groups": list(join_state.get("joined_groups", [])),
+                "decided_at": join_state.get("decided_at"),
+            }
         return {
             "winner": winner_copy,
             "branches": branches,
+            "join": join_copy,
         }
 
     def _snapshot_parallel_group(self, group: dict) -> dict:
@@ -1012,45 +1054,90 @@ class ChainRunner:
         return self._simple_outcome(step)
 
     def _step_parallel_join(self, step: dict) -> Tuple[str, OutcomeMatch]:
-        group_name = str(step.get("group", "")).strip()
-        if not group_name:
-            raise ValueError("parallel_join requires non-empty group")
+        join_groups = step.get("join_groups", [])
+        if not isinstance(join_groups, list) or not join_groups:
+            raise ValueError("parallel_join requires non-empty join_groups")
+        group_names = []
+        for group_name in join_groups:
+            group_name = str(group_name).strip()
+            if not group_name:
+                raise ValueError("parallel_join join_groups contains empty group name")
+            group_names.append(group_name)
+        reduce_mode = str(step.get("reduce", "")).strip()
+        if reduce_mode not in ("any_pass", "all_pass"):
+            raise ValueError("parallel_join requires reduce=any_pass|all_pass")
         groups = self.ctx.get("parallel_groups", {})
-        group = groups.get(group_name)
-        if not group:
-            raise ValueError(f"parallel_join unknown group: {group_name}")
+        for group_name in group_names:
+            if group_name not in groups:
+                raise ValueError(f"parallel_join unknown group: {group_name}")
 
         timeout_s = int(step.get("timeout_s", 60))
         deadline = time.time() + timeout_s
+        latched_decision = None
 
         while time.time() < deadline:
             self._check_cancel()
-            winner_label = None
-            completed = False
-            final_state = None
-            with group["lock"]:
-                winner = dict(group["winner"]) if group.get("winner") else None
-                threads = list(group["threads"].values())
-                if winner:
-                    for branch_name, cancel in group["cancel_flags"].items():
-                        if branch_name != winner["branch"]:
-                            cancel.set()
-                            other_state = group["branches"].get(branch_name)
-                            if other_state and other_state.get("status") == "running":
-                                other_state["cancel_reason"] = f"winner:{winner['branch']}"
-                    all_stopped = all(not t.is_alive() for t in threads)
-                    if all_stopped:
-                        winner_label = winner["status"]
-                        final_state = self._snapshot_parallel_group_unlocked(group)
-                        groups.pop(group_name, None)
-                        completed = True
-            if completed:
-                if final_state is not None:
-                    self.recorder.record_parallel_group(group_name, final_state)
-                return self._match_labeled_outcome(step, winner_label)
+            statuses = []
+            all_stopped = True
+            for group_name in group_names:
+                group = groups[group_name]
+                with group["lock"]:
+                    group_statuses = [str(s.get("status", "running")) for s in group.get("branches", {}).values()]
+                    statuses.extend(group_statuses)
+                    if any(t.is_alive() for t in group.get("threads", {}).values()):
+                        all_stopped = False
+
+            if latched_decision is None:
+                decision = None
+                if reduce_mode == "any_pass":
+                    if any(status == "pass" for status in statuses):
+                        decision = "pass"
+                    elif statuses and all(status in ("pass", "fail", "canceled") for status in statuses):
+                        decision = "fail"
+                elif reduce_mode == "all_pass":
+                    if any(status == "fail" for status in statuses):
+                        decision = "fail"
+                    elif statuses and all(status in ("pass", "canceled") for status in statuses):
+                        if all(status == "pass" for status in statuses):
+                            decision = "pass"
+                        else:
+                            decision = "fail"
+                if decision:
+                    latched_decision = decision
+                    for group_name in group_names:
+                        group = groups[group_name]
+                        with group["lock"]:
+                            if decision == "pass" and reduce_mode == "any_pass":
+                                winner = group.get("winner")
+                                winner_branch = winner.get("branch") if isinstance(winner, dict) else None
+                                for branch_name, cancel in group["cancel_flags"].items():
+                                    if branch_name != winner_branch:
+                                        cancel.set()
+                                        other_state = group["branches"].get(branch_name)
+                                        if other_state and other_state.get("status") == "running":
+                                            other_state["cancel_reason"] = f"winner:{winner_branch}" if winner_branch else "join_decision:pass"
+                            if decision == "fail" and reduce_mode == "all_pass":
+                                for branch_name, cancel in group["cancel_flags"].items():
+                                    cancel.set()
+                                    other_state = group["branches"].get(branch_name)
+                                    if other_state and other_state.get("status") == "running":
+                                        other_state["cancel_reason"] = "join_decision:fail"
+                            group["join"] = {
+                                "reduce": reduce_mode,
+                                "decision": decision,
+                                "joined_groups": list(group_names),
+                                "decided_at": time.time(),
+                            }
+                        self._record_parallel_group_state(group_name)
+
+            if latched_decision is not None and all_stopped:
+                for group_name in group_names:
+                    groups.pop(group_name, None)
+                return self._match_labeled_outcome(step, latched_decision)
             time.sleep(0.1)
 
-        self._record_parallel_group_state(group_name)
+        for group_name in group_names:
+            self._record_parallel_group_state(group_name)
         return self._match_labeled_outcome(step, "timeout")
 
     def _step_analyze_logs(self, step: dict) -> Tuple[str, OutcomeMatch]:
