@@ -18,6 +18,8 @@ operator interaction.
   - `fork` for asynchronous execution
   - `call_chain` for synchronous inline execution
   - `parallel_split`/`parallel_join` for concurrent groups with reducer-based join
+  - `task_spawn`/`task_join` for daemon-scoped background task orchestration
+  - `signal_set`/`signal_wait` for daemon-scoped inter-thread signaling
 - UART sources are dynamically mapped at runtime via chain steps.
 - Parallel task bookkeeping is moving to persistent daemon-level registries with
   explicit lifecycle states and signal/event coordination.

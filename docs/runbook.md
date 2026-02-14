@@ -242,6 +242,10 @@ Autopilot status also distinguishes:
 Chains can set verdict before workflow completion via:
 - `set_test_verdict` step (`verdict=pass|fail`)
 
+For daemon-scoped background orchestration, chains can use:
+- `task_spawn` / `task_join` for persistent named background tasks
+- `signal_set` / `signal_wait` for inter-thread signaling
+
 ## Submit a Request (Example)
 
 Requests reference a profile that contains a chain definition.

@@ -69,6 +69,10 @@ Action steps:
 - `join`
 - `parallel_split`
 - `parallel_join`
+- `task_spawn`
+- `task_join`
+- `signal_set`
+- `signal_wait`
 - `set_overrides`
 - `set_test_verdict`
 
@@ -169,6 +173,51 @@ For `parallel_join`:
 - use `reduce` (`any_pass` or `all_pass`),
 - `join_groups` targets must exist and be valid for the workflow scope,
 - unknown or missing join targets are rejected at validation/startup.
+
+## Task Registry and Signals
+
+Autopilot runtime provides daemon-scoped task and signal registries.
+
+- task registry lifetime is the daemon process lifetime (survives individual requests),
+- signal registry lifetime is the daemon process lifetime,
+- `task_join` is strict: all referenced tasks must exist.
+
+### `task_spawn`
+
+Required fields:
+- `task`: task name
+- `chain`: chain name to execute asynchronously
+
+Starts/replaces a named daemon-scoped task entry and runs the chain in a
+background thread.
+
+### `task_join`
+
+Required fields:
+- `tasks`: non-empty list of task names
+- `reduce`: `any_pass` or `all_pass`
+
+Reducer semantics:
+- `any_pass`: pass if any task passes; fail if all tasks fail/cancel.
+- `all_pass`: fail if any task fails; pass only if all tasks pass.
+
+### `signal_set`
+
+Required fields:
+- `signal`: signal name
+
+Increments signal counter and wakes waiting `signal_wait` steps.
+
+### `signal_wait`
+
+Required fields:
+- `signal`: signal name
+
+Optional fields:
+- `consume`: bool (default `true`)
+
+Waits for signal counter to become non-zero (within step timeout).
+If `consume=true`, decrements counter when matched.
 
 ## Runtime Trace Metadata (`chain.json`)
 

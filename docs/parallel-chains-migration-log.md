@@ -374,3 +374,37 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - Commit: `af9acba`
 - Message: `chains: set explicit test verdict before vm_common recovery`
+
+## Step 2026-02-14-15
+
+Summary:
+- Add daemon-scoped task registry and signal primitives to runtime.
+
+Pre-step DRY/SSOT gate:
+- Canonical direction source: `docs/parallel-chains-plan.md` (persistent tasks/signals).
+- Runtime targets: `chain_runtime.py`, `orin_kernel_autopilot.py`.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Added chain ops:
+  - `task_spawn`
+  - `task_join`
+  - `signal_set`
+  - `signal_wait`
+- Added strict validation for new ops (required fields/reducer labels).
+- Added daemon-scoped `task_registry` and `signals` storage in orchestrator and
+  injected into request/bootstrap contexts.
+
+Verification:
+- `python3 -m py_compile chain_runtime.py orin_kernel_autopilot.py`
+- `validate_chain(...)` smoke test for new op schema returned `ok`.
+
+Post-step DRY/SSOT gate:
+- Runtime now includes persistent bookkeeping/signaling primitives required by plan.
+
+Post-step commit gate:
+- Commit: `f9bef48`
+- Message: `runtime: add persistent task registry and signal chain ops`
