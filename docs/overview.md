@@ -17,7 +17,7 @@ AI tools.
 - **Parallel Groups**: Concurrent branch execution with first-result-wins join semantics.
 - **UART Source Mapping**: Dynamic `map_source` ties tty devices to logical sources.
 - **tmux-Native Operator UI**: Window switching, status, and abort control are handled by tmux.
-- **Structured Results**: `chain.json` captures step-by-step outcomes and errors.
+- **Structured Results**: `chain.json` captures step-by-step outcomes/errors plus parallel group winner/cancellation metadata.
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
 For Orin AGX EFI workflows, set

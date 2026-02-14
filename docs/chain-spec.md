@@ -158,6 +158,17 @@ Parallel-group semantics:
 - non-winner branches are canceled,
 - `parallel_join` returns the winner label once branches converge.
 
+## Runtime Trace Metadata (`chain.json`)
+
+When parallel groups are used, `chain.json` includes:
+- `parallel_groups.<group>.winner`:
+  - `branch`, `status`, `finished_at`
+- `parallel_groups.<group>.branches.<name>`:
+  - `chain`, `monitor`, `status`, `finished_at`, `cancel_reason`
+
+`cancel_reason` is set when a branch is canceled due to another branch winning
+(for example `winner:ftrace_watchdog`).
+
 ## Upload Methods
 
 `upload_kernel` and `upload_efi` support:
