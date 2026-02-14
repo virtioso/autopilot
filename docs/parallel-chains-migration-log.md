@@ -439,3 +439,44 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - Commit: `2b70ad0`
 - Message: `tools: visualize reducer joins and task/signal step fields`
+
+## Step 2026-02-14-17
+
+Summary:
+- Prototype `prepare_for_next_run` flow using daemon-scoped task/signal primitives.
+
+Pre-step DRY/SSOT gate:
+- Canonical runtime/schema source: `chain_runtime.py` + `docs/chain-spec.md`.
+- Chain migration targets: `chains/vm_common.json`, `chains/prepare_next_run_task.json`.
+
+Pre-step repo hygiene gate:
+- `~/autopilot`: clean.
+- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+
+Implementation:
+- Added `chains/prepare_next_run_task.json`:
+  - waits on `signal_wait(prepare_next_run_go)`,
+  - executes `recovery_boot`,
+  - returns `pass`/`fail`.
+- Updated `vm_common`:
+  - spawn prep task at start (`task_spawn`),
+  - set verdict after log analysis,
+  - signal prep start (`signal_set`),
+  - wait for prep completion (`task_join reduce=all_pass`),
+  - fallback to relay reset on prep fail/timeout.
+
+Obvious-bug escalation:
+- Found lifecycle bug: `run_bootefi fail` path skipped signal/join, leaving prep task blocked and causing next-run spawn failure.
+- Human direction: fix immediately.
+- Fix applied: route `run_bootefi fail/timeout` to `set_verdict_fail` path (which signals and joins prep task).
+
+Verification:
+- `validate_chain(prepare_next_run_task)` returns `ok`.
+- `validate_chain(vm_common)` returns `ok`.
+
+Post-step DRY/SSOT gate:
+- Prototype chain flow is aligned with task/signal runtime primitives and explicit verdict semantics.
+
+Post-step commit gate:
+- Commit: `3e164dd`
+- Message: `chains: prototype prepare-next-run task via task/signal ops`
