@@ -153,7 +153,7 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "fork_recovery_pass"
+          "next": "set_verdict_pass"
         }
       ],
       "on_timeout": "fork_recovery_fail"
@@ -168,7 +168,7 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "fork_recovery_fail"
+          "next": "set_verdict_fail"
         }
       ],
       "on_timeout": "fork_recovery_fail"
@@ -183,7 +183,7 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "fork_recovery_fail"
+          "next": "set_verdict_fail"
         }
       ],
       "on_timeout": "fork_recovery_fail"
@@ -195,6 +195,28 @@
         "-lc",
         "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\""
       ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "set_verdict_fail"
+        }
+      ],
+      "on_timeout": "fork_recovery_fail"
+    },
+    "set_verdict_pass": {
+      "type": "set_test_verdict",
+      "verdict": "pass",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fork_recovery_pass"
+        }
+      ],
+      "on_timeout": "fork_recovery_pass"
+    },
+    "set_verdict_fail": {
+      "type": "set_test_verdict",
+      "verdict": "fail",
       "outcomes": [
         {
           "label": "ok",
