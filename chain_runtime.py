@@ -293,6 +293,10 @@ def validate_chain(chain: dict) -> None:
                     f"step {name} call_chain requires outcomes for labels 'pass' and 'fail'"
                 )
         if step.get("type") == "parallel_join":
+            if "chain" in step:
+                raise ChainValidationError(
+                    f"step {name} parallel_join must not define 'chain' (use legacy 'join' for fork joins)"
+                )
             labels = {outcome.get("label") for outcome in step.get("outcomes", [])}
             if "pass" not in labels or "fail" not in labels:
                 raise ChainValidationError(
@@ -317,6 +321,11 @@ def validate_chain(chain: dict) -> None:
                         f"step {name} duplicate branch name: {branch_name}"
                     )
                 names.add(branch_name)
+        if step.get("type") == "join":
+            if "group" in step:
+                raise ChainValidationError(
+                    f"step {name} join uses legacy fork semantics; use parallel_join for grouped branch joins"
+                )
 
 
 class ChainRunner:
