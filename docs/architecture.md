@@ -17,8 +17,10 @@ operator interaction.
 - Chains can invoke other chains:
   - `fork` for asynchronous execution
   - `call_chain` for synchronous inline execution
-  - `parallel_split`/`parallel_join` for concurrent groups with first-result-wins join
+  - `parallel_split`/`parallel_join` for concurrent groups with reducer-based join
 - UART sources are dynamically mapped at runtime via chain steps.
+- Parallel task bookkeeping is moving to persistent daemon-level registries with
+  explicit lifecycle states and signal/event coordination.
 
 ## Core Components
 
@@ -39,7 +41,10 @@ operator interaction.
 - **Named Chain**: A reusable chain file addressable by name.
 
 **Data outputs**
-- `chain.json`: structured step results, outcomes, error codes, and log offsets.
+- `chain.json`: structured step results, outcomes, error codes, log offsets,
+  and parallel reducer/cancellation metadata.
+- Status model separates `test_verdict` from `workflow_state` so post-test
+  housekeeping can run without changing test outcome.
 
 ### 3) Boot Harnesses
 

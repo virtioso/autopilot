@@ -33,11 +33,14 @@ Add explicit parallel execution semantics via two pseudosteps:
 - execution continues to normal steps in each branch.
 
 2. `parallel_join` (renamed to `join` in final cutover)
-- consumes the first terminal outcome (`pass` or `fail`) produced by any branch,
-- immediately cancels remaining branches,
-- routes according to join outcomes (`pass` / `fail`).
+- joins one or more named parallel groups,
+- applies an explicit reducer to joined branch results,
+- routes according to reducer output (`pass` / `fail`),
+- optionally cancels non-completed branches only when reducer policy requires it.
 
-First terminal result wins (latched).
+Reducer policy:
+- `any_pass`: return `pass` as soon as any joined branch passes; return `fail` if all joined branches fail.
+- `all_pass`: return `fail` as soon as any joined branch fails; return `pass` only when all joined branches pass.
 
 ### Canonical Step Schema (Implementation Contract)
 
@@ -61,7 +64,8 @@ Current migration-stage schema (`parallel_split` / `parallel_join`) example:
 ```json
 {
   "type": "parallel_join",
-  "group": "vm_boot_and_ftrace_watch",
+  "join_groups": ["vm_boot_and_ftrace_watch"],
+  "reduce": "any_pass",
   "timeout_s": 300,
   "outcomes": [
     { "label": "pass", "next": "filter_logs_pass" },
@@ -140,15 +144,17 @@ Files:
 Runtime additions:
 1. New coordinated parallel step types: `parallel_split`, `parallel_join` (final rename target: `split`, `join`).
 2. Group runtime state in context (`parallel_groups`).
-3. Winner latching with timestamp + branch name.
-4. Branch cancellation propagation.
-5. Recorder extensions in `chain.json`:
+3. Reducer-based join semantics (`any_pass`, `all_pass`).
+4. Persistent task/group registry (daemon-level bookkeeping, not request-local only).
+5. Signal/event primitives for inter-thread orchestration.
+6. Test verdict state separated from workflow terminal state.
+7. Recorder extensions in `chain.json`:
 - group id,
 - branch statuses,
-- winner branch,
-- winner result,
-- winner timestamp.
-6. Validation rules for monitor branches (fail-only).
+- cancel reason,
+- reducer used,
+- reducer decision evidence.
+8. Validation rules for monitor branches (fail-only) and strict join-target existence.
 
 ## DRY and SSOT Check (Current)
 
@@ -200,6 +206,8 @@ Checked against:
 - Confirm immediate group fail on monitor trigger.
 - Confirm pass path when monitor does not fail.
 - Confirm `chain.json` includes parallel winner metadata.
+- Confirm `parallel_join reduce=any_pass` and `reduce=all_pass` behavior against fixtures.
+- Confirm verdict and workflow state are emitted independently.
 3. DRY/SSOT gate cadence
 - run DRY/SSOT checks before and after every migration step,
 - block progression when any post-step DRY/SSOT check fails.
@@ -290,31 +298,42 @@ Acceptance criteria:
 1. Keep coordinated parallel control on `parallel_split`/`parallel_join` during migration.
 2. Ensure legacy fork-join semantics remain non-ambiguous while migration is in progress.
 3. Enforce validation rules:
-- `parallel_join` must reference a valid active group.
+- `parallel_join` must reference only existing/known join targets.
 - monitor branches must be fail-only (must not reach terminal `pass`).
-4. Extend recorder output in `chain.json` with stable group metadata:
+4. Add reducer support to `parallel_join`:
+- `reduce=any_pass` and `reduce=all_pass`.
+5. Add persistent task/group registry with explicit lifecycle:
+- `created`, `running`, `pass`, `fail`, `canceled`.
+6. Add signal/event primitives:
+- wait/set semantics for inter-thread coordination.
+7. Introduce explicit test verdict state decoupled from workflow completion.
+8. Extend recorder output in `chain.json` with stable group metadata:
 - group id,
 - branch status map,
-- winner branch/result/timestamp,
+- reducer mode and decision result,
+- winner branch/result/timestamp when applicable,
 - cancellation reason where applicable.
-5. Add/extend runtime tests for:
-- first-terminal-wins latching,
+9. Add/extend runtime tests for:
+- reducer correctness (`any_pass`, `all_pass`),
 - branch cancellation propagation,
-- deterministic winner reporting.
+- deterministic decision reporting,
+- signal wait/set behavior,
+- verdict persistence independent of workflow tail steps.
 
 Acceptance criteria:
 - runtime accepts and enforces `parallel_split`/`parallel_join` semantics with no ambiguity against legacy `join`.
+- runtime rejects missing/unknown join targets.
 - validation rejects monitor branches that can reach terminal `pass`.
-- recorder writes complete winner metadata in `chain.json` for parallel groups.
-- automated tests cover winner-latch and branch-cancel behavior.
+- recorder writes complete reducer/decision metadata in `chain.json` for parallel groups.
+- automated tests cover reducer behavior, branch-cancel behavior, and signal semantics.
 - all phase-generated changes are committed in atomic logical commits; no carried uncommitted changes remain.
 
 ### Phase 2: Chain Migration (`~/autopilot/chains`)
 
 1. Inventory all `fork`/`join` usage.
 2. Classify each usage:
-- side-task fire-and-forget: keep as `fork`,
-- parent-outcome-dependent parallel logic: migrate to `parallel_split`/`parallel_join` first.
+- side-task fire-and-forget: migrate to explicit task-registry/signal-based pattern (no legacy `fork` dependency long-term),
+- parent-outcome-dependent parallel logic: migrate to `parallel_split`/`parallel_join` with explicit reducer.
 3. Migrate critical chains first (including `vm_common` / `vm-qemu-virtio` paths).
 4. Enforce hard migration:
 - no merged chains may use coordinated `fork`/legacy `join` where winner-based parallel behavior is required,
@@ -329,6 +348,7 @@ Acceptance criteria:
 Acceptance criteria:
 - all migrated chains use `parallel_split`/`parallel_join` for coordinated parallel behavior.
 - no coordinated migrated flow depends on legacy `fork`/`join` semantics.
+- prep-for-next-run flow is modeled using registry/signal-aware parallel primitives.
 - dynamic runs verify both pass-first and fail-first outcomes for critical chains.
 - all affected repos pass pre-step cleanliness checks for each migration step and finish clean after commits.
 
@@ -338,12 +358,21 @@ Acceptance criteria:
 - group status,
 - winner branch/result/time,
 - cancellation of non-winner branches.
-2. Remove compatibility paths and require consumers to use migration-stage `parallel_split`/`parallel_join` fields (until final rename cutover).
-3. Add integration validation:
+2. Expose reducer metadata and decision evidence:
+- reducer mode,
+- joined target list,
+- decision reason.
+3. Expose test verdict independently from workflow state:
+- `test_verdict` (`pass`/`fail`),
+- `workflow_state` (`running`/`housekeeping`/`completed`/`failed`).
+4. Remove compatibility paths and require consumers to use migration-stage `parallel_split`/`parallel_join` fields (until final rename cutover).
+5. Add integration validation:
 - monitor-triggered fail-first run must surface winner=`fail` at MCP level.
 
 Acceptance criteria:
 - MCP status outputs include group status, winner branch/result/timestamp, canceled branches.
+- MCP status outputs include reducer mode and decision reason.
+- MCP status outputs include `test_verdict` decoupled from `workflow_state`.
 - MCP consumers used in runbooks can read required fields for the current migration stage without compatibility shims.
 - integration test confirms winner metadata is visible end-to-end.
 - step outputs are committed in one or more logically grouped commits with no leftover working-tree noise.
@@ -383,11 +412,12 @@ Acceptance criteria:
 - static fixture for a 2+ branch parallel_split/parallel_join group must render multi-edge fan-out/fan-in,
 - runtime trace fixture must render winner and canceled branches distinctly,
 - regression check fails if any parallel group collapses to single-edge representation.
+- add fixtures for reducer modes (`any_pass`, `all_pass`) with explicit decision visualization.
 
 Acceptance criteria:
 - graph for each parallel_split node has one outgoing edge per configured branch.
 - graph for each parallel_join node has one incoming edge per participating branch terminal path.
-- winner/canceled branch states are visually distinguishable in trace output.
+- winner/canceled/decision states are visually distinguishable in trace output.
 - tooling/doc changes from each migration step are fully committed in logical units.
 
 ### Phase 6: Validation, Rollout, and Deprecation
@@ -399,6 +429,8 @@ Acceptance criteria:
 - pass path validation,
 - monitor fail-fast validation,
 - confirm `chain.json` and MCP outputs are consistent.
+ - confirm reducer semantics for `any_pass` and `all_pass`.
+ - confirm test verdict remains stable while housekeeping workflow continues.
 3. Rollout rule:
 - runtime + chain behavior lands before broad docs/consumer updates finalize.
 4. Enforcement rule:

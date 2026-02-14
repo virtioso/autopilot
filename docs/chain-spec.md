@@ -142,7 +142,8 @@ The calling step must define outcomes for `pass` and `fail` labels.
 ```json
 {
   "type": "parallel_join",
-  "group": "vm_boot_and_ftrace_watch",
+  "join_groups": ["vm_boot_and_ftrace_watch"],
+  "reduce": "any_pass",
   "timeout_s": 300,
   "outcomes": [
     { "label": "pass", "next": "filter_logs_pass" },
@@ -154,9 +155,19 @@ The calling step must define outcomes for `pass` and `fail` labels.
 
 Parallel-group semantics:
 - branch chains execute concurrently after `parallel_split`,
-- first terminal result (`pass` or `fail`) is latched as winner,
-- non-winner branches are canceled,
-- `parallel_join` returns the winner label once branches converge.
+- `parallel_join` joins one or more named groups and applies a reducer,
+- reducer `any_pass`: returns `pass` when any joined branch passes; otherwise `fail` when all joined branches fail,
+- reducer `all_pass`: returns `fail` when any joined branch fails; otherwise `pass` when all joined branches pass,
+- missing/unknown join targets are validation errors (strict mode),
+- non-winner branch cancellation is reducer/policy dependent.
+
+## Join Validation Rules
+
+For `parallel_join`:
+- use `join_groups` (non-empty list of group names),
+- use `reduce` (`any_pass` or `all_pass`),
+- `join_groups` targets must exist and be valid for the workflow scope,
+- unknown or missing join targets are rejected at validation/startup.
 
 ## Runtime Trace Metadata (`chain.json`)
 
@@ -165,9 +176,21 @@ When parallel groups are used, `chain.json` includes:
   - `branch`, `status`, `finished_at`
 - `parallel_groups.<group>.branches.<name>`:
   - `chain`, `monitor`, `status`, `finished_at`, `cancel_reason`
+- `parallel_groups.<group>.join`:
+  - `reduce`, `decision`, `joined_groups`
+
+`decision` contains reducer output evidence used by `parallel_join`.
 
 `cancel_reason` is set when a branch is canceled due to another branch winning
 (for example `winner:ftrace_watchdog`).
+
+## Verdict and Workflow State
+
+Runtime reporting separates:
+- `test_verdict`: authoritative test result (`pass`/`fail`),
+- `workflow_state`: runtime lifecycle (`running`/`housekeeping`/`completed`/`failed`).
+
+This allows housekeeping/preparation flows to continue after verdict is known.
 
 ## Upload Methods
 

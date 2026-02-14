@@ -165,9 +165,11 @@ explicitly requested.
 
 For fail-fast watchdog scenarios, use `parallel_split` + `parallel_join`:
 - `parallel_split` starts named branch chains concurrently.
-- First branch terminal result (`pass`/`fail`) is latched as winner.
-- Remaining branches are canceled.
-- `parallel_join` returns the latched winner label.
+- `parallel_join` joins named groups and applies reducer policy:
+  - `reduce=any_pass`: pass if any joined branch passes; fail if all fail.
+  - `reduce=all_pass`: fail if any joined branch fails; pass only if all pass.
+- join targets are strict: missing/unknown groups are validation/startup errors.
+- cancellation of non-winning branches depends on reducer policy.
 
 Monitor policy:
 - monitor branches must be fail-only,
@@ -228,9 +230,14 @@ Autopilot publishes runtime state and tmux renders the status line. It shows:
 For parallel groups, `chain.json` also includes `parallel_groups` with:
 - winner metadata (`branch`, `status`, `finished_at`)
 - branch state metadata (`chain`, `monitor`, `status`, `finished_at`, `cancel_reason`)
+- join decision metadata (`reduce`, `decision`, `joined_groups`)
 
 When a non-winner branch is canceled after winner latch, `cancel_reason` is set
 to `winner:<branch-name>`.
+
+Autopilot status also distinguishes:
+- `test_verdict`: authoritative test result
+- `workflow_state`: execution lifecycle (can remain active for housekeeping)
 
 ## Submit a Request (Example)
 

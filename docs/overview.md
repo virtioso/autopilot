@@ -14,10 +14,11 @@ AI tools.
 - **Chain-Based Execution**: All test logic is defined in chain files.
 - **Branching Outcomes**: Regex-driven outcomes route to next steps.
 - **Reusable Chains**: Chains can call other chains via `call_chain`, `fork`, and parallel groups.
-- **Parallel Groups**: Concurrent branch execution with first-result-wins join semantics.
+- **Parallel Groups**: Concurrent branch execution with reducer-based join semantics (`any_pass` / `all_pass`).
 - **UART Source Mapping**: Dynamic `map_source` ties tty devices to logical sources.
 - **tmux-Native Operator UI**: Window switching, status, and abort control are handled by tmux.
 - **Structured Results**: `chain.json` captures step-by-step outcomes/errors plus parallel group winner/cancellation metadata.
+- **Decoupled Status**: `test_verdict` is tracked independently from `workflow_state` for housekeeping tails.
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
 For Orin AGX EFI workflows, set
