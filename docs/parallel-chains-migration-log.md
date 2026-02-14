@@ -1,7 +1,13 @@
 # Parallel Chains Migration Log
 
 Date started: 2026-02-14
+Status: Archived historical record (frozen)
 Scope: `/home/hlyytine/autopilot` and `/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm`
+
+Note:
+- This file is a chronological implementation log and intentionally preserves
+  historical terminology from each step (including pre-cutover op names).
+- Do not rewrite historical entries except for append-only corrections.
 
 ## Step 2026-02-14-01
 
@@ -738,3 +744,25 @@ Implementation:
 
 Post-step DRY/SSOT gate:
 - Active operator/developer docs now describe canonical `split`/`join` semantics.
+
+## Step 2026-02-14-26
+
+Summary:
+- Close migration artifacts: freeze historical records and complete final terminology sweep.
+
+Implementation:
+- Updated active guidance:
+  - `AGENTS.md` now uses canonical `split`/`join` naming.
+  - `docs/parallel-chains-inventory.md` wording updated to avoid migration-stage naming.
+- Marked historical docs as archived/frozen:
+  - `docs/parallel-chains-migration-log.md`
+  - `docs/parallel-chains-plan.md`
+
+Final grep sweep:
+- `rg "parallel_split|parallel_join"` across both repos now matches only:
+  - historical docs (`parallel-chains-migration-log.md`, `parallel-chains-plan.md`),
+  - runtime deprecation guard in `chain_runtime.py`.
+
+Disposition:
+- Historical docs intentionally retain old terms for auditability.
+- Runtime guard intentionally retains old terms to produce explicit validation errors on deprecated schema.

@@ -20,10 +20,10 @@ Current `fork` usage count: `0`.
 
 ## Final-Rename Blockers
 
-Final rename cutover status (`parallel_split`/`parallel_join` -> `split`/`join`):
+Final rename cutover status (prefixed names -> canonical names):
 
 Current status:
 - legacy `fork` in chain JSON: eliminated.
 - legacy `join` in chain JSON: eliminated.
-- runtime rejects `parallel_split`/`parallel_join` usage.
+- runtime rejects legacy prefixed split/join op names.
 - active chains and tooling use canonical `split`/`join`.

@@ -3,6 +3,13 @@
 Date: 2026-02-13
 Status: Implemented (Phases 1-6, post-cutover)
 Scope: `/home/hlyytine/autopilot`
+Classification: Archived historical planning document
+
+Note:
+- This document records pre-cutover migration reasoning and historical
+  terminology. Canonical operational semantics are now defined in:
+  - `docs/chain-spec.md`
+  - `docs/runbook.md`
 
 ## Goal
 

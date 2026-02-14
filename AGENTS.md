@@ -64,8 +64,8 @@ of first-pass triage.
 
 ## Parallel Chain Policy (Mandatory)
 
-- Use `parallel_split` + `parallel_join` for fail-fast concurrent monitoring.
-- `parallel_join` returns the first terminal branch result (`pass` or `fail`).
+- Use `split` + `join` for fail-fast concurrent monitoring.
+- `join` returns the first terminal branch result (`pass` or `fail`).
 - Monitor branches must be fail-only by design.
 - Monitor branches must never contain terminal `pass` steps.
 - Runtime validation rejects monitor branches that can reach `pass`.
