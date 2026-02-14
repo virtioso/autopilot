@@ -216,6 +216,20 @@ For every migration step:
 
 A migration step is not complete until repo hygiene and commit gates also pass.
 
+### Mandatory Obvious-Bug Escalation Gate (Per Step)
+
+For every migration step:
+1. Keep active watch for obvious bugs/problems in changed or directly related paths.
+2. If a likely bug/problem is suspected, stop the step and ask human for explicit direction:
+- fix immediately in-scope,
+- drop/skip from current scope,
+- add a TODO/follow-up item to the plan,
+- or proceed with a human-selected alternative approach.
+3. Record the suspected issue and human decision in the migration step log.
+
+A migration step is not complete until suspected obvious bugs/problems are either
+resolved in-step or dispositioned by explicit human instruction.
+
 ### Phase 0: Preflight and Baseline
 
 1. Confirm target trees and owners:
@@ -362,3 +376,4 @@ Acceptance criteria:
 - dynamic validation reproduces expected pass/fail-fast behavior on target flows.
 - DRY/SSOT pre/post gates pass for every completed migration step.
 - repo hygiene and post-step commit gates pass for every completed migration step.
+- suspected obvious bugs/problems are explicitly dispositioned with recorded human direction.
