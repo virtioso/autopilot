@@ -1360,6 +1360,11 @@ class ChainRunner:
             port = sess.get("port")
             source = sess.get("source")
             profile_name = sess.get("profile", "linux-yocto")
+            if isinstance(port, str) and port.startswith("env:"):
+                env_key = port.split("env:", 1)[1]
+                port = os.environ.get(env_key)
+                if not port:
+                    raise ValueError(f"interactive session env port missing: {env_key}")
             if not name or not port:
                 raise ValueError("interactive session requires name and port")
             profile = load_profile(console_manager.profiles_dir, profile_name)
