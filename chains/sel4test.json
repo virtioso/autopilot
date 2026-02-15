@@ -228,20 +228,30 @@
       "on_timeout": "relay_fallback_fail"
     },
     "relay_fallback_pass": {
-      "type": "relay",
+      "type": "call_chain",
+      "chain": "post_test_fallback_relay",
       "outcomes": [
         {
-          "label": "ok",
+          "label": "pass",
+          "next": "pass"
+        },
+        {
+          "label": "fail",
           "next": "pass"
         }
       ],
       "on_timeout": "pass"
     },
     "relay_fallback_fail": {
-      "type": "relay",
+      "type": "call_chain",
+      "chain": "post_test_fallback_relay",
       "outcomes": [
         {
-          "label": "ok",
+          "label": "pass",
+          "next": "fail"
+        },
+        {
+          "label": "fail",
           "next": "fail"
         }
       ],

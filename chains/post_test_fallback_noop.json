@@ -1,0 +1,8 @@
+{
+  "entry": "pass",
+  "steps": {
+    "pass": {
+      "type": "pass"
+    }
+  }
+}

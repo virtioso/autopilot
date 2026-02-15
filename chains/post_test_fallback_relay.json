@@ -1,0 +1,18 @@
+{
+  "entry": "relay",
+  "steps": {
+    "relay": {
+      "type": "relay",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "pass"
+    },
+    "pass": {
+      "type": "pass"
+    }
+  }
+}
