@@ -101,7 +101,8 @@ def _require_ttys(arguments: dict) -> tuple[str, str] | None:
 
 
 # MCP Protocol implementation
-# Using stdio transport with JSON-RPC 2.0
+# Codex CLI MCP transport uses newline-delimited JSON-RPC over stdio.
+
 
 def send_response(id: Any, result: Any = None, error: Any = None):
     """Send a JSON-RPC response."""
@@ -545,16 +546,6 @@ Returns session names, IDs, and log paths if available.""",
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
             "required": ["tty0", "tty1"]
-        }
-    },
-    {
-        "name": "autopilot_status",
-        "description": """Get Autopilot daemon status.""",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "autopilot_dir": AUTOPILOT_DIR_PROP
-            }
         }
     }
 ]
@@ -1001,15 +992,6 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
             "isError": result.get("status") == "error"
         }
-    elif name == "autopilot_status":
-        result = apm.status_autopilot(
-            autopilot_dir=str(paths["autopilot"]),
-        )
-        return {
-            "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
-            "isError": False
-        }
-
     else:
         return {
             "content": [{"type": "text", "text": f"Unknown tool: {name}"}],
@@ -1024,8 +1006,10 @@ def handle_request(request: dict) -> None:
     params = request.get("params", {})
 
     if method == "initialize":
+        # Echo client protocol version to satisfy strict MCP handshake checks.
+        requested_protocol = params.get("protocolVersion") or "2024-11-05"
         send_response(id, {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": requested_protocol,
             "capabilities": {
                 "tools": {}
             },
@@ -1060,19 +1044,54 @@ def handle_request(request: dict) -> None:
             })
 
 
+def _read_stdio_message(stdin_buf) -> str | None:
+    """Read one MCP stdio message body, supporting both framed and legacy JSONL input."""
+    first = stdin_buf.readline()
+    if not first:
+        return None
+
+    stripped = first.lstrip()
+    if stripped.startswith(b"{"):
+        return first.decode("utf-8", errors="replace").strip()
+
+    headers: dict[str, str] = {}
+    line = first
+    while line and line not in (b"\r\n", b"\n"):
+        decoded = line.decode("ascii", errors="replace").strip()
+        if ":" in decoded:
+            key, value = decoded.split(":", 1)
+            headers[key.strip().lower()] = value.strip()
+        line = stdin_buf.readline()
+
+    content_length = headers.get("content-length")
+    if not content_length:
+        return ""
+
+    try:
+        body_len = int(content_length)
+    except ValueError:
+        return ""
+
+    body = stdin_buf.read(body_len)
+    return body.decode("utf-8", errors="replace")
+
+
 def main():
     """Main loop - read JSON-RPC requests from stdin, write responses to stdout."""
-    # Log to stderr so it doesn't interfere with protocol
     sys.stderr.write("seL4 Autopilot MCP Server starting...\n")
     sys.stderr.flush()
 
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
+    stdin_buf = sys.stdin.buffer
+    while True:
+        raw = _read_stdio_message(stdin_buf)
+        if raw is None:
+            break
+        if not raw:
             continue
 
+        request = None
         try:
-            request = json.loads(line)
+            request = json.loads(raw)
             handle_request(request)
         except json.JSONDecodeError as e:
             sys.stderr.write(f"JSON parse error: {e}\n")
@@ -1080,14 +1099,13 @@ def main():
         except Exception as e:
             sys.stderr.write(f"Error handling request: {e}\n")
             sys.stderr.flush()
-            # Try to send error response if we have an ID
             try:
-                if 'id' in request:
+                if request and 'id' in request:
                     send_response(request['id'], error={
                         "code": -32603,
                         "message": str(e)
                     })
-            except:
+            except Exception:
                 pass
 
 
