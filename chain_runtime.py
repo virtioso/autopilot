@@ -523,6 +523,8 @@ class ChainRunner:
                 return self._step_reboot(step)
             if step_type == "ssh_cmd":
                 return self._step_ssh_cmd(step)
+            if step_type == "ssh_wait_ready":
+                return self._step_ssh_wait_ready(step)
             if step_type == "call_chain":
                 return self._step_call_chain(step)
             if step_type == "task_spawn":
@@ -967,6 +969,47 @@ class ChainRunner:
         else:
             subprocess.run(run_args, check=True, timeout=int(timeout_s))
         return self._simple_outcome(step)
+
+    def _step_ssh_wait_ready(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        import subprocess
+
+        self._check_cancel()
+        target_user = step.get("target_user", "root")
+        target_ip = self._resolve_value(step.get("target_ip")) or self.ctx.get("target_ip")
+        cmd = step.get("cmd")
+        if not cmd:
+            raise ValueError("ssh_wait_ready requires cmd")
+
+        per_try_timeout_s = float(step.get("per_try_timeout_s", 1))
+        total_timeout_s = float(step.get("total_timeout_s", 10))
+        retry_interval_s = float(step.get("retry_interval_s", 1))
+        if per_try_timeout_s <= 0 or total_timeout_s <= 0:
+            raise ValueError("ssh_wait_ready requires positive per_try_timeout_s and total_timeout_s")
+
+        deadline = time.time() + total_timeout_s
+        last_error = ""
+        while time.time() < deadline:
+            self._check_cancel()
+            run_args = [
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                f"{target_user}@{target_ip}",
+                cmd,
+            ]
+            try:
+                subprocess.run(run_args, check=True, timeout=per_try_timeout_s)
+                return self._simple_outcome(step)
+            except subprocess.TimeoutExpired:
+                last_error = "timeout"
+            except subprocess.CalledProcessError as exc:
+                last_error = f"exit={exc.returncode}"
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            time.sleep(min(retry_interval_s, max(0.1, remaining)))
+
+        raise RuntimeError(f"ssh_wait_ready timed out after {total_timeout_s}s (last_error={last_error})")
 
     def _step_call_chain(self, step: dict) -> Tuple[str, OutcomeMatch]:
         name = step["chain"]

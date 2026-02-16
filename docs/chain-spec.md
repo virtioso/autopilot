@@ -60,6 +60,7 @@ Action steps:
 - `upload_efi`
 - `reboot`
 - `ssh_cmd`
+- `ssh_wait_ready`
 - `map_source`
 - `map_window`
 - `send_cmd`
@@ -274,6 +275,27 @@ This allows housekeeping/preparation flows to continue after verdict is known.
 - `method: "local_copy"`: copy on the host filesystem to `target_path`.
 
 `local_copy` is useful for host-local deployment targets such as TFTP roots.
+
+## Example: ssh_wait_ready
+
+```json
+{
+  "type": "ssh_wait_ready",
+  "target_user": "root",
+  "target_ip": "{target_ip}",
+  "cmd": "uname -a",
+  "per_try_timeout_s": 1,
+  "total_timeout_s": 10,
+  "retry_interval_s": 1,
+  "outcomes": [
+    { "label": "ok", "next": "pass" }
+  ],
+  "on_timeout": "fail"
+}
+```
+
+`ssh_wait_ready` repeatedly executes an SSH command until one attempt succeeds
+or the total timeout budget is exceeded.
 
 ## Platform Overrides
 
