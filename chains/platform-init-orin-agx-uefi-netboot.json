@@ -5,7 +5,6 @@
       "type": "set_overrides",
       "overrides": {
         "chain_aliases": {
-          "bootefi_common": "bootefi_orin_netboot",
           "post_test_fallback_relay": "post_test_fallback_noop"
         }
       },

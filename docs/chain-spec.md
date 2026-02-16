@@ -125,7 +125,7 @@ Monitor branch policy:
 ```json
 {
   "type": "call_chain",
-  "chain": "bootefi_common",
+  "chain": "deploy_and_boot_test_efi",
   "outcomes": [
     { "label": "pass", "next": "wait_sel4" },
     { "label": "fail", "next": "fail" }
