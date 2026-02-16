@@ -84,7 +84,7 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "run_bootefi"
+          "next": "run_boot_stock"
         }
       ],
       "on_timeout": "fail"
@@ -335,11 +335,26 @@
     },
     "run_bootefi": {
       "type": "call_chain",
-      "chain": "bootefi_orin_netboot",
+      "chain": "deploy_and_boot_test_efi",
       "outcomes": [
         {
           "label": "pass",
           "next": "elfloader_started"
+        },
+        {
+          "label": "fail",
+          "next": "set_verdict_fail"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "run_boot_stock": {
+      "type": "call_chain",
+      "chain": "boot_stock_linux",
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "run_bootefi"
         },
         {
           "label": "fail",

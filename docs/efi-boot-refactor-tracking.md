@@ -29,7 +29,7 @@
 | S04 | Centralize target naming in submit path and MCP output | Done | `sel4_client.py`, `sel4_mcp_server.py` | naming generated once | this commit | Added `test_name` + `target_binary_name` SSOT in submit path |
 | S05 | Add canonical `boot_stock_linux.json` | Done | `chains/boot_stock_linux.json` | chain validates | this commit | Includes `boot_efi` + prompt wait + `ssh_wait_ready` |
 | S06 | Rename/refactor deploy chain to `deploy_and_boot_test_efi` | Done | `chains/bootefi_common.json` -> `chains/deploy_and_boot_test_efi.json` | chain validates | this commit | Switched to `/efiboot/{target_binary_name}` + reboot + `boot_efi(test_efi)` |
-| S07 | Migrate chain callers to canonical chains | Planned | `chains/*.json` | no duplicated stock boot/deploy flows | - |  |
+| S07 | Migrate chain callers to canonical chains | Done | `chains/*.json` | no duplicated stock boot/deploy flows | this commit | Rewired callers to `boot_stock_linux` and `deploy_and_boot_test_efi` |
 | S08 | Remove old aliases/references (`bootefi_common`) | Planned | `chains/*`, docs | zero live refs | - | no compat alias |
 | S09 | Handle legacy harness alignment/deprecation | Planned | `seL4BootHarness.py`, docs | explicit status | - |  |
 | S10 | Docs/diagrams sync in autopilot and tii-sel4 refs | Planned | `docs/*.md`, `diagrams/*.mmd` | references consistent | - |  |
@@ -43,6 +43,7 @@
 - S04: naming centralized in `submit_sel4_efi_test`; MCP now reports request-derived `target_binary_name` instead of generating its own.
 - S05: added canonical `boot_stock_linux` chain with `uname -a` readiness retry window (1s per try, 10s total).
 - S06: renamed `bootefi_common` chain file to `deploy_and_boot_test_efi` and refactored behavior to SCP+SSH reboot+`boot_efi`.
+- S07: migrated stock-boot callers (`sel4test`, `boot-interactive*`, `linux-kernel*`, `vm_common`, `recovery_boot`) to canonical chains.
 
 ## Closure Checklist
 - [ ] All steps S01-S12 complete.

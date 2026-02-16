@@ -44,37 +44,10 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "boot_stock"
+          "next": "run_boot_stock"
         }
       ],
       "on_timeout": "fail"
-    },
-    "boot_stock": {
-      "type": "boot_menu",
-      "source": "tty0",
-      "boot_option": "1",
-      "outcomes": [
-        {
-          "label": "menu",
-          "pattern": "Press any .*boot default|Press ESCAPE for boot options|Enter to continue boot",
-          "source": "tty0",
-          "next": "wait_stock_prompt"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "wait_stock_prompt": {
-      "type": "wait_pattern",
-      "timeout_s": 180,
-      "outcomes": [
-        {
-          "label": "prompt",
-          "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
-          "source": "tty0",
-          "next": "interactive"
-        }
-      ],
-      "on_timeout": "set_verdict_fail"
     },
     "interactive": {
       "type": "interactive_console",
@@ -203,6 +176,21 @@
     },
     "fail": {
       "type": "fail"
+    },
+    "run_boot_stock": {
+      "type": "call_chain",
+      "chain": "boot_stock_linux",
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "interactive"
+        },
+        {
+          "label": "fail",
+          "next": "set_verdict_fail"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
     }
   }
 }
