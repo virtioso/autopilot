@@ -504,7 +504,32 @@ def cancel_test(timestamp: str, autopilot_dir: str = None) -> dict:
         runtime_dir = paths['runtime'] / timestamp
         runtime_dir.mkdir(parents=True, exist_ok=True)
         (runtime_dir / "cancel").write_text("canceled\n")
-        return {"status": "cancel_requested", "request_id": timestamp, "mode": "processing"}
+        # Best-effort short wait so API can report applied cancellation when it is immediate.
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            if not processing_path.exists():
+                final = get_status(timestamp, autopilot_dir=autopilot_dir)
+                if final.get("status") == "failed":
+                    return {
+                        "status": "canceled",
+                        "request_id": timestamp,
+                        "mode": "processing",
+                        "applied": True,
+                    }
+                return {
+                    "status": "cancel_requested",
+                    "request_id": timestamp,
+                    "mode": "processing",
+                    "applied": False,
+                    "observed_status": final.get("status"),
+                }
+            time.sleep(0.2)
+        return {
+            "status": "cancel_requested",
+            "request_id": timestamp,
+            "mode": "processing",
+            "applied": False,
+        }
 
     if (paths['completed'] / request_name).exists():
         return {"status": "completed", "request_id": timestamp}
