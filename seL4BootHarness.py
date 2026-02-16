@@ -4,6 +4,11 @@ seL4 Boot Harness - Classes for seL4 EFI binary testing on Orin AGX.
 SeL4UploadHarness: Boot to stock Linux, upload EFI binary via SCP
 SeL4UploadOnlyHarness: Upload EFI binary when already at stock Linux (no reboot)
 SeL4RunHarness: Navigate UEFI menus and run EFI binary, capture output
+
+DEPRECATION NOTICE:
+- This module is legacy and not the source of truth for EFI boot behavior.
+- Chain JSON + chain runtime are authoritative (`chains/*.json`, `chain_runtime.py`).
+- New flow logic must be implemented in chains, not here.
 """
 
 import re
@@ -26,17 +31,17 @@ from config import get_target_ip, get_target_user
 # Shared constants
 TARGET_IP = get_target_ip()
 TARGET_USER = get_target_user()
-TARGET_PATH = '/boot/efi'
+TARGET_PATH = '/efiboot'
 
 
 def cleanup_old_binaries():
     """Remove ordinary files from the EFI partition root."""
-    debug_print('Cleaning up /boot/efi (ordinary files only)')
+    debug_print('Cleaning up /efiboot (ordinary files only)')
     try:
         subprocess.run([
             'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10',
             f'{TARGET_USER}@{TARGET_IP}',
-            'find /boot/efi -maxdepth 1 -type f -print -delete'
+            'find /efiboot -maxdepth 1 -type f -print -delete'
         ], check=True, capture_output=True, text=True, timeout=30)
     except subprocess.TimeoutExpired:
         debug_print('Warning: cleanup timed out, continuing anyway')
