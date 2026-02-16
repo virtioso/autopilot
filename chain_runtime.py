@@ -720,12 +720,8 @@ class ChainRunner:
         prompt_timeout_s = int(step.get("prompt_timeout_s", 90))
         post_send_delay_s = float(step.get("post_send_delay_s", 0))
         prompt_patterns = step.get("prompt_patterns") or [
-            r"Enter to continue boot\.",
-            r"Press ESCAPE for boot options",
-            r"Press ESC to enter Setup",
-            r"ESC\s+to enter Setup",
-            r"F11\s+to enter Boot Manager Menu",
             r"Shell>",
+            r"FS[0-9]+:\\>",
         ]
         if not isinstance(prompt_patterns, list) or not prompt_patterns:
             raise ValueError("boot_efi prompt_patterns must be a non-empty list")
