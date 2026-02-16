@@ -1,6 +1,16 @@
 {
-  "entry": "boot_extlinux",
+  "entry": "relay_before_boot_efi",
   "steps": {
+    "relay_before_boot_efi": {
+      "type": "relay",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "boot_extlinux"
+        }
+      ],
+      "on_timeout": "fail"
+    },
     "boot_extlinux": {
       "type": "boot_efi",
       "source": "tty0",

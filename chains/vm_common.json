@@ -62,16 +62,6 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "relay_power"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "relay_power": {
-      "type": "relay",
-      "outcomes": [
-        {
-          "label": "ok",
           "next": "spawn_prepare_task"
         }
       ],
@@ -299,7 +289,7 @@
     },
     "relay_fallback_pass": {
       "type": "call_chain",
-      "chain": "post_test_fallback_relay",
+      "chain": "post_test_fallback_noop",
       "outcomes": [
         {
           "label": "pass",
@@ -314,7 +304,7 @@
     },
     "relay_fallback_fail": {
       "type": "call_chain",
-      "chain": "post_test_fallback_relay",
+      "chain": "post_test_fallback_noop",
       "outcomes": [
         {
           "label": "pass",
