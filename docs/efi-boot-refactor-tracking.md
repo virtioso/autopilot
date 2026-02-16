@@ -23,18 +23,18 @@
 ## Step Tracker
 | Step | Description | Status | Files | Validation | Commit | Notes |
 |---|---|---|---|---|---|---|
-| S01 | Create tracker file and execution policy | Done | `docs/efi-boot-refactor-tracking.md` | file created | this commit | Initial tracker |
-| S02 | Add `boot_efi` runtime step + spec docs | Done | `chain_runtime.py`, `docs/chain-spec.md` | step dispatch + spec entry | this commit | Added `boot_efi` mode mapping and spec example |
-| S03 | Add `ssh_wait_ready` runtime step + spec docs | Done | `chain_runtime.py`, `docs/chain-spec.md` | retry/timeout behavior | this commit | Added retry-based SSH readiness probe step |
-| S04 | Centralize target naming in submit path and MCP output | Done | `sel4_client.py`, `sel4_mcp_server.py` | naming generated once | this commit | Added `test_name` + `target_binary_name` SSOT in submit path |
-| S05 | Add canonical `boot_stock_linux.json` | Done | `chains/boot_stock_linux.json` | chain validates | this commit | Includes `boot_efi` + prompt wait + `ssh_wait_ready` |
-| S06 | Rename/refactor deploy chain to `deploy_and_boot_test_efi` | Done | `chains/bootefi_common.json` -> `chains/deploy_and_boot_test_efi.json` | chain validates | this commit | Switched to `/efiboot/{target_binary_name}` + reboot + `boot_efi(test_efi)` |
-| S07 | Migrate chain callers to canonical chains | Done | `chains/*.json` | no duplicated stock boot/deploy flows | this commit | Rewired callers to `boot_stock_linux` and `deploy_and_boot_test_efi` |
-| S08 | Remove old aliases/references (`bootefi_common`) | Done | `chains/*`, docs | zero live refs | this commit | Removed platform alias and active chain-spec old-name reference |
-| S09 | Handle legacy harness alignment/deprecation | Done | `seL4BootHarness.py`, docs | explicit status | this commit | Marked module as legacy and aligned upload cleanup path to `/efiboot` |
-| S10 | Docs/diagrams sync in autopilot | Done | `docs/*.md`, `diagrams/*.mmd` | references consistent | this commit | Synced autopilot docs/diagrams and removed obsolete netboot chain artifact |
-| S11 | Validation sweep and evidence log | Done | tracking file + outputs | checks green | this commit | py_compile + chain validation + stale-ref scans completed |
-| S12 | Final closure summary and completion commit | Planned | tracking file | all steps done | - |  |
+| S01 | Create tracker file and execution policy | Done | `docs/efi-boot-refactor-tracking.md` | file created | `702b380` | Initial tracker |
+| S02 | Add `boot_efi` runtime step + spec docs | Done | `chain_runtime.py`, `docs/chain-spec.md` | step dispatch + spec entry | `927e24f` | Added `boot_efi` mode mapping and spec example |
+| S03 | Add `ssh_wait_ready` runtime step + spec docs | Done | `chain_runtime.py`, `docs/chain-spec.md` | retry/timeout behavior | `457c127` | Added retry-based SSH readiness probe step |
+| S04 | Centralize target naming in submit path and MCP output | Done | `sel4_client.py`, `sel4_mcp_server.py` | naming generated once | `ce789cf` | Added `test_name` + `target_binary_name` SSOT in submit path |
+| S05 | Add canonical `boot_stock_linux.json` | Done | `chains/boot_stock_linux.json` | chain validates | `b93057d` | Includes `boot_efi` + prompt wait + `ssh_wait_ready` |
+| S06 | Rename/refactor deploy chain to `deploy_and_boot_test_efi` | Done | `chains/bootefi_common.json` -> `chains/deploy_and_boot_test_efi.json` | chain validates | `02aadcb` | Switched to `/efiboot/{target_binary_name}` + reboot + `boot_efi(test_efi)` |
+| S07 | Migrate chain callers to canonical chains | Done | `chains/*.json` | no duplicated stock boot/deploy flows | `8ac3746` | Rewired callers to `boot_stock_linux` and `deploy_and_boot_test_efi` |
+| S08 | Remove old aliases/references (`bootefi_common`) | Done | `chains/*`, docs | zero live refs | `4ee162e` | Removed platform alias and active chain-spec old-name reference |
+| S09 | Handle legacy harness alignment/deprecation | Done | `seL4BootHarness.py`, docs | explicit status | `8883947` | Marked module as legacy and aligned upload cleanup path to `/efiboot` |
+| S10 | Docs/diagrams sync in autopilot | Done | `docs/*.md`, `diagrams/*.mmd` | references consistent | `ba10168` | Synced autopilot docs/diagrams and removed obsolete netboot chain artifact |
+| S11 | Validation sweep and evidence log | Done | tracking file + outputs | checks green | `748ef18` | py_compile + chain validation + stale-ref scans completed |
+| S12 | Final closure summary and completion commit | Done | tracking file | all steps done | this commit | Added per-step commit IDs and closed checklist |
 
 ## Verification Log
 - S01: tracker file created and branch set to `efi-boot-refactor`.
@@ -52,9 +52,10 @@
   - `validate_chain` over all chain JSON files -> `chain_validate_ok 19`
   - `rg` stale-ref scan excluding tracker file -> no matches for `bootefi_common|bootefi_orin_netboot|/boot/efi|/tftp/efi/bootimg.efi`
   - canonical caller scan confirms `boot_stock_linux` and `deploy_and_boot_test_efi` call sites in target profiles.
+- S12: closure metadata finalized with per-step commit IDs and checklist completion.
 
 ## Closure Checklist
-- [ ] All steps S01-S12 complete.
-- [ ] No live `bootefi_common` references in active code/docs.
-- [ ] Chain validation passes for modified chains.
-- [ ] End-to-end behavior documented.
+- [x] All steps S01-S12 complete.
+- [x] No live `bootefi_common` references in active code/docs (outside this tracker file).
+- [x] Chain validation passes for modified chains.
+- [x] End-to-end behavior documented.
