@@ -509,6 +509,8 @@ class ChainRunner:
                 return self._step_send_cmd(step)
             if step_type == "boot_menu":
                 return self._step_boot_menu(step)
+            if step_type == "boot_efi":
+                return self._step_boot_efi(step)
             if step_type == "uefi_shell_run":
                 return self._step_uefi_shell_run(step)
             if step_type == "wait_pattern":
@@ -701,6 +703,66 @@ class ChainRunner:
 
     def _wait_for_pattern(self, source: str, pattern: str, timeout_s: int) -> bool:
         return self._wait_for_any_pattern(source, [pattern], timeout_s) == 0
+
+    def _step_boot_efi(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        source = step.get("source")
+        if not source:
+            raise ValueError("boot_efi requires source")
+        mode = str(self._resolve_value(step.get("mode")) or "").strip()
+        if mode not in ("extlinux", "test_efi"):
+            raise ValueError("boot_efi requires mode=extlinux|test_efi")
+
+        prompt_timeout_s = int(step.get("prompt_timeout_s", 90))
+        post_send_delay_s = float(step.get("post_send_delay_s", 0))
+        prompt_patterns = step.get("prompt_patterns") or [
+            r"Enter to continue boot\.",
+            r"Press ESCAPE for boot options",
+            r"Press ESC to enter Setup",
+            r"ESC\s+to enter Setup",
+            r"F11\s+to enter Boot Manager Menu",
+            r"Shell>",
+        ]
+        if not isinstance(prompt_patterns, list) or not prompt_patterns:
+            raise ValueError("boot_efi prompt_patterns must be a non-empty list")
+
+        if mode == "extlinux":
+            command = "fs3:\\EFI\\BOOT\\BOOTAA64.EFI"
+        else:
+            target_binary_name = self._resolve_value(step.get("target_binary_name"))
+            if not target_binary_name:
+                target_binary_name = (self.ctx.get("request") or {}).get("target_binary_name")
+            if not target_binary_name:
+                raise ValueError("boot_efi mode=test_efi requires target_binary_name")
+            command = f"fs2:\\efiboot\\{target_binary_name}"
+
+        binding = self.ctx["sources"].get(source)
+        if not binding:
+            raise ValueError(f"unknown source {source}")
+
+        # Start from fresh output to avoid stale prompt matches from previous boot phases.
+        _, cursor = binding.read_since(1 << 60)
+        start = time.time()
+        while time.time() - start < prompt_timeout_s:
+            self._check_cancel()
+            event = self._poll_event()
+            if event:
+                if event.kind == "abort":
+                    self._handle_abort()
+                if event.kind == "exit":
+                    self.ctx["exit_flag"].set()
+                    raise AbortRun()
+            data, new_cursor = binding.read_since(cursor)
+            cursor = new_cursor
+            if not data:
+                time.sleep(0.1)
+                continue
+            text = data.decode("utf-8", errors="ignore")
+            if any(re.search(pattern, text, re.MULTILINE) for pattern in prompt_patterns):
+                binding.write(f"{command}\r")
+                if post_send_delay_s > 0:
+                    time.sleep(post_send_delay_s)
+                return self._simple_outcome(step)
+        raise RuntimeError("boot_efi: failed to detect UEFI prompt")
 
     def _step_uefi_shell_run(self, step: dict) -> Tuple[str, OutcomeMatch]:
         source = step.get("source")

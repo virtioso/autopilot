@@ -53,6 +53,7 @@ If regex-based:
 Action steps:
 - `relay`
 - `boot_menu`
+- `boot_efi`
 - `uefi_shell_run`
 - `wait_pattern`
 - `upload_kernel`
@@ -77,6 +78,29 @@ Action steps:
 Terminal steps:
 - `pass`
 - `fail`
+
+## Example: boot_efi
+
+```json
+{
+  "type": "boot_efi",
+  "source": "tty0",
+  "mode": "extlinux",
+  "outcomes": [
+    { "label": "ok", "next": "wait_stock_prompt" }
+  ],
+  "on_timeout": "fail"
+}
+```
+
+`boot_efi` waits for a UEFI prompt and sends a fixed command by `mode`:
+- `mode=extlinux` -> `fs3:\EFI\BOOT\BOOTAA64.EFI`
+- `mode=test_efi` -> `fs2:\efiboot\{target_binary_name}`
+
+Optional fields:
+- `prompt_patterns`: non-empty list of regex prompts
+- `prompt_timeout_s`: prompt wait timeout
+- `post_send_delay_s`: delay after command send
 
 ## Chain Reference Rules
 

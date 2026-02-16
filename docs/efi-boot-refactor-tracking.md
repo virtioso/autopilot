@@ -24,7 +24,7 @@
 | Step | Description | Status | Files | Validation | Commit | Notes |
 |---|---|---|---|---|---|---|
 | S01 | Create tracker file and execution policy | Done | `docs/efi-boot-refactor-tracking.md` | file created | this commit | Initial tracker |
-| S02 | Add `boot_efi` runtime step + spec docs | Planned | `chain_runtime.py`, `docs/chain-spec.md` | step dispatch + spec entry | - |  |
+| S02 | Add `boot_efi` runtime step + spec docs | Done | `chain_runtime.py`, `docs/chain-spec.md` | step dispatch + spec entry | this commit | Added `boot_efi` mode mapping and spec example |
 | S03 | Add `ssh_wait_ready` runtime step + spec docs | Planned | `chain_runtime.py`, `docs/chain-spec.md` | retry/timeout behavior | - |  |
 | S04 | Centralize target naming in submit path and MCP output | Planned | `sel4_client.py`, `sel4_mcp_server.py` | naming generated once | - |  |
 | S05 | Add canonical `boot_stock_linux.json` | Planned | `chains/boot_stock_linux.json` | chain validates | - |  |
@@ -38,6 +38,7 @@
 
 ## Verification Log
 - S01: tracker file created and branch set to `efi-boot-refactor`.
+- S02: added runtime dispatch + `_step_boot_efi` implementation and documented `boot_efi` in chain spec.
 
 ## Closure Checklist
 - [ ] All steps S01-S12 complete.
