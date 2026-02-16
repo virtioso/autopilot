@@ -20,7 +20,7 @@ boot_interactive_efi__relay_fallback_pass["relay_fallback_pass<br/>type=relay"]
 boot_interactive_efi__relay_fallback_fail["relay_fallback_fail<br/>type=relay"]
 boot_interactive_efi__pass["pass<br/>type=pass"]
 boot_interactive_efi__fail["fail<br/>type=fail"]
-boot_interactive_efi__run_bootefi["run_bootefi<br/>type=call_chain<br/>chain=bootefi_common<br/>chain_file=/home/hlyytine/autopilot/chains/bootefi_common.json"]
+boot_interactive_efi__run_bootefi["run_bootefi<br/>type=call_chain<br/>chain=deploy_and_boot_test_efi<br/>chain_file=/home/hlyytine/autopilot/chains/deploy_and_boot_test_efi.json"]
 boot_interactive_efi__map_tty0 -->|label=ok| boot_interactive_efi__window1
 boot_interactive_efi__map_tty0 -.->|timeout| boot_interactive_efi__fail
 boot_interactive_efi__window1 -->|label=ok| boot_interactive_efi__relay_power

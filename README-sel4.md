@@ -11,8 +11,8 @@ request `type` routing.
 
 seL4 EFI test flow (chain-defined):
 1. Boot to stock Jetson Linux
-2. Upload EFI binary via SCP to `/boot/efi/`
-3. Reboot and navigate UEFI menus to EFI Shell
+2. Upload EFI binary via SCP to `/efiboot/{target_binary_name}`
+3. Reboot and execute EFI boot command at UEFI prompt via `boot_efi`
 4. Run the binary and capture output according to the chain
 5. Optional post-processing (filters) to produce chain-defined log files
 6. Recover to stock Linux (if defined in profile)
@@ -121,16 +121,14 @@ from sel4_client import (
 )
 ```
 
-## UEFI Navigation Sequence
+## UEFI Command Dispatch
 
-The chain `uefi_shell_run` step navigates UEFI menus automatically:
+The `boot_efi` step is the canonical UEFI command mechanism:
 
-1. Wait for "Enter to continue boot." → send ESC
-2. Wait for "Select Entry" → Down, Down, Enter (Boot Manager)
-3. Wait for "Esc=Exit" → Up, Enter (UEFI Shell)
-4. Wait for "Shell>" → send `fs3:`
-5. Wait for "FS3:\>" → send binary name
-6. Capture output until chain-defined quiescence
+1. Wait for UEFI prompt patterns
+2. `mode=extlinux` sends `fs3:\\EFI\\BOOT\\BOOTAA64.EFI`
+3. `mode=test_efi` sends `fs2:\\efiboot\\{target_binary_name}`
+4. Chain continues with chain-defined output matching/capture
 
 ## Troubleshooting
 
@@ -138,6 +136,6 @@ The chain `uefi_shell_run` step navigates UEFI menus automatically:
 
 **UEFI navigation fails**: The UEFI menu structure may have changed. Check the raw console log defined by the chain.
 
-**Binary not found on target**: Verify `/boot/efi/` is mounted and writable on the target.
+**Binary not found on target**: Verify `/efiboot/` exists and is writable on the target.
 
 **Recovery fails**: Board may need manual power cycle. Check any recovery log defined by the chain.

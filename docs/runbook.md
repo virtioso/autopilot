@@ -154,6 +154,13 @@ typically binds:
 
 This ensures tmux source windows can be created immediately.
 
+### Canonical EFI/Stock Boot Chains
+
+- `boot_stock_linux`: canonical stock Linux bring-up path
+  (`boot_efi(mode=extlinux)` + prompt wait + `ssh_wait_ready`).
+- `deploy_and_boot_test_efi`: canonical test EFI deployment/boot path
+  (SCP to `/efiboot/{target_binary_name}` + SSH reboot + `boot_efi(mode=test_efi)`).
+
 ### Background Prepare-Next-Run Task
 
 During a test, Autopilot may start a background prepare-next-run task

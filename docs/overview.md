@@ -122,8 +122,8 @@ Host:
 
 Target:
 - UEFI + extlinux boot menu
-- Deployment target required by active profile/platform (for example `/boot/efi`
-  for SSH upload or host-local `/tftp/efi/bootimg.efi` for netboot)
+- Deployment target required by active profile/platform (for Orin EFI flow:
+  SCP upload to `/efiboot/{target_binary_name}` followed by UEFI `boot_efi` command modes)
 
 ## See Also
 

@@ -27,9 +27,9 @@ For Orin AGX EFI testing, always run Autopilot with:
 
 - `AUTOPILOT_PLATFORM=orin-agx-uefi-netboot`
 
-This enforces the platform-init override chain and routes EFI deployment through
-the netboot path (`/tftp/efi/bootimg.efi` + relay reset). Do not use legacy
-SSH `/boot/efi` upload flow for Orin AGX unless explicitly requested.
+This enforces the platform-init chain for Orin AGX behavior. Current EFI
+deployment flow is SCP upload to `/efiboot/{target_binary_name}` + SSH reboot +
+UEFI boot command dispatch via `boot_efi` chain step.
 
 ## MCP-Controlled Autopilot Daemon
 

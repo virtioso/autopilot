@@ -1,0 +1,21 @@
+flowchart TD
+subgraph boot_stock_linux[boot_stock_linux]
+boot_stock_linux_start((start))
+boot_stock_linux_start --> boot_stock_linux__boot_extlinux
+boot_stock_linux__boot_extlinux["boot_extlinux<br/>type=boot_efi<br/>mode=extlinux"]
+boot_stock_linux__wait_stock_prompt["wait_stock_prompt<br/>type=wait_pattern"]
+boot_stock_linux__verify_ssh_ready["verify_ssh_ready<br/>type=ssh_wait_ready<br/>cmd=uname -a<br/>per_try_timeout_s=1<br/>total_timeout_s=10"]
+boot_stock_linux__pass["pass<br/>type=pass"]
+boot_stock_linux__fail["fail<br/>type=fail"]
+boot_stock_linux__boot_extlinux -->|label=ok| boot_stock_linux__wait_stock_prompt
+boot_stock_linux__boot_extlinux -.->|timeout| boot_stock_linux__fail
+boot_stock_linux__wait_stock_prompt -->|label=prompt| boot_stock_linux__verify_ssh_ready
+boot_stock_linux__wait_stock_prompt -.->|timeout| boot_stock_linux__fail
+boot_stock_linux__verify_ssh_ready -->|label=ok| boot_stock_linux__pass
+boot_stock_linux__verify_ssh_ready -.->|timeout| boot_stock_linux__fail
+end
+
+classDef pass fill:#6cc644,stroke:#2c7a2c,color:#fff;
+classDef fail fill:#d73a49,stroke:#7a1f25,color:#fff;
+class boot_stock_linux__pass pass;
+class boot_stock_linux__fail fail;
