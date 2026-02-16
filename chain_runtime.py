@@ -440,6 +440,7 @@ class ChainRunner:
                     return step["type"]
                 current = next_step
         except CancelRun:
+            self._handle_cancel()
             if self.finalize_on_exit:
                 self.recorder.finalize("failed", abort_reason="canceled")
             return "failed"
@@ -459,6 +460,8 @@ class ChainRunner:
             if outcome and outcome.label == "timeout":
                 status = "timeout"
                 error_code = "timeout"
+        except (CancelRun, AbortRun):
+            raise
         except Exception as exc:
             next_step = step.get("on_error", step.get("on_timeout", "fail"))
             outcome = OutcomeMatch(
@@ -1829,6 +1832,30 @@ class ChainRunner:
             except Exception:
                 pass
         raise AbortRun()
+
+    def _handle_cancel(self) -> None:
+        registry = self.ctx.get("task_registry")
+        request_id = self.ctx.get("request_id")
+        if registry:
+            with registry["lock"]:
+                for task in registry.get("tasks", {}).values():
+                    if task.get("owner_request_id") != request_id:
+                        continue
+                    if task.get("name") == "prepare_next_run":
+                        continue
+                    cancel = task.get("cancel")
+                    if cancel:
+                        cancel.set()
+            with registry["cond"]:
+                state = registry["signals"].setdefault(
+                    "prepare_next_run_go", {"count": 0, "updated_at": None}
+                )
+                state["count"] = int(state.get("count", 0)) + 1
+                state["updated_at"] = time.time()
+                registry["cond"].notify_all()
+        for group in self.ctx.get("parallel_groups", {}).values():
+            for cancel in group.get("cancel_flags", {}).values():
+                cancel.set()
 
     def _check_cancel(self) -> None:
         if self.cancel_flag.is_set():

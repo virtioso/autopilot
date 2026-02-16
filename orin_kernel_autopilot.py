@@ -94,7 +94,7 @@ def run_bootstrap_chain(
     console_manager: ConsoleManager,
     platform_overrides: dict,
     task_registry: dict,
-) -> None:
+) -> str:
     chain = load_chain(chain_name)
     bootstrap_dir = RUNTIME_DIR / chain_name
     bootstrap_dir.mkdir(parents=True, exist_ok=True)
@@ -128,7 +128,7 @@ def run_bootstrap_chain(
     recorder = ChainRecorder(bootstrap_dir)
     try:
         ui_state.set_request(chain_name, chain_name, chain_name)
-        run_chain(chain, ctx, recorder)
+        return run_chain(chain, ctx, recorder)
     finally:
         ui_state.clear_request()
 
@@ -176,6 +176,142 @@ def watch_cancel_file(cancel_flag: threading.Event, cancel_path: Path, exit_flag
         time.sleep(0.2)
 
 
+def _prepare_task_snapshot(task_registry: dict) -> dict:
+    with task_registry["lock"]:
+        task = task_registry["tasks"].get("prepare_next_run")
+        if not task:
+            return {"exists": False, "running": False, "status": None}
+        thread = task.get("thread")
+        running = bool(thread and thread.is_alive()) or task.get("status") == "running"
+        return {
+            "exists": True,
+            "running": running,
+            "status": str(task.get("status", "running")),
+        }
+
+
+def _set_prepare_task_status(task_registry: dict, status: str) -> None:
+    with task_registry["lock"]:
+        task = task_registry["tasks"].get("prepare_next_run")
+        if not task:
+            return
+        task["status"] = status
+        task["finished_at"] = time.time()
+
+
+def _fail_pending_request_for_prepare(request_file: Path, reason: str) -> None:
+    timestamp = request_file.stem
+    result_dir = RESULTS_DIR / timestamp
+    result_dir.mkdir(parents=True, exist_ok=True)
+    request_data = {}
+    try:
+        request_data = json.loads(request_file.read_text())
+    except Exception:
+        request_data = {}
+    (result_dir / "request.json").write_text(json.dumps(request_data, indent=2))
+    (result_dir / "error.txt").write_text(f"{reason}\n")
+    chain = {
+        "overall_status": "failed",
+        "test_verdict": "fail",
+        "workflow_state": "failed",
+        "abort_reason": "prepare_next_run_failed",
+        "steps": [],
+        "parallel_groups": {},
+    }
+    (result_dir / "chain.json").write_text(json.dumps(chain, indent=2))
+    request_file.rename(FAILED_DIR / request_file.name)
+    print(f"Failed pending request {timestamp}: {reason}", flush=True)
+
+
+def _run_prepare_retry(
+    source_manager: SourceManager,
+    board,
+    event_queue: queue.Queue,
+    ui,
+    ui_state: TmuxUIState,
+    exit_flag: threading.Event,
+    console_manager: ConsoleManager,
+    platform_overrides: dict,
+    task_registry: dict,
+) -> bool:
+    try:
+        status = run_bootstrap_chain(
+            chain_name="recovery_boot",
+            source_manager=source_manager,
+            board=board,
+            event_queue=event_queue,
+            cancel_flag=threading.Event(),
+            ui=ui,
+            ui_state=ui_state,
+            exit_flag=exit_flag,
+            console_manager=console_manager,
+            platform_overrides=platform_overrides,
+            task_registry=task_registry,
+        )
+        return status == "pass"
+    except Exception as exc:
+        print(f"prepare_next_run retry failed: {exc}", flush=True)
+        return False
+
+
+def _enforce_prepare_gate(
+    requests: list[Path],
+    prepare_gate_state: dict,
+    max_prepare_retries: int,
+    source_manager: SourceManager,
+    board,
+    event_queue: queue.Queue,
+    ui,
+    ui_state: TmuxUIState,
+    exit_flag: threading.Event,
+    console_manager: ConsoleManager,
+    platform_overrides: dict,
+    task_registry: dict,
+) -> bool:
+    snapshot = _prepare_task_snapshot(task_registry)
+    if not snapshot["exists"]:
+        prepare_gate_state["retries"] = 0
+        return True
+    if snapshot["running"]:
+        return False
+    status = snapshot["status"]
+    if status == "pass":
+        prepare_gate_state["retries"] = 0
+        return True
+    if status not in ("fail", "canceled"):
+        return True
+
+    retries = int(prepare_gate_state.get("retries", 0))
+    if retries < max_prepare_retries:
+        retries += 1
+        prepare_gate_state["retries"] = retries
+        print(f"prepare_next_run failed; retry {retries}/{max_prepare_retries}", flush=True)
+        if _run_prepare_retry(
+            source_manager=source_manager,
+            board=board,
+            event_queue=event_queue,
+            ui=ui,
+            ui_state=ui_state,
+            exit_flag=exit_flag,
+            console_manager=console_manager,
+            platform_overrides=platform_overrides,
+            task_registry=task_registry,
+        ):
+            _set_prepare_task_status(task_registry, "pass")
+            prepare_gate_state["retries"] = 0
+            return True
+        _set_prepare_task_status(task_registry, "fail")
+
+    if int(prepare_gate_state.get("retries", 0)) >= max_prepare_retries:
+        if requests:
+            _fail_pending_request_for_prepare(
+                requests[0],
+                f"prepare_next_run failed after {max_prepare_retries} retries",
+            )
+        prepare_gate_state["retries"] = 0
+    return False
+
+
 def main() -> None:
     ensure_dirs()
 
@@ -200,6 +336,8 @@ def main() -> None:
         "tasks": {},
         "signals": {},
     }
+    prepare_gate_state = {"retries": 0}
+    max_prepare_retries = 3
 
     def _on_abort() -> None:
         event_queue.put(Event("abort"))
@@ -277,6 +415,22 @@ def main() -> None:
 
         requests = sorted(PENDING_DIR.glob("*.request"))
         if not requests:
+            time.sleep(1)
+            continue
+        if not _enforce_prepare_gate(
+            requests=requests,
+            prepare_gate_state=prepare_gate_state,
+            max_prepare_retries=max_prepare_retries,
+            source_manager=source_manager,
+            board=board,
+            event_queue=event_queue,
+            ui=ui,
+            ui_state=ui_state,
+            exit_flag=exit_flag,
+            console_manager=console_manager,
+            platform_overrides=platform_overrides,
+            task_registry=task_registry,
+        ):
             time.sleep(1)
             continue
 
