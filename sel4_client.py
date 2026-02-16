@@ -39,6 +39,30 @@ class QueueNotEmptyError(RuntimeError):
         self.processing = processing
 
 
+def _sanitize_test_name(raw: str) -> str:
+    name = (raw or "").strip()
+    if not name:
+        return "test"
+    cleaned = []
+    prev_underscore = False
+    for ch in name:
+        if ch.isalnum() or ch in "._-":
+            cleaned.append(ch)
+            prev_underscore = False
+            continue
+        if not prev_underscore:
+            cleaned.append("_")
+            prev_underscore = True
+    out = "".join(cleaned).strip("._-")
+    return out or "test"
+
+
+def _derive_target_binary_name(binary_name: str, timestamp: str) -> tuple[str, str]:
+    stem = Path(binary_name).stem if binary_name else ""
+    test_name = _sanitize_test_name(stem)
+    return test_name, f"{test_name}-{timestamp}.EFI"
+
+
 # Legacy module-level paths for backward compatibility
 # These mirror get_paths() so queue path mapping has one source of truth.
 AUTOPILOT_DIR = get_autopilot_dir()
@@ -105,10 +129,13 @@ def submit_sel4_efi_test(
         request_binary_path = str(binary_src)
 
     # Create request file
+    test_name, target_binary_name = _derive_target_binary_name(binary_name, timestamp)
     request = {
         'profile': profile,
         'binary_path': request_binary_path,
         'binary_name': binary_name,
+        'test_name': test_name,
+        'target_binary_name': target_binary_name,
         'description': description,
         'submitted_at': timestamp,
         'original_binary': str(binary_src),
@@ -182,6 +209,10 @@ def submit_boot_interactive(
         "interactive": interactive,
         "build_config": build_config
     }
+    if boot_target != "stock_linux":
+        test_name, target_binary_name = _derive_target_binary_name(binary_name, timestamp)
+        request["test_name"] = test_name
+        request["target_binary_name"] = target_binary_name
 
     request_file = paths['pending'] / f"{timestamp}.request"
     request_file.write_text(json.dumps(request, indent=2))

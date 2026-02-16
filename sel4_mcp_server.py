@@ -35,7 +35,6 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -620,8 +619,11 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                         "isError": True
                     }
 
-        # Generate timestamped binary name to detect upload failures
-        binary_name = f"sel4test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.efi"
+        # Keep staged filename stable; submit path computes target_binary_name SSOT.
+        src_path = Path(binary_path)
+        binary_name = src_path.name
+        if not binary_name:
+            binary_name = "sel4test.efi"
 
         # Determine arm_hyp from build config
         # Check orinagx_sel4test/.config if it exists
@@ -660,11 +662,13 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             }
 
         result_dir = paths['results'] / request_id
+        request_info = get_request_info(request_id, autopilot_dir=autopilot_dir) or {}
         payload = {
             "status": "submitted",
             "request_id": request_id,
             "binary_path": binary_path,
             "binary_name": binary_name,
+            "target_binary_name": request_info.get("target_binary_name"),
             "profile": profile,
             "result_dir": str(result_dir),
         }
