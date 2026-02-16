@@ -33,7 +33,7 @@
 | S08 | Remove old aliases/references (`bootefi_common`) | Done | `chains/*`, docs | zero live refs | this commit | Removed platform alias and active chain-spec old-name reference |
 | S09 | Handle legacy harness alignment/deprecation | Done | `seL4BootHarness.py`, docs | explicit status | this commit | Marked module as legacy and aligned upload cleanup path to `/efiboot` |
 | S10 | Docs/diagrams sync in autopilot | Done | `docs/*.md`, `diagrams/*.mmd` | references consistent | this commit | Synced autopilot docs/diagrams and removed obsolete netboot chain artifact |
-| S11 | Validation sweep and evidence log | Planned | tracking file + outputs | checks green | - |  |
+| S11 | Validation sweep and evidence log | Done | tracking file + outputs | checks green | this commit | py_compile + chain validation + stale-ref scans completed |
 | S12 | Final closure summary and completion commit | Planned | tracking file | all steps done | - |  |
 
 ## Verification Log
@@ -47,6 +47,11 @@
 - S08: removed old `bootefi_common` alias wiring from platform-init and updated active chain-spec references.
 - S09: documented `seL4BootHarness.py` as legacy/non-authoritative and aligned its cleanup/upload path naming to `/efiboot`.
 - S10: updated autopilot docs/diagrams to current chain names and flow; removed obsolete `bootefi_orin_netboot` chain file.
+- S11 checks:
+  - `python3 -m py_compile chain_runtime.py sel4_client.py sel4_mcp_server.py seL4BootHarness.py` -> `py_compile_ok`
+  - `validate_chain` over all chain JSON files -> `chain_validate_ok 19`
+  - `rg` stale-ref scan excluding tracker file -> no matches for `bootefi_common|bootefi_orin_netboot|/boot/efi|/tftp/efi/bootimg.efi`
+  - canonical caller scan confirms `boot_stock_linux` and `deploy_and_boot_test_efi` call sites in target profiles.
 
 ## Closure Checklist
 - [ ] All steps S01-S12 complete.
