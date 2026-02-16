@@ -1,0 +1,52 @@
+{
+  "entry": "boot_extlinux",
+  "steps": {
+    "boot_extlinux": {
+      "type": "boot_efi",
+      "source": "tty0",
+      "mode": "extlinux",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_stock_prompt"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_stock_prompt": {
+      "type": "wait_pattern",
+      "timeout_s": 180,
+      "outcomes": [
+        {
+          "label": "prompt",
+          "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
+          "source": "tty0",
+          "next": "verify_ssh_ready"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "verify_ssh_ready": {
+      "type": "ssh_wait_ready",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "uname -a",
+      "per_try_timeout_s": 1,
+      "total_timeout_s": 10,
+      "retry_interval_s": 1,
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    }
+  }
+}
