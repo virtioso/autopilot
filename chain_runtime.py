@@ -719,6 +719,7 @@ class ChainRunner:
 
         prompt_timeout_s = int(step.get("prompt_timeout_s", 90))
         post_send_delay_s = float(step.get("post_send_delay_s", 0))
+        success_timeout_s = int(step.get("success_timeout_s", 15))
         prompt_patterns = step.get("prompt_patterns") or [
             r"Shell>",
             r"FS[0-9]+:\\>",
@@ -728,6 +729,9 @@ class ChainRunner:
 
         if mode == "extlinux":
             command = "fs3:\\EFI\\BOOT\\BOOTAA64.EFI"
+            success_patterns = step.get("success_patterns") or [
+                r"L4TLauncher: Attempting Direct Boot",
+            ]
         else:
             target_binary_name = self._resolve_value(step.get("target_binary_name"))
             if not target_binary_name:
@@ -735,6 +739,7 @@ class ChainRunner:
             if not target_binary_name:
                 raise ValueError("boot_efi mode=test_efi requires target_binary_name")
             command = f"fs2:\\efiboot\\{target_binary_name}"
+            success_patterns = step.get("success_patterns")
 
         binding = self.ctx["sources"].get(source)
         if not binding:
@@ -769,6 +774,28 @@ class ChainRunner:
                 binding.write(f"{command}\r")
                 if post_send_delay_s > 0:
                     time.sleep(post_send_delay_s)
+                if success_patterns:
+                    if not isinstance(success_patterns, list) or not success_patterns:
+                        raise ValueError("boot_efi success_patterns must be a non-empty list when set")
+                    success_deadline = time.time() + success_timeout_s
+                    while time.time() < success_deadline:
+                        self._check_cancel()
+                        event = self._poll_event()
+                        if event:
+                            if event.kind == "abort":
+                                self._handle_abort()
+                            if event.kind == "exit":
+                                self.ctx["exit_flag"].set()
+                                raise AbortRun()
+                        sdata, new_cursor = binding.read_since(cursor)
+                        cursor = new_cursor
+                        if not sdata:
+                            time.sleep(0.1)
+                            continue
+                        stext = sdata.decode("utf-8", errors="ignore")
+                        if any(re.search(pattern, stext, re.MULTILINE) for pattern in success_patterns):
+                            return self._simple_outcome(step)
+                    raise RuntimeError("boot_efi: command dispatched but success criterion not observed")
                 return self._simple_outcome(step)
         raise RuntimeError("boot_efi: failed to detect UEFI prompt")
 
