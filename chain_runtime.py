@@ -743,6 +743,9 @@ class ChainRunner:
 
         # Start from fresh output to avoid stale prompt matches from previous boot phases.
         _, cursor = binding.read_since(1 << 60)
+        # Force prompt redraw for already-idle UEFI shells/menu screens.
+        binding.write("\r")
+        last_probe_at = time.time()
         start = time.time()
         while time.time() - start < prompt_timeout_s:
             self._check_cancel()
@@ -756,6 +759,10 @@ class ChainRunner:
             data, new_cursor = binding.read_since(cursor)
             cursor = new_cursor
             if not data:
+                now = time.time()
+                if now - last_probe_at >= 1.0:
+                    binding.write("\r")
+                    last_probe_at = now
                 time.sleep(0.1)
                 continue
             text = data.decode("utf-8", errors="ignore")
