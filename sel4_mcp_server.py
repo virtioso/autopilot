@@ -35,6 +35,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,41 @@ from sel4_client import (
 )
 
 _AUTOPILOT_MANAGER_MTIME_NS = None
+
+
+def _request_epoch_s(request_id: str, autopilot_dir: str | None) -> float | None:
+    now = time.time()
+    parsed_candidates = []
+    req = get_request_info(request_id, autopilot_dir=autopilot_dir) or {}
+    submitted_at = str(req.get("submitted_at", "")).strip()
+    candidates = [submitted_at, request_id]
+    for value in candidates:
+        if not value:
+            continue
+        try:
+            ts = datetime.strptime(value, "%Y%m%d-%H%M%S").timestamp()
+            if ts <= now + 300:
+                return ts
+            parsed_candidates.append(ts)
+        except ValueError:
+            continue
+
+    try:
+        paths = get_paths(autopilot_dir=autopilot_dir)
+        request_name = f"{request_id}.request"
+        for queue_name in ("pending", "processing", "completed", "failed"):
+            p = paths[queue_name] / request_name
+            if p.exists():
+                return p.stat().st_mtime
+        result_dir = paths["results"] / request_id
+        if result_dir.exists():
+            return result_dir.stat().st_mtime
+    except Exception:
+        pass
+
+    if parsed_candidates:
+        return min(parsed_candidates)
+    return None
 
 
 def _get_autopilot_manager():
@@ -757,8 +793,17 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         timeout = int(arguments.get("timeout", 300))
         poll_interval = int(arguments.get("poll_interval", 1))
         max_block_s = int(arguments.get("max_block_s", 30))
-        start = time.time()
-        block_timeout = min(timeout, max_block_s)
+        call_start = time.time()
+        # Keep a margin below typical tool-call hard deadline.
+        max_block_s = max(1, min(max_block_s, 55))
+
+        request_epoch = _request_epoch_s(request_id, autopilot_dir=autopilot_dir)
+        if request_epoch is not None:
+            elapsed_total_s = max(0, int(time.time() - request_epoch))
+        else:
+            elapsed_total_s = 0
+        remaining_budget_s = max(timeout - elapsed_total_s, 0)
+        block_timeout = min(max_block_s, max(1, remaining_budget_s)) if remaining_budget_s > 0 else 1
         result = wait_for_result(
             request_id,
             timeout=block_timeout,
@@ -767,11 +812,14 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         )
 
         if result["status"] in ("completed", "failed"):
+            if request_epoch is not None:
+                elapsed_total_s = max(0, int(time.time() - request_epoch))
             payload = {
                 "status": result["status"],
                 "request_id": request_id,
                 "result_dir": str(result.get("result_dir")) if result.get("result_dir") else None,
-                "elapsed_s": int(time.time() - start),
+                "elapsed_s": elapsed_total_s,
+                "call_elapsed_s": int(time.time() - call_start),
             }
             return {
                 "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
@@ -779,11 +827,14 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             }
 
         current = get_status(request_id, autopilot_dir=autopilot_dir)
-        remaining = max(timeout - int(time.time() - start), 0)
+        if request_epoch is not None:
+            elapsed_total_s = max(0, int(time.time() - request_epoch))
+        remaining = max(timeout - elapsed_total_s, 0)
         payload = {
             "status": current.get("status", "processing"),
             "request_id": request_id,
-            "elapsed_s": int(time.time() - start),
+            "elapsed_s": elapsed_total_s,
+            "call_elapsed_s": int(time.time() - call_start),
             "remaining_s": remaining,
             "next_poll_s": poll_interval,
         }

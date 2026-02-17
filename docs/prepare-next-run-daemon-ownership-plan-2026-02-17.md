@@ -419,3 +419,24 @@ Implemented:
    - `diagrams/boot-interactive-efi.mmd`
    - `diagrams/prepare_next_run_task.mmd`
 3. Added `diagrams/README.md` documenting diagram status and SSOT sources for current behavior.
+
+### Step 13 (Completed): `wait_for_test` cumulative timing semantics hardening
+
+Date: 2026-02-17
+
+Implemented:
+1. Updated `sel4_mcp_server.py` `wait_for_test` path to use cumulative elapsed time (`elapsed_s`) derived from request submission epoch instead of resetting elapsed per call.
+2. Added `call_elapsed_s` for per-invocation duration visibility.
+3. `remaining_s` now uses cumulative budget (`timeout - elapsed_s`) semantics.
+4. Capped blocking window to 55s max to reduce transport deadline collisions when callers set `max_block_s=60`.
+5. Hardened request-epoch inference:
+   - parse from `submitted_at` / request ID when plausible,
+   - fallback to queue/result file mtimes when parsed time is implausible (timezone/clock skew case).
+
+Validation:
+1. `python3 -m py_compile sel4_mcp_server.py` passes.
+2. `python3 scripts/preflight_autopilot.py` passes.
+3. Local function check shows non-zero elapsed for historical request IDs (`_request_epoch_s`).
+
+Note:
+1. Active MCP server process may need reload/restart by client/session to pick up the updated `wait_for_test` behavior.
