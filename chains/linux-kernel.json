@@ -32,18 +32,6 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "spawn_prepare_task"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "spawn_prepare_task": {
-      "type": "task_spawn",
-      "task": "prepare_next_run",
-      "chain": "prepare_next_run_task",
-      "outcomes": [
-        {
-          "label": "ok",
           "next": "run_boot_stock"
         }
       ],
@@ -140,10 +128,10 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "signal_prepare_pass"
+          "next": "pass"
         }
       ],
-      "on_timeout": "signal_prepare_pass"
+      "on_timeout": "pass"
     },
     "set_verdict_fail": {
       "type": "set_test_verdict",
@@ -151,70 +139,10 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "signal_prepare_fail"
-        }
-      ],
-      "on_timeout": "signal_prepare_fail"
-    },
-    "signal_prepare_pass": {
-      "type": "signal_set",
-      "signal": "prepare_next_run_go",
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "join_prepare_pass"
-        }
-      ],
-      "on_timeout": "join_prepare_pass"
-    },
-    "join_prepare_pass": {
-      "type": "task_join",
-      "tasks": [
-        "prepare_next_run"
-      ],
-      "reduce": "all_pass",
-      "timeout_s": 240,
-      "outcomes": [
-        {
-          "label": "pass",
-          "next": "pass"
-        },
-        {
-          "label": "fail",
-          "next": "relay_fallback_pass"
-        }
-      ],
-      "on_timeout": "relay_fallback_pass"
-    },
-    "signal_prepare_fail": {
-      "type": "signal_set",
-      "signal": "prepare_next_run_go",
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "join_prepare_fail"
-        }
-      ],
-      "on_timeout": "join_prepare_fail"
-    },
-    "join_prepare_fail": {
-      "type": "task_join",
-      "tasks": [
-        "prepare_next_run"
-      ],
-      "reduce": "all_pass",
-      "timeout_s": 240,
-      "outcomes": [
-        {
-          "label": "pass",
           "next": "fail"
-        },
-        {
-          "label": "fail",
-          "next": "relay_fallback_fail"
         }
       ],
-      "on_timeout": "relay_fallback_fail"
+      "on_timeout": "fail"
     },
     "relay_fallback_pass": {
       "type": "relay",

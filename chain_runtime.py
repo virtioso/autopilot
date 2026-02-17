@@ -143,6 +143,14 @@ class Event:
         self.payload = payload or {}
 
 
+FORBIDDEN_PREPARE_LIFECYCLE_PATTERNS = (
+    "task_spawn task=prepare_next_run",
+    "task_spawn chain=prepare_next_run_task",
+    "signal_set signal=prepare_next_run_go",
+    "task_join tasks contains prepare_next_run",
+)
+
+
 class SourceBinding:
     def __init__(
         self,
@@ -316,6 +324,11 @@ def validate_chain(chain: dict) -> None:
                 raise ChainValidationError(f"step {name} task_spawn requires non-empty task")
             if not chain_name:
                 raise ChainValidationError(f"step {name} task_spawn requires non-empty chain")
+            if task_name == "prepare_next_run" or chain_name == "prepare_next_run_task":
+                raise ChainValidationError(
+                    f"step {name} reintroduces forbidden prepare lifecycle pattern; "
+                    f"forbidden={FORBIDDEN_PREPARE_LIFECYCLE_PATTERNS}"
+                )
         if step.get("type") == "task_join":
             tasks = step.get("tasks")
             if not isinstance(tasks, list) or not tasks:
@@ -323,6 +336,11 @@ def validate_chain(chain: dict) -> None:
             for task_name in tasks:
                 if not isinstance(task_name, str) or not task_name.strip():
                     raise ChainValidationError(f"step {name} task_join has invalid task name: {task_name}")
+                if task_name.strip() == "prepare_next_run":
+                    raise ChainValidationError(
+                        f"step {name} reintroduces forbidden prepare lifecycle pattern; "
+                        f"forbidden={FORBIDDEN_PREPARE_LIFECYCLE_PATTERNS}"
+                    )
             reduce_mode = str(step.get("reduce", "")).strip()
             if reduce_mode not in ("any_pass", "all_pass"):
                 raise ChainValidationError(f"step {name} task_join requires reduce=any_pass|all_pass")
@@ -335,6 +353,11 @@ def validate_chain(chain: dict) -> None:
             signal_name = str(step.get("signal", "")).strip()
             if not signal_name:
                 raise ChainValidationError(f"step {name} signal_set requires non-empty signal")
+            if signal_name == "prepare_next_run_go":
+                raise ChainValidationError(
+                    f"step {name} reintroduces forbidden prepare lifecycle pattern; "
+                    f"forbidden={FORBIDDEN_PREPARE_LIFECYCLE_PATTERNS}"
+                )
         if step.get("type") == "signal_wait":
             signal_name = str(step.get("signal", "")).strip()
             if not signal_name:

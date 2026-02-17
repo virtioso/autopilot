@@ -206,3 +206,42 @@ Implemented:
 Validation:
 1. `python3 -m py_compile orin_kernel_autopilot.py sel4_client.py`
 2. JSON parse validation for `chains/platform-init-orin-agx-uefi-netboot.json`
+
+### Step 2 (Completed): Remove prepare lifecycle orchestration from test chains
+
+Date: 2026-02-17
+
+Implemented:
+1. Removed prepare lifecycle coupling from all targeted test chains:
+   - `chains/vm_common.json`
+   - `chains/linux-kernel.json`
+   - `chains/linux-kernel-multi.json`
+   - `chains/sel4test.json`
+   - `chains/boot-interactive.json`
+   - `chains/boot-interactive-efi.json`
+2. Removed or bypassed `spawn_prepare_task` ownership logic from those chains.
+3. Removed `signal_set(prepare_next_run_go)` and `task_join(prepare_next_run)` flow from those chains.
+4. Updated `set_verdict_pass`/`set_verdict_fail` transitions to terminate directly at `pass`/`fail`.
+
+Validation:
+1. `validate_chain(...)` passes for all six updated chains.
+2. Signature scan confirms zero prepare lifecycle signatures in those six chains.
+
+### Step 3 (Completed): Add hard policy gates (runtime + lint)
+
+Date: 2026-02-17
+
+Implemented:
+1. Runtime validator enforcement in `chain_runtime.py`:
+   - rejects `task_spawn task=prepare_next_run`
+   - rejects `task_spawn chain=prepare_next_run_task`
+   - rejects `signal_set signal=prepare_next_run_go`
+   - rejects `task_join` lists containing `prepare_next_run`
+2. Added repo lint script:
+   - `scripts/lint_prepare_lifecycle.py`
+   - scans `chains/*.json` and fails on forbidden prepare lifecycle signatures.
+
+Validation:
+1. `python3 /home/hlyytine/autopilot/scripts/lint_prepare_lifecycle.py` passes.
+2. `validate_chain(...)` passes for all `chains/*.json`.
+3. `python3 -m py_compile chain_runtime.py` passes.
