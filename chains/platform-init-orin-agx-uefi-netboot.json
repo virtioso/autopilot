@@ -5,7 +5,8 @@
       "type": "set_overrides",
       "overrides": {
         "chain_aliases": {
-          "post_test_fallback_relay": "post_test_fallback_noop"
+          "post_test_fallback_relay": "post_test_fallback_noop",
+          "vm_deploy_and_boot": "deploy_and_boot_test_efi"
         },
         "lifecycle": {
           "prepare": {

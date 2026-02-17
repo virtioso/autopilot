@@ -62,7 +62,7 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "run_boot_stock"
+          "next": "run_vm_deploy_and_boot"
         }
       ],
       "on_timeout": "fail"
@@ -251,28 +251,13 @@
     "fail": {
       "type": "fail"
     },
-    "run_bootefi": {
+    "run_vm_deploy_and_boot": {
       "type": "call_chain",
-      "chain": "deploy_and_boot_test_efi",
+      "chain": "vm_deploy_and_boot",
       "outcomes": [
         {
           "label": "pass",
           "next": "elfloader_started"
-        },
-        {
-          "label": "fail",
-          "next": "set_verdict_fail"
-        }
-      ],
-      "on_timeout": "set_verdict_fail"
-    },
-    "run_boot_stock": {
-      "type": "call_chain",
-      "chain": "boot_stock_linux",
-      "outcomes": [
-        {
-          "label": "pass",
-          "next": "run_bootefi"
         },
         {
           "label": "fail",
