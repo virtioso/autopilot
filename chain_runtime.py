@@ -655,8 +655,14 @@ class ChainRunner:
     def _step_wait_pattern(self, step: dict) -> Tuple[str, OutcomeMatch]:
         timeout_s = int(step.get("timeout_s", 30))
         outcomes = step.get("outcomes", [])
+        start_from = str(step.get("start_from", "head")).strip().lower()
+        if start_from not in ("head", "tail"):
+            raise ValueError("wait_pattern start_from must be head|tail")
         start = time.time()
         cursors: Dict[str, int] = {}
+        buffers: Dict[str, bytes] = {}
+        buffer_starts: Dict[str, int] = {}
+        max_buffer = 65536
         while time.time() - start < timeout_s:
             self._check_cancel()
             event = self._poll_event()
@@ -674,14 +680,35 @@ class ChainRunner:
                 binding = self.ctx["sources"].get(source)
                 if not binding:
                     continue
+                if source not in cursors:
+                    if start_from == "tail":
+                        _, tail_cursor = binding.read_since(1 << 60)
+                        cursors[source] = tail_cursor
+                    else:
+                        cursors[source] = 0
                 cursor = cursors.get(source, 0)
                 data, new_cursor = binding.read_since(cursor)
+                chunk_start = max(cursor, binding._base_offset)
                 cursors[source] = new_cursor
                 if not data:
                     continue
-                match = re.search(pattern, data.decode("utf-8", errors="ignore"), re.MULTILINE)
+
+                existing = buffers.get(source, b"")
+                if not existing:
+                    buffer_starts[source] = chunk_start
+                combined = existing + data
+                combined_start = buffer_starts[source]
+                if len(combined) > max_buffer:
+                    trim = len(combined) - max_buffer
+                    combined = combined[trim:]
+                    combined_start += trim
+                buffers[source] = combined
+                buffer_starts[source] = combined_start
+
+                pattern_bytes = pattern.encode("utf-8")
+                match = re.search(pattern_bytes, combined, re.MULTILINE)
                 if match:
-                    offset = binding._base_offset + match.start()
+                    offset = combined_start + match.start()
                     log_path = str(binding.log_path)
                     next_step = outcome.get("next", step.get("on_timeout", "fail"))
                     return next_step, OutcomeMatch(
@@ -1044,8 +1071,12 @@ class ChainRunner:
 
         deadline = time.time() + total_timeout_s
         last_error = ""
+        attempts = 0
+        probe_start = time.time()
         while time.time() < deadline:
             self._check_cancel()
+            attempts += 1
+            attempt_started_at = time.time()
             run_args = [
                 "ssh",
                 "-o",
@@ -1055,17 +1086,35 @@ class ChainRunner:
             ]
             try:
                 subprocess.run(run_args, check=True, timeout=per_try_timeout_s)
+                elapsed = time.time() - probe_start
+                print(
+                    f"ssh_wait_ready success target={target_user}@{target_ip} attempts={attempts} elapsed_s={elapsed:.3f}",
+                    flush=True,
+                )
                 return self._simple_outcome(step)
             except subprocess.TimeoutExpired:
-                last_error = "timeout"
+                elapsed = time.time() - attempt_started_at
+                last_error = f"timeout(after={elapsed:.3f}s)"
             except subprocess.CalledProcessError as exc:
                 last_error = f"exit={exc.returncode}"
+            remaining = deadline - time.time()
+            print(
+                "ssh_wait_ready attempt failed "
+                f"target={target_user}@{target_ip} "
+                f"attempt={attempts} last_error={last_error} remaining_s={max(0.0, remaining):.3f}",
+                flush=True,
+            )
             remaining = deadline - time.time()
             if remaining <= 0:
                 break
             time.sleep(min(retry_interval_s, max(0.1, remaining)))
 
-        raise RuntimeError(f"ssh_wait_ready timed out after {total_timeout_s}s (last_error={last_error})")
+        elapsed = time.time() - probe_start
+        raise RuntimeError(
+            "ssh_wait_ready timed out "
+            f"after {total_timeout_s}s attempts={attempts} elapsed_s={elapsed:.3f} "
+            f"(last_error={last_error})"
+        )
 
     def _step_call_chain(self, step: dict) -> Tuple[str, OutcomeMatch]:
         name = step["chain"]

@@ -26,6 +26,7 @@
     "wait_stock_prompt": {
       "type": "wait_pattern",
       "timeout_s": 180,
+      "start_from": "tail",
       "outcomes": [
         {
           "label": "prompt",

@@ -245,3 +245,44 @@ Validation:
 1. `python3 /home/hlyytine/autopilot/scripts/lint_prepare_lifecycle.py` passes.
 2. `validate_chain(...)` passes for all `chains/*.json`.
 3. `python3 -m py_compile chain_runtime.py` passes.
+
+### Step 4 (Completed): `AP-SSH-001` root-cause instrumentation (strict SSH retained)
+
+Date: 2026-02-17
+
+Implemented:
+1. Added per-attempt SSH readiness diagnostics in `chain_runtime.py` (`_step_ssh_wait_ready`):
+   - attempt count
+   - target endpoint
+   - last error detail (`timeout` or SSH exit code)
+   - remaining budget per attempt
+2. Added explicit success summary log:
+   - attempts and elapsed seconds.
+3. Timeout failure now reports:
+   - total attempts
+   - elapsed duration
+   - last observed error detail.
+4. SSH strictness unchanged:
+   - still requires successful SSH command before pass.
+
+Validation:
+1. `python3 -m py_compile chain_runtime.py` passes.
+
+### Step 5 (Completed): `AP-OFFSET-001` byte-exact `log_offset`
+
+Date: 2026-02-17
+
+Implemented:
+1. Reworked `wait_pattern` matching in `chain_runtime.py` to operate on raw bytes (not decoded text slices).
+2. `log_offset` now computed as absolute byte offset in `console/*.raw`.
+3. Added rolling byte buffer in `wait_pattern` to preserve cross-read regex matching continuity.
+4. Added `wait_pattern.start_from` policy (`head|tail`) and set:
+   - `chains/boot_stock_linux.json` `wait_stock_prompt.start_from = tail`
+   to avoid stale prompt matches from earlier UART history.
+5. Updated docs:
+   - `docs/chain-spec.md` documents `wait_pattern.start_from`.
+   - `docs/chain-spec.md` clarifies `log_offset` as raw-byte offset.
+
+Validation:
+1. `validate_chain(...)` passes for all `chains/*.json`.
+2. `python3 -m py_compile chain_runtime.py` passes.

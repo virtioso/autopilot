@@ -31,6 +31,7 @@ Common fields:
 - `on_timeout`: label to transition on timeout.
 - `on_error`: label to transition on exception (optional).
 - `outcomes`: list of outcomes (regex or action results).
+- `start_from` (for `wait_pattern`): `head` (default) or `tail`.
 
 Interactive console fields:
 - `hold_open`: if false, create sessions and return immediately.
@@ -245,6 +246,9 @@ When parallel groups are used, `chain.json` includes:
 
 `cancel_reason` is set when a branch is canceled due to another branch winning
 (for example `winner:ftrace_watchdog`).
+
+For regex outcomes recorded by `wait_pattern`, `log_offset` is a raw-byte offset
+into the corresponding `console/*.raw` file.
 
 ## Verdict and Workflow State
 
