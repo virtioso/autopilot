@@ -377,3 +377,27 @@ Implemented:
 
 Validation:
 1. `python3 scripts/preflight_autopilot.py` passes.
+
+### Step 11 (Completed): Multi-request daemon lifecycle validation on Orin AGX
+
+Date: 2026-02-17
+
+Runs:
+1. `20260217-145521` (validation A)
+2. `20260217-150610` (validation B)
+
+Observed:
+1. Both requests were accepted and executed sequentially under daemon admission control.
+2. `prepare_state.json` after run B shows:
+   - `state=pass`
+   - `last_prepare.status=pass`
+   - `last_prepare.chain=recovery_boot`
+   - `last_prepare.trigger=request_complete:20260217-150610`
+3. Daemon logs show per-cycle startup probe/SSH readiness evidence around both runs and terminal completion for both request IDs.
+4. Both runs ended with test verdict `fail` for test-flow reasons unrelated to prepare lifecycle ownership; workflow state remained consistent (`workflow_state=completed`).
+
+Validation evidence files:
+1. `results/20260217-145521/chain.json`
+2. `results/20260217-150610/chain.json`
+3. `runtime/prepare_state.json`
+4. `runtime/autopilot.log`
