@@ -360,3 +360,20 @@ Implemented:
 Validation:
 1. `python3 /home/hlyytine/autopilot/scripts/lint_prepare_lifecycle.py` passes.
 2. `python3 -m py_compile scripts/lint_prepare_lifecycle.py chain_runtime.py` passes.
+
+### Step 10 (Completed): Enforce chain admission gate + preflight entrypoint
+
+Date: 2026-02-17
+
+Implemented:
+1. Submission-time chain admission gate in `sel4_client.py`:
+   - validates `profile` name format
+   - requires `chains/<profile>.json` to exist
+   - runs `validate_chain(...)` on the selected profile chain
+   - runs lifecycle lint (`scripts/lint_prepare_lifecycle.py`) before accepting request submission
+2. Added preflight script:
+   - `scripts/preflight_autopilot.py`
+   - runs py-compile checks, lifecycle lint, and `validate_chain` for all chains.
+
+Validation:
+1. `python3 scripts/preflight_autopilot.py` passes.

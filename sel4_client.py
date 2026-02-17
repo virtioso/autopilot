@@ -23,13 +23,17 @@ Usage:
 
 import json
 import os
+import re
 import shutil
+import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from config import get_autopilot_dir, get_paths
+from chain_runtime import ChainValidationError, validate_chain
 
 
 class QueueNotEmptyError(RuntimeError):
@@ -37,6 +41,33 @@ class QueueNotEmptyError(RuntimeError):
         super().__init__("queue_not_empty")
         self.pending = pending
         self.processing = processing
+
+
+def _validate_chain_admission(profile: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", profile or ""):
+        raise ValueError(f"invalid profile name: {profile!r}")
+    code_root = Path(__file__).resolve().parent
+    chain_path = code_root / "chains" / f"{profile}.json"
+    if not chain_path.exists():
+        raise FileNotFoundError(f"profile chain not found: {chain_path}")
+    try:
+        chain = json.loads(chain_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"profile chain JSON parse failed: {chain_path}: {exc}") from exc
+    try:
+        validate_chain(chain)
+    except ChainValidationError as exc:
+        raise ValueError(f"profile chain validation failed ({chain_path.name}): {exc}") from exc
+
+    lint_script = code_root / "scripts" / "lint_prepare_lifecycle.py"
+    proc = subprocess.run(
+        [sys.executable, str(lint_script)],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stdout + "\n" + proc.stderr).strip()
+        raise ValueError(f"prepare lifecycle lint failed:\n{detail}")
 
 
 def _sanitize_test_name(raw: str) -> str:
@@ -108,6 +139,7 @@ def submit_sel4_efi_test(
         timestamp: Request ID that can be used to check status/get results
     """
     ensure_queue_empty(autopilot_dir=autopilot_dir)
+    _validate_chain_admission(profile)
     paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
@@ -179,6 +211,7 @@ def submit_boot_interactive(
         raise ValueError("interactive config is required")
 
     ensure_queue_empty(autopilot_dir=autopilot_dir)
+    _validate_chain_admission(profile)
     paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
