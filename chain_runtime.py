@@ -1936,18 +1936,9 @@ class ChainRunner:
                 for task in registry.get("tasks", {}).values():
                     if task.get("owner_request_id") != request_id:
                         continue
-                    if task.get("name") == "prepare_next_run":
-                        continue
                     cancel = task.get("cancel")
                     if cancel:
                         cancel.set()
-            with registry["cond"]:
-                state = registry["signals"].setdefault(
-                    "prepare_next_run_go", {"count": 0, "updated_at": None}
-                )
-                state["count"] = int(state.get("count", 0)) + 1
-                state["updated_at"] = time.time()
-                registry["cond"].notify_all()
         for group in self.ctx.get("parallel_groups", {}).values():
             for cancel in group.get("cancel_flags", {}).values():
                 cancel.set()

@@ -286,3 +286,18 @@ Implemented:
 Validation:
 1. `validate_chain(...)` passes for all `chains/*.json`.
 2. `python3 -m py_compile chain_runtime.py` passes.
+
+### Step 6 (Completed): Remove residual runtime coupling to legacy prepare signals
+
+Date: 2026-02-17
+
+Implemented:
+1. Removed legacy `prepare_next_run` special-casing from `ChainRunner._handle_cancel`:
+   - no longer skips cancel by hardcoded task name `prepare_next_run`
+   - no longer increments hardcoded signal `prepare_next_run_go` on cancel
+2. This completes daemon-only lifecycle ownership and removes hidden coupling from request-chain runtime cancel path.
+
+Validation:
+1. `python3 -m py_compile chain_runtime.py` passes.
+2. `validate_chain(...)` passes for all `chains/*.json`.
+3. `python3 /home/hlyytine/autopilot/scripts/lint_prepare_lifecycle.py` passes.
