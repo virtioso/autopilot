@@ -446,12 +446,21 @@ def get_autopilot_status(autopilot_dir: str = None) -> dict:
             "chain_summary": _read_chain_summary(result_dir),
         })
 
+    prepare_state = None
+    prepare_path = paths["runtime"] / "prepare_state.json"
+    if prepare_path.exists():
+        try:
+            prepare_state = json.loads(prepare_path.read_text())
+        except Exception:
+            prepare_state = {"state": "unknown", "error": "failed_to_parse_prepare_state"}
+
     return {
         "pending": {"count": len(pending), "ids": pending},
         "processing": {"count": len(processing), "ids": processing},
         "completed": {"count": len(completed), "latest_ids": completed[-10:]},
         "failed": {"count": len(failed), "latest_ids": failed[-10:]},
         "current": current,
+        "prepare": prepare_state,
     }
 
 

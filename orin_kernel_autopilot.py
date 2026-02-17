@@ -176,140 +176,156 @@ def watch_cancel_file(cancel_flag: threading.Event, cancel_path: Path, exit_flag
         time.sleep(0.2)
 
 
-def _prepare_task_snapshot(task_registry: dict) -> dict:
-    with task_registry["lock"]:
-        task = task_registry["tasks"].get("prepare_next_run")
-        if not task:
-            return {"exists": False, "running": False, "status": None}
-        thread = task.get("thread")
-        running = bool(thread and thread.is_alive()) or task.get("status") == "running"
-        return {
-            "exists": True,
-            "running": running,
-            "status": str(task.get("status", "running")),
+class PrepareLifecycle:
+    def __init__(
+        self,
+        source_manager: SourceManager,
+        board,
+        event_queue: queue.Queue,
+        ui,
+        ui_state: TmuxUIState,
+        exit_flag: threading.Event,
+        console_manager: ConsoleManager,
+        platform_overrides: dict,
+        task_registry: dict,
+    ):
+        self.source_manager = source_manager
+        self.board = board
+        self.event_queue = event_queue
+        self.ui = ui
+        self.ui_state = ui_state
+        self.exit_flag = exit_flag
+        self.console_manager = console_manager
+        self.platform_overrides = platform_overrides
+        self.task_registry = task_registry
+
+        self.state = "unknown"
+        self.degraded_reason = None
+        self.retry_count = 0
+        self.last_probe = None
+        self.last_prepare = None
+        self.probe_chain = "boot_stock_linux"
+        self.run_chain = "recovery_boot"
+        self.max_retries = 3
+        self.degraded_holds_queue = True
+        self.status_path = RUNTIME_DIR / "prepare_state.json"
+        self._reload_policy()
+        self._write_status()
+
+    def _reload_policy(self) -> None:
+        lifecycle = self.platform_overrides.get("lifecycle", {}) or {}
+        prepare = lifecycle.get("prepare", {}) or {}
+        probe_chain = str(prepare.get("probe_chain", self.probe_chain)).strip()
+        run_chain = str(prepare.get("run_chain", self.run_chain)).strip()
+        if probe_chain:
+            self.probe_chain = probe_chain
+        if run_chain:
+            self.run_chain = run_chain
+        try:
+            self.max_retries = max(0, int(prepare.get("max_retries", self.max_retries)))
+        except Exception:
+            self.max_retries = 3
+        self.degraded_holds_queue = bool(prepare.get("degraded_holds_queue", True))
+
+    def apply_overrides(self) -> None:
+        self._reload_policy()
+        self._write_status()
+
+    def _stamp(self, status: str, error: str = None) -> dict:
+        payload = {
+            "at": time.time(),
+            "status": status,
+            "chain": None,
+            "error": error,
         }
+        return payload
 
+    def _set_state(self, state: str, reason: str = None) -> None:
+        self.state = state
+        self.degraded_reason = reason
+        self._write_status()
 
-def _set_prepare_task_status(task_registry: dict, status: str) -> None:
-    with task_registry["lock"]:
-        task = task_registry["tasks"].get("prepare_next_run")
-        if not task:
-            return
-        task["status"] = status
-        task["finished_at"] = time.time()
+    def _write_status(self) -> None:
+        payload = {
+            "state": self.state,
+            "degraded_reason": self.degraded_reason,
+            "retry_count": self.retry_count,
+            "max_retries": self.max_retries,
+            "last_probe": self.last_probe,
+            "last_prepare": self.last_prepare,
+            "policy": {
+                "probe_chain": self.probe_chain,
+                "run_chain": self.run_chain,
+                "degraded_holds_queue": self.degraded_holds_queue,
+            },
+        }
+        self.status_path.parent.mkdir(parents=True, exist_ok=True)
+        self.status_path.write_text(json.dumps(payload, indent=2))
 
-
-def _fail_pending_request_for_prepare(request_file: Path, reason: str) -> None:
-    timestamp = request_file.stem
-    result_dir = RESULTS_DIR / timestamp
-    result_dir.mkdir(parents=True, exist_ok=True)
-    request_data = {}
-    try:
-        request_data = json.loads(request_file.read_text())
-    except Exception:
-        request_data = {}
-    (result_dir / "request.json").write_text(json.dumps(request_data, indent=2))
-    (result_dir / "error.txt").write_text(f"{reason}\n")
-    chain = {
-        "overall_status": "failed",
-        "test_verdict": "fail",
-        "workflow_state": "failed",
-        "abort_reason": "prepare_next_run_failed",
-        "steps": [],
-        "parallel_groups": {},
-    }
-    (result_dir / "chain.json").write_text(json.dumps(chain, indent=2))
-    request_file.rename(FAILED_DIR / request_file.name)
-    print(f"Failed pending request {timestamp}: {reason}", flush=True)
-
-
-def _run_prepare_retry(
-    source_manager: SourceManager,
-    board,
-    event_queue: queue.Queue,
-    ui,
-    ui_state: TmuxUIState,
-    exit_flag: threading.Event,
-    console_manager: ConsoleManager,
-    platform_overrides: dict,
-    task_registry: dict,
-) -> bool:
-    try:
-        status = run_bootstrap_chain(
-            chain_name="recovery_boot",
-            source_manager=source_manager,
-            board=board,
-            event_queue=event_queue,
-            cancel_flag=threading.Event(),
-            ui=ui,
-            ui_state=ui_state,
-            exit_flag=exit_flag,
-            console_manager=console_manager,
-            platform_overrides=platform_overrides,
-            task_registry=task_registry,
-        )
-        return status == "pass"
-    except Exception as exc:
-        print(f"prepare_next_run retry failed: {exc}", flush=True)
-        return False
-
-
-def _enforce_prepare_gate(
-    requests: list[Path],
-    prepare_gate_state: dict,
-    max_prepare_retries: int,
-    source_manager: SourceManager,
-    board,
-    event_queue: queue.Queue,
-    ui,
-    ui_state: TmuxUIState,
-    exit_flag: threading.Event,
-    console_manager: ConsoleManager,
-    platform_overrides: dict,
-    task_registry: dict,
-) -> bool:
-    snapshot = _prepare_task_snapshot(task_registry)
-    if not snapshot["exists"]:
-        prepare_gate_state["retries"] = 0
-        return True
-    if snapshot["running"]:
-        return False
-    status = snapshot["status"]
-    if status == "pass":
-        prepare_gate_state["retries"] = 0
-        return True
-    if status not in ("fail", "canceled"):
-        return True
-
-    retries = int(prepare_gate_state.get("retries", 0))
-    if retries < max_prepare_retries:
-        retries += 1
-        prepare_gate_state["retries"] = retries
-        print(f"prepare_next_run failed; retry {retries}/{max_prepare_retries}", flush=True)
-        if _run_prepare_retry(
-            source_manager=source_manager,
-            board=board,
-            event_queue=event_queue,
-            ui=ui,
-            ui_state=ui_state,
-            exit_flag=exit_flag,
-            console_manager=console_manager,
-            platform_overrides=platform_overrides,
-            task_registry=task_registry,
-        ):
-            _set_prepare_task_status(task_registry, "pass")
-            prepare_gate_state["retries"] = 0
-            return True
-        _set_prepare_task_status(task_registry, "fail")
-
-    if int(prepare_gate_state.get("retries", 0)) >= max_prepare_retries:
-        if requests:
-            _fail_pending_request_for_prepare(
-                requests[0],
-                f"prepare_next_run failed after {max_prepare_retries} retries",
+    def _run_chain_once(self, chain_name: str) -> tuple[bool, str]:
+        try:
+            status = run_bootstrap_chain(
+                chain_name=chain_name,
+                source_manager=self.source_manager,
+                board=self.board,
+                event_queue=self.event_queue,
+                cancel_flag=threading.Event(),
+                ui=self.ui,
+                ui_state=self.ui_state,
+                exit_flag=self.exit_flag,
+                console_manager=self.console_manager,
+                platform_overrides=self.platform_overrides,
+                task_registry=self.task_registry,
             )
-        prepare_gate_state["retries"] = 0
-    return False
+            return status == "pass", status
+        except Exception as exc:
+            return False, str(exc)
+
+    def startup_probe(self) -> None:
+        self._set_state("probing")
+        ok, detail = self._run_chain_once(self.probe_chain)
+        self.last_probe = self._stamp("pass" if ok else "fail", None if ok else detail)
+        self.last_probe["chain"] = self.probe_chain
+        if ok:
+            self.retry_count = 0
+            self._set_state("pass")
+            return
+        self.run_prepare_cycle(trigger="startup_probe_fail")
+
+    def run_prepare_cycle(self, trigger: str) -> bool:
+        self._set_state("preparing")
+        attempts = self.max_retries + 1
+        last_detail = ""
+        for attempt in range(1, attempts + 1):
+            self.retry_count = attempt - 1
+            ok, detail = self._run_chain_once(self.run_chain)
+            self.last_prepare = self._stamp("pass" if ok else "fail", None if ok else detail)
+            self.last_prepare["chain"] = self.run_chain
+            self.last_prepare["trigger"] = trigger
+            self.last_prepare["attempt"] = attempt
+            if ok:
+                self.retry_count = 0
+                self._set_state("pass")
+                return True
+            last_detail = detail
+            self._set_state("fail")
+            print(
+                f"prepare_next_run failed ({attempt}/{attempts}) trigger={trigger}: {detail}",
+                flush=True,
+            )
+        reason = (
+            f"prepare_next_run failed after {attempts} attempts "
+            f"(trigger={trigger}, last_error={last_detail})"
+        )
+        self._set_state("degraded", reason=reason)
+        return False
+
+    def can_admit_request(self) -> bool:
+        if self.state == "pass":
+            return True
+        if self.state == "degraded" and not self.degraded_holds_queue:
+            return True
+        return False
 
 
 def main() -> None:
@@ -336,8 +352,17 @@ def main() -> None:
         "tasks": {},
         "signals": {},
     }
-    prepare_gate_state = {"retries": 0}
-    max_prepare_retries = 3
+    prepare_lifecycle = PrepareLifecycle(
+        source_manager=source_manager,
+        board=board,
+        event_queue=event_queue,
+        ui=ui,
+        ui_state=ui_state,
+        exit_flag=exit_flag,
+        console_manager=console_manager,
+        platform_overrides=platform_overrides,
+        task_registry=task_registry,
+    )
 
     def _on_abort() -> None:
         event_queue.put(Event("abort"))
@@ -400,12 +425,15 @@ def main() -> None:
                 f"Platform init complete: {platform_chain_name} overrides={json.dumps(platform_overrides)}",
                 flush=True,
             )
+            prepare_lifecycle.apply_overrides()
         except Exception as exc:
             print(f"Platform init failed ({platform_chain_name}): {exc}", flush=True)
             control.stop()
             ui.stop()
             cleanup()
             sys.exit(1)
+
+    prepare_lifecycle.startup_probe()
 
     # Main loop
     while not exit_flag.is_set():
@@ -417,20 +445,12 @@ def main() -> None:
         if not requests:
             time.sleep(1)
             continue
-        if not _enforce_prepare_gate(
-            requests=requests,
-            prepare_gate_state=prepare_gate_state,
-            max_prepare_retries=max_prepare_retries,
-            source_manager=source_manager,
-            board=board,
-            event_queue=event_queue,
-            ui=ui,
-            ui_state=ui_state,
-            exit_flag=exit_flag,
-            console_manager=console_manager,
-            platform_overrides=platform_overrides,
-            task_registry=task_registry,
-        ):
+        if not prepare_lifecycle.can_admit_request():
+            if prepare_lifecycle.state == "degraded":
+                print(
+                    f"Queue admission blocked: {prepare_lifecycle.degraded_reason}",
+                    flush=True,
+                )
             time.sleep(1)
             continue
 
@@ -533,6 +553,7 @@ def main() -> None:
             processing_file.rename(FAILED_DIR / request_file.name)
 
         print(f"=== {timestamp} completed: {status} ===", flush=True)
+        prepare_lifecycle.run_prepare_cycle(trigger=f"request_complete:{timestamp}")
 
     control.stop()
     ui.stop()

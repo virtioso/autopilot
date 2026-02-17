@@ -6,6 +6,14 @@
       "overrides": {
         "chain_aliases": {
           "post_test_fallback_relay": "post_test_fallback_noop"
+        },
+        "lifecycle": {
+          "prepare": {
+            "probe_chain": "boot_stock_linux",
+            "run_chain": "recovery_boot",
+            "max_retries": 3,
+            "degraded_holds_queue": true
+          }
         }
       },
       "outcomes": [

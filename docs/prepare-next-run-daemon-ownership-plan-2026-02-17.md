@@ -179,3 +179,30 @@ No lifecycle constants in test chains.
 2. SSH readiness remains mandatory.
 3. Degraded mode holds queue instead of auto-failing pending requests.
 4. Platform policy remains data-driven via `platform-init` overrides.
+
+## Progress Log
+
+### Step 1 (Completed): Phase 1 daemon lifecycle manager + status surfacing
+
+Date: 2026-02-17
+
+Implemented:
+1. Added daemon-owned `PrepareLifecycle` state machine in `orin_kernel_autopilot.py` with states:
+   - `unknown`, `probing`, `preparing`, `pass`, `fail`, `degraded`.
+2. Added startup probe flow:
+   - run `lifecycle.prepare.probe_chain` (default `boot_stock_linux`);
+   - on failure, run prepare cycle via `lifecycle.prepare.run_chain` (default `recovery_boot`).
+3. Added queue admission gate:
+   - dequeue only when lifecycle state is `pass`;
+   - in `degraded` with `degraded_holds_queue=true`, queue stays blocked.
+4. Added post-request lifecycle trigger:
+   - after each completed request, daemon runs prepare cycle before admitting next request.
+5. Added status export:
+   - daemon writes `runtime/prepare_state.json`;
+   - `sel4_client.get_autopilot_status()` now includes `prepare` object.
+6. Added platform-init lifecycle policy defaults in:
+   - `chains/platform-init-orin-agx-uefi-netboot.json` under `lifecycle.prepare.*`.
+
+Validation:
+1. `python3 -m py_compile orin_kernel_autopilot.py sel4_client.py`
+2. JSON parse validation for `chains/platform-init-orin-agx-uefi-netboot.json`
