@@ -161,12 +161,19 @@ This ensures tmux source windows can be created immediately.
 - `deploy_and_boot_test_efi`: canonical test EFI deployment/boot path
   (SCP to `/efiboot/{target_binary_name}` + SSH reboot + `boot_efi(mode=test_efi)`).
 
-### Background Prepare-Next-Run Task
+### Prepare Lifecycle (Daemon-Owned)
 
-During a test, Autopilot may start a background prepare-next-run task
-(`task_spawn`) that waits for an explicit signal before running recovery boot.
-The main flow can continue log analysis and verdict handling, then signal and
-join the task (`signal_set` + `task_join`) before terminal pass/fail.
+Prepare lifecycle is daemon-managed, not request-chain managed.
+
+- Request/test chains must not use prepare lifecycle coupling primitives:
+  - `task_spawn task=prepare_next_run`
+  - `signal_set signal=prepare_next_run_go`
+  - `task_join` including `prepare_next_run`
+- Startup probe and post-request prepare flow are selected from platform policy:
+  - `lifecycle.prepare.probe_chain`
+  - `lifecycle.prepare.run_chain`
+- Queue admission is gated by daemon prepare state (`pass` required unless
+  platform policy explicitly allows degraded admission).
 
 ### Parallel Groups
 
@@ -201,9 +208,9 @@ Interactive sessions end when the login prompt appears again (e.g. after
 typing `exit`). The chain only ends **after** a shell prompt has been seen,
 so the initial login banner does not terminate the session.
 
-On success, interactive chains set verdict first, then signal/join the
-prepare-next-run task so recovery outcome can be observed before terminal
-status is finalized.
+Interactive chains set verdict and terminate (`pass`/`fail`) without
+prepare-lifecycle steps; daemon lifecycle handling runs outside the request
+chain.
 
 If `hold_open` is set to `false`, the interactive step returns immediately
 while leaving the session active for humans or AI tools.

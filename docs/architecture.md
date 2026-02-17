@@ -82,8 +82,13 @@ PlantUML sources live in `docs/diagrams/`.
 1. Request is read from `requests/pending`.
 2. Root chain is loaded from `chains/<profile>.json`.
 3. Chain is validated.
-4. Main chain runs with optional background prepare-next-run task (`task_spawn` + signal/join).
+4. Main chain runs as test logic only (no prepare lifecycle orchestration in request chains).
 5. Results are written to `results/<ts>/` and `chain.json` is finalized.
+
+Prepare lifecycle is daemon-owned:
+- startup probe chain checks stock readiness,
+- post-request prepare chain runs between requests,
+- queue admission is gated by daemon prepare state.
 
 ## Result Artifacts
 

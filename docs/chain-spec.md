@@ -265,9 +265,9 @@ This allows housekeeping/preparation flows to continue after verdict is known.
   "type": "set_test_verdict",
   "verdict": "fail",
   "outcomes": [
-    { "label": "ok", "next": "prepare_next_run" }
+    { "label": "ok", "next": "fail" }
   ],
-  "on_timeout": "prepare_next_run"
+  "on_timeout": "fail"
 }
 ```
 

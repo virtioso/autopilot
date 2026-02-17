@@ -327,3 +327,23 @@ Evidence collected from live run:
 Notes:
 1. Request `20260217-105711` overall verdict remained `fail` for unrelated test-flow reasons.
 2. Validation target here was lifecycle ownership + SSH/offset instrumentation/fix correctness.
+
+### Step 8 (Completed): Startup admission gate + documentation SSOT cleanup
+
+Date: 2026-02-17
+
+Implemented:
+1. Added daemon startup fail-fast validation for all chain files:
+   - `orin_kernel_autopilot.py` now runs `validate_all_chains()` at startup
+   - service aborts early if any chain JSON/schema/runtime-validation rule is broken.
+2. Updated MCP `autopilot_status` response path:
+   - if client helper output lacks `prepare`, server now merges `runtime/prepare_state.json` directly (backward compatibility for long-lived MCP processes).
+3. Updated stale docs that still described chain-level prepare lifecycle:
+   - `docs/runbook.md` now documents daemon-owned prepare lifecycle policy.
+   - `docs/architecture.md` data flow updated to remove request-chain prepare orchestration.
+   - `docs/chain-spec.md` `set_test_verdict` example now terminates directly (no `prepare_next_run` step).
+
+Validation:
+1. `python3 -m py_compile orin_kernel_autopilot.py sel4_mcp_server.py` passes.
+2. `python3 /home/hlyytine/autopilot/scripts/lint_prepare_lifecycle.py` passes.
+3. `validate_chain(...)` passes for all `chains/*.json`.

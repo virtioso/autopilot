@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 import BoardControl
-from chain_runtime import ChainRecorder, ChainRunner, Event, SourceManager
+from chain_runtime import ChainRecorder, ChainRunner, ChainValidationError, Event, SourceManager, validate_chain
 from console_sessions import ConsoleManager
 from config import get_autopilot_dir, get_default_ttys, get_paths, get_target_ip
 from extract_guest_dtb import extract_guest_dtbs
@@ -75,6 +75,20 @@ def load_chain(chain_name: str) -> dict:
     if not chain_path.exists():
         raise ValueError(f"chain not found: {chain_name}")
     return json.loads(chain_path.read_text())
+
+
+def validate_all_chains() -> None:
+    errors = []
+    for chain_path in sorted(CHAINS_DIR.glob("*.json")):
+        try:
+            chain = json.loads(chain_path.read_text())
+            validate_chain(chain)
+        except (json.JSONDecodeError, ChainValidationError, ValueError) as exc:
+            errors.append(f"{chain_path.name}: {exc}")
+        except Exception as exc:
+            errors.append(f"{chain_path.name}: unexpected validation error: {exc}")
+    if errors:
+        raise RuntimeError("chain validation failed:\n - " + "\n - ".join(errors))
 
 
 def run_chain(chain: dict, ctx: dict, recorder: ChainRecorder) -> str:
@@ -330,6 +344,7 @@ class PrepareLifecycle:
 
 def main() -> None:
     ensure_dirs()
+    validate_all_chains()
 
     board = BoardControl.BoardControlLocal()
     console_manager = ConsoleManager(AUTOPILOT_DIR)

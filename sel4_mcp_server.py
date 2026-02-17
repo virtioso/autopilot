@@ -732,6 +732,13 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
 
     elif name == "autopilot_status":
         status = get_autopilot_status(autopilot_dir=autopilot_dir)
+        if isinstance(status, dict) and "prepare" not in status:
+            try:
+                prepare_path = get_paths(autopilot_dir=autopilot_dir)["runtime"] / "prepare_state.json"
+                if prepare_path.exists():
+                    status["prepare"] = json.loads(prepare_path.read_text())
+            except Exception:
+                pass
         return {
             "content": [{"type": "text", "text": json.dumps(status, indent=2)}],
             "isError": False
