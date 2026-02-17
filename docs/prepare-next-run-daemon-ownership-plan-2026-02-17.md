@@ -347,3 +347,16 @@ Validation:
 1. `python3 -m py_compile orin_kernel_autopilot.py sel4_mcp_server.py` passes.
 2. `python3 /home/hlyytine/autopilot/scripts/lint_prepare_lifecycle.py` passes.
 3. `validate_chain(...)` passes for all `chains/*.json`.
+
+### Step 9 (Completed): DRY cleanup for lifecycle policy signatures
+
+Date: 2026-02-17
+
+Implemented:
+1. Removed duplicated forbidden-signature literals from lint tool.
+2. `scripts/lint_prepare_lifecycle.py` now imports
+   `FORBIDDEN_PREPARE_LIFECYCLE_PATTERNS` from `chain_runtime.py` (single source of truth).
+
+Validation:
+1. `python3 /home/hlyytine/autopilot/scripts/lint_prepare_lifecycle.py` passes.
+2. `python3 -m py_compile scripts/lint_prepare_lifecycle.py chain_runtime.py` passes.
