@@ -301,3 +301,29 @@ Validation:
 1. `python3 -m py_compile chain_runtime.py` passes.
 2. `validate_chain(...)` passes for all `chains/*.json`.
 3. `python3 /home/hlyytine/autopilot/scripts/lint_prepare_lifecycle.py` passes.
+
+### Step 7 (Completed): Live Orin validation evidence (`AP-SSH-001` and `AP-OFFSET-001`)
+
+Date: 2026-02-17
+
+Run IDs:
+1. Before (known failing prepare/ssh): `20260217-090413`
+2. After (post-fix validation run): `20260217-105711`
+
+Evidence collected from live run:
+1. Daemon lifecycle behavior:
+   - startup probe reached `state=pass` (`last_probe.status=pass`, chain `boot_stock_linux`)
+   - post-request prepare cycle executed and passed (`last_prepare.status=pass`, chain `recovery_boot`, trigger `request_complete:20260217-105711`)
+2. SSH readiness instrumentation:
+   - `autopilot.log` recorded per-attempt diagnostics for `ssh_wait_ready`
+   - observed attempts 1/2 timeout and attempt 3 success (`elapsed_s=4.567`)
+   - confirms root-cause timing evidence is now visible without changing strict SSH policy
+3. Byte-exact offset verification:
+   - `results/20260217-105711/chain.json` reported `wait_stock_prompt.log_offset = 119238`
+   - direct raw-file search in `results/20260217-105711/console/tty0.raw` found:
+     - `tegra-ubuntu login:` at byte index `119238`
+   - offset is exact (raw-byte aligned).
+
+Notes:
+1. Request `20260217-105711` overall verdict remained `fail` for unrelated test-flow reasons.
+2. Validation target here was lifecycle ownership + SSH/offset instrumentation/fix correctness.
