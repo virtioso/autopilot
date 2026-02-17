@@ -401,3 +401,21 @@ Validation evidence files:
 2. `results/20260217-150610/chain.json`
 3. `runtime/prepare_state.json`
 4. `runtime/autopilot.log`
+
+### Step 12 (Completed): Historical artifact labeling cleanup (docs/diagrams)
+
+Date: 2026-02-17
+
+Implemented:
+1. Added explicit archived-policy warning to:
+   - `docs/parallel-chains-migration-log.md`
+   clarifying that legacy chain-level `prepare_next_run` references are historical only.
+2. Added `HISTORICAL` header markers to legacy `.mmd` diagrams that still depict chain-level prepare orchestration:
+   - `diagrams/vm_common.mmd`
+   - `diagrams/linux-kernel.mmd`
+   - `diagrams/linux-kernel-multi.mmd`
+   - `diagrams/sel4test.mmd`
+   - `diagrams/boot-interactive.mmd`
+   - `diagrams/boot-interactive-efi.mmd`
+   - `diagrams/prepare_next_run_task.mmd`
+3. Added `diagrams/README.md` documenting diagram status and SSOT sources for current behavior.

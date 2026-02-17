@@ -7,6 +7,8 @@ Scope: `/home/hlyytine/autopilot` and `/home/hlyytine/tii-sel4/projects/virtioso
 Note:
 - This file is a chronological implementation log and intentionally preserves
   historical terminology from each step (including pre-cutover op names).
+- Historical entries include legacy chain-level `prepare_next_run` orchestration
+  references and should not be used as current runtime policy.
 - Do not rewrite historical entries except for append-only corrections.
 
 ## Step 2026-02-14-01
