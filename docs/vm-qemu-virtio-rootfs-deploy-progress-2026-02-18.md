@@ -136,7 +136,7 @@ Result (2026-02-18):
 | S3 | autopilot | 1b70e1f | completed | Chain deploy integration |
 | S4 | vm-images/virtioso-yocto-layers | 63a07a8 | completed | Initramfs path cutover |
 | S5 | autopilot | 5c7d2d0 | completed | Validation evidence update (recorded) |
-| S6 | autopilot | _pending_ | completed | Test evidence update |
+| S6 | autopilot | ede631a | completed | Test evidence update |
 | S7 | autopilot | _pending_ | not started | Final closure |
 
 ## Acceptance Checklist
