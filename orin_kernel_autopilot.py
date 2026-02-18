@@ -304,6 +304,38 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
     return {"required": True, "ok": True, "summary": summary}
 
 
+def wait_for_ftrace_uart_drain(result_dir: Path, timeout_s: float = 45.0) -> None:
+    """
+    Guard against relay/power reset while ftrace binary dump is still flowing.
+    """
+    tty0 = result_dir / "console" / "tty0.raw"
+    if not tty0.exists():
+        return
+
+    start = time.time()
+    last_size = -1
+    stable_rounds = 0
+    while time.time() - start < timeout_s:
+        try:
+            data = tty0.read_bytes()
+        except Exception:
+            return
+
+        if b"=== BINARY TRANSFER START ===" not in data:
+            return
+
+        if (b"TRACE_DUMP_TERMINAL:" in data or b"=== BINARY TRANSFER END ===" in data):
+            size_now = len(data)
+            if size_now == last_size:
+                stable_rounds += 1
+            else:
+                stable_rounds = 0
+            last_size = size_now
+            if stable_rounds >= 2:
+                return
+        time.sleep(0.5)
+
+
 def poll_idle_events(event_queue: queue.Queue, exit_flag: threading.Event) -> None:
     while True:
         try:
@@ -693,6 +725,7 @@ def main() -> None:
             ui_state.clear_request()
             write_post_run_dtb_artifacts(result_dir, status)
 
+        wait_for_ftrace_uart_drain(result_dir)
         ftrace_post = run_post_run_ftrace_pipeline(result_dir)
         if ftrace_post.get("required"):
             if not ftrace_post.get("ok"):

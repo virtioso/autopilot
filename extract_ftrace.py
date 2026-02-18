@@ -33,7 +33,7 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
 
     Returns True if ftrace was found and extracted, False otherwise.
     """
-    log_content = log_path.read_text()
+    log_content = log_path.read_bytes().decode('utf-8', errors='ignore')
 
     # Find binary transfer section
     start_marker = "=== BINARY TRANSFER START ==="
