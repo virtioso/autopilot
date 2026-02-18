@@ -1,0 +1,73 @@
+{
+  "overall_status": "pass",
+  "test_verdict": "pass",
+  "workflow_state": "completed",
+  "abort_reason": null,
+  "steps": [
+    {
+      "step": "set_overrides",
+      "status": "ok",
+      "started_at": 1771369496.5483892,
+      "finished_at": 1771369496.5485501,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "platform-init-orin-agx-uefi-netboot",
+      "chain_stack": [
+        "platform-init-orin-agx-uefi-netboot"
+      ],
+      "outcome_label": "ok",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "step": "pass",
+      "status": "ok",
+      "started_at": 1771369496.5487254,
+      "finished_at": 1771369496.5488923,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "platform-init-orin-agx-uefi-netboot",
+      "chain_stack": [
+        "platform-init-orin-agx-uefi-netboot"
+      ],
+      "outcome_label": "pass",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        }
+      }
+    }
+  ],
+  "parallel_groups": {}
+}

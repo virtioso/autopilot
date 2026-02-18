@@ -1,0 +1,238 @@
+{
+  "overall_status": "pass",
+  "test_verdict": "pass",
+  "workflow_state": "completed",
+  "abort_reason": null,
+  "steps": [
+    {
+      "step": "relay_before_boot_efi",
+      "status": "ok",
+      "started_at": 1771369763.2296305,
+      "finished_at": 1771369764.1501253,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "recovery_boot",
+        "boot_stock_linux"
+      ],
+      "outcome_label": "ok",
+      "next_step": "boot_extlinux",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty0.raw",
+          "start_offset": 409407,
+          "end_offset": 413824,
+          "bytes": 4417
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty1.raw",
+          "start_offset": 5289,
+          "end_offset": 5290,
+          "bytes": 1
+        }
+      }
+    },
+    {
+      "step": "boot_extlinux",
+      "status": "ok",
+      "started_at": 1771369764.150384,
+      "finished_at": 1771369791.3083801,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "recovery_boot",
+        "boot_stock_linux"
+      ],
+      "outcome_label": "ok",
+      "next_step": "wait_stock_prompt",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty0.raw",
+          "start_offset": 413824,
+          "end_offset": 524480,
+          "bytes": 110656
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty1.raw",
+          "start_offset": 5290,
+          "end_offset": 10513,
+          "bytes": 5223
+        }
+      }
+    },
+    {
+      "step": "wait_stock_prompt",
+      "status": "ok",
+      "started_at": 1771369791.3086448,
+      "finished_at": 1771369810.965507,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "recovery_boot",
+        "boot_stock_linux"
+      ],
+      "outcome_label": "prompt",
+      "next_step": "verify_ssh_ready",
+      "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
+      "source": "tty0",
+      "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty0.raw",
+      "log_offset": 527769,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty0.raw",
+          "start_offset": 524480,
+          "end_offset": 527820,
+          "bytes": 3340
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty1.raw",
+          "start_offset": 10578,
+          "end_offset": 10772,
+          "bytes": 194
+        }
+      }
+    },
+    {
+      "step": "verify_ssh_ready",
+      "status": "ok",
+      "started_at": 1771369810.9658253,
+      "finished_at": 1771369815.5422082,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "recovery_boot",
+        "boot_stock_linux"
+      ],
+      "outcome_label": "ok",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty0.raw",
+          "start_offset": 527820,
+          "end_offset": 528890,
+          "bytes": 1070
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty1.raw",
+          "start_offset": 10772,
+          "end_offset": 10772,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "step": "pass",
+      "status": "ok",
+      "started_at": 1771369815.5424738,
+      "finished_at": 1771369815.5505078,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "recovery_boot",
+        "boot_stock_linux"
+      ],
+      "outcome_label": "pass",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty0.raw",
+          "start_offset": 528890,
+          "end_offset": 528890,
+          "bytes": 0
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty1.raw",
+          "start_offset": 10772,
+          "end_offset": 10772,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "step": "run_boot_stock",
+      "status": "ok",
+      "started_at": 1771369763.2293959,
+      "finished_at": 1771369815.550761,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "recovery_boot",
+      "chain_stack": [
+        "recovery_boot"
+      ],
+      "outcome_label": "pass",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty0.raw",
+          "start_offset": 409407,
+          "end_offset": 528890,
+          "bytes": 119483
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty1.raw",
+          "start_offset": 5289,
+          "end_offset": 10772,
+          "bytes": 5483
+        }
+      }
+    },
+    {
+      "step": "pass",
+      "status": "ok",
+      "started_at": 1771369815.5509949,
+      "finished_at": 1771369815.5512035,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "recovery_boot",
+      "chain_stack": [
+        "recovery_boot"
+      ],
+      "outcome_label": "pass",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty0.raw",
+          "start_offset": 528890,
+          "end_offset": 528890,
+          "bytes": 0
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty1.raw",
+          "start_offset": 10772,
+          "end_offset": 10772,
+          "bytes": 0
+        }
+      }
+    }
+  ],
+  "parallel_groups": {}
+}

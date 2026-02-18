@@ -1,0 +1,25 @@
+{
+  "state": "pass",
+  "degraded_reason": null,
+  "retry_count": 0,
+  "max_retries": 3,
+  "last_probe": {
+    "at": 1771369549.114003,
+    "status": "pass",
+    "chain": "boot_stock_linux",
+    "error": null
+  },
+  "last_prepare": {
+    "at": 1771369815.5517833,
+    "status": "pass",
+    "chain": "recovery_boot",
+    "error": null,
+    "trigger": "request_complete:20260218-010500",
+    "attempt": 1
+  },
+  "policy": {
+    "probe_chain": "boot_stock_linux",
+    "run_chain": "recovery_boot",
+    "degraded_holds_queue": true
+  }
+}

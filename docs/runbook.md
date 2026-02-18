@@ -190,6 +190,10 @@ Monitor policy:
 - monitor branches must never contain terminal `pass`,
 - runtime validation rejects monitor branches that can reach `pass`.
 
+For single-source ordered classification (for example, consuming leading
+whitespace and then branching on the first non-whitespace prefix), prefer the
+`case` step over parallel groups.
+
 ## tmux Controls
 
 Autopilot is controlled through tmux keybindings and pane clients.
@@ -262,6 +266,33 @@ For daemon-scoped background orchestration, chains can use:
 - `task_spawn` / `task_join` for persistent named background tasks
 - `signal_set` / `signal_wait` for inter-thread signaling
 
+## Human-Readable Chain Artifacts
+
+Use `scripts/chain_humanize.py` to generate chain-like JSON files with inline
+decoded console snippets derived from recorded offsets.
+
+Default batch mode (recommended):
+
+```bash
+scripts/chain_humanize.py --result-dir results/<timestamp>
+```
+
+This scans `results/<timestamp>/chain*.json` and writes sibling files:
+
+- `chain.human.json`
+- `chain.task.<name>.human.json`
+- `chain.parallel.<group>.<branch>.human.json`
+
+Single-file mode:
+
+```bash
+scripts/chain_humanize.py --chain-file results/<timestamp>/chain.json
+```
+
+If step-level `source_ranges` metadata exists, the script adds `source_snippets`
+with decoded text for each source range. If only legacy `log_offset` metadata
+is present, it adds `match_snippet` using a context window around that offset.
+
 ## Submit a Request (Example)
 
 Requests reference a profile that contains a chain definition.
@@ -329,6 +360,7 @@ Example step types:
 - `relay`
 - `boot_menu`
 - `wait_pattern`
+- `case`
 - `upload_kernel`
 - `upload_efi`
 - `reboot`

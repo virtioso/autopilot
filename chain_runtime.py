@@ -48,6 +48,7 @@ class StepResult:
     finished_at: float
     chain_name: str
     chain_stack: List[str]
+    source_ranges: Dict[str, dict]
 
 
 class ChainRecorder:
@@ -83,6 +84,7 @@ class ChainRecorder:
                     "log_path": result.outcome.log_path,
                     "log_offset": result.outcome.log_offset,
                 })
+            entry["source_ranges"] = result.source_ranges
             self.steps.append(entry)
             self._flush_unlocked()
 
@@ -223,6 +225,10 @@ class SourceBinding:
             new_offset = self._base_offset + len(self._buffer)
         return data, new_offset
 
+    def current_offset(self) -> int:
+        with self._lock:
+            return self._base_offset + len(self._buffer)
+
     def stop(self) -> None:
         self._stop.set()
         try:
@@ -274,6 +280,12 @@ class SourceManager:
 
     def get(self, source: str) -> Optional[SourceBinding]:
         return self.sources.get(source)
+
+    def snapshot_offsets(self) -> Dict[str, Tuple[str, int]]:
+        snapshot: Dict[str, Tuple[str, int]] = {}
+        for source, binding in list(self.sources.items()):
+            snapshot[source] = (str(binding.log_path), binding.current_offset())
+        return snapshot
 
     def stop_all(self) -> None:
         for binding in list(self.sources.values()):
@@ -362,6 +374,32 @@ def validate_chain(chain: dict) -> None:
             signal_name = str(step.get("signal", "")).strip()
             if not signal_name:
                 raise ChainValidationError(f"step {name} signal_wait requires non-empty signal")
+        if step.get("type") == "case":
+            source = str(step.get("source", "")).strip()
+            if not source:
+                raise ChainValidationError(f"step {name} case requires non-empty source")
+            start_from = str(step.get("start_from", "head")).strip().lower()
+            if start_from not in ("head", "tail"):
+                raise ChainValidationError(f"step {name} case start_from must be head|tail")
+            clauses = step.get("clauses")
+            if not isinstance(clauses, list) or not clauses:
+                raise ChainValidationError(f"step {name} case requires non-empty clauses list")
+            for idx, clause in enumerate(clauses):
+                if not isinstance(clause, dict):
+                    raise ChainValidationError(f"step {name} case clause[{idx}] must be object")
+                label = str(clause.get("label", "")).strip()
+                pattern = str(clause.get("pattern", "")).strip()
+                next_step = str(clause.get("next", "")).strip()
+                if not label:
+                    raise ChainValidationError(f"step {name} case clause[{idx}] requires non-empty label")
+                if not pattern:
+                    raise ChainValidationError(f"step {name} case clause[{idx}] requires non-empty pattern")
+                if not next_step:
+                    raise ChainValidationError(f"step {name} case clause[{idx}] requires non-empty next")
+                if next_step != "self" and next_step not in steps:
+                    raise ChainValidationError(
+                        f"step {name} case clause[{idx}] target missing: {next_step}"
+                    )
         if step.get("type") == "join":
             if "chain" in step:
                 raise ChainValidationError(
@@ -474,6 +512,7 @@ class ChainRunner:
 
     def _run_step(self, name: str, step: dict) -> Tuple[StepResult, str]:
         started = time.time()
+        source_offsets_before = self._snapshot_source_offsets()
         self._set_status(f"step={name}")
         try:
             next_step, outcome = self._dispatch_step(name, step)
@@ -499,6 +538,7 @@ class ChainRunner:
             error_code = "exception"
             error_message = str(exc)
         finished = time.time()
+        source_offsets_after = self._snapshot_source_offsets()
         result = StepResult(
             step=name,
             status=status,
@@ -509,8 +549,55 @@ class ChainRunner:
             finished_at=finished,
             chain_name=self.ctx.get("chain_name", "-"),
             chain_stack=list(self.ctx.get("chain_stack", [])),
+            source_ranges=self._build_source_ranges(source_offsets_before, source_offsets_after),
         )
         return result, next_step
+
+    def _snapshot_source_offsets(self) -> Dict[str, Tuple[str, int]]:
+        sources = self.ctx.get("sources")
+        if not sources or not hasattr(sources, "snapshot_offsets"):
+            return {}
+        try:
+            return sources.snapshot_offsets()
+        except Exception:
+            return {}
+
+    def _build_source_ranges(
+        self,
+        before: Dict[str, Tuple[str, int]],
+        after: Dict[str, Tuple[str, int]],
+    ) -> Dict[str, dict]:
+        ranges: Dict[str, dict] = {}
+        for source in sorted(set(before.keys()) | set(after.keys())):
+            before_item = before.get(source)
+            after_item = after.get(source)
+
+            if before_item and after_item and before_item[0] == after_item[0]:
+                log_path = after_item[0]
+                start_offset = before_item[1]
+                end_offset = after_item[1]
+            elif after_item:
+                # Source appears/remaps during this step; range is relative to new log.
+                log_path = after_item[0]
+                start_offset = 0
+                end_offset = after_item[1]
+            elif before_item:
+                # Source disappeared during this step; preserve stable zero-length range.
+                log_path = before_item[0]
+                start_offset = before_item[1]
+                end_offset = before_item[1]
+            else:
+                continue
+
+            start_offset = int(max(0, start_offset))
+            end_offset = int(max(start_offset, end_offset))
+            ranges[source] = {
+                "log_path": log_path,
+                "start_offset": start_offset,
+                "end_offset": end_offset,
+                "bytes": end_offset - start_offset,
+            }
+        return ranges
 
     def _dispatch_step(self, name: str, step: dict) -> Tuple[str, OutcomeMatch]:
         self._check_cancel()
@@ -541,6 +628,8 @@ class ChainRunner:
                 return self._step_uefi_shell_run(step)
             if step_type == "wait_pattern":
                 return self._step_wait_pattern(step)
+            if step_type == "case":
+                return self._step_case(step)
             if step_type == "upload_kernel":
                 return self._step_upload(step, kind="kernel")
             if step_type == "upload_efi":
@@ -652,6 +741,42 @@ class ChainRunner:
                 binding.write(str(step.get("boot_option", "")))
         return next_step, outcome
 
+    def _poll_runtime_events(self) -> None:
+        self._check_cancel()
+        event = self._poll_event()
+        if event:
+            if event.kind == "abort":
+                self._handle_abort()
+            if event.kind == "exit":
+                self.ctx["exit_flag"].set()
+                raise AbortRun()
+
+    def _initial_cursor(self, binding: SourceBinding, start_from: str) -> int:
+        if start_from == "tail":
+            _, cursor = binding.read_since(1 << 60)
+            return cursor
+        return 0
+
+    def _append_capped_buffer(
+        self,
+        existing: bytes,
+        existing_start: int,
+        data: bytes,
+        chunk_start: int,
+        max_buffer: int,
+    ) -> Tuple[bytes, int]:
+        if existing:
+            combined_start = existing_start
+            combined = existing + data
+        else:
+            combined_start = chunk_start
+            combined = data
+        if len(combined) > max_buffer:
+            trim = len(combined) - max_buffer
+            combined = combined[trim:]
+            combined_start += trim
+        return combined, combined_start
+
     def _step_wait_pattern(self, step: dict) -> Tuple[str, OutcomeMatch]:
         timeout_s = int(step.get("timeout_s", 30))
         outcomes = step.get("outcomes", [])
@@ -664,62 +789,149 @@ class ChainRunner:
         buffer_starts: Dict[str, int] = {}
         max_buffer = 65536
         while time.time() - start < timeout_s:
-            self._check_cancel()
-            event = self._poll_event()
-            if event:
-                if event.kind == "abort":
-                    self._handle_abort()
-                if event.kind == "exit":
-                    self.ctx["exit_flag"].set()
-                    raise AbortRun()
+            self._poll_runtime_events()
+            outcomes_by_source: Dict[str, List[dict]] = {}
             for outcome in outcomes:
                 pattern = outcome.get("pattern")
                 source = outcome.get("source")
                 if not pattern or not source:
                     continue
+                outcomes_by_source.setdefault(str(source), []).append(outcome)
+
+            for source, source_outcomes in outcomes_by_source.items():
                 binding = self.ctx["sources"].get(source)
                 if not binding:
                     continue
                 if source not in cursors:
-                    if start_from == "tail":
-                        _, tail_cursor = binding.read_since(1 << 60)
-                        cursors[source] = tail_cursor
-                    else:
-                        cursors[source] = 0
+                    cursors[source] = self._initial_cursor(binding, start_from)
                 cursor = cursors.get(source, 0)
                 data, new_cursor = binding.read_since(cursor)
                 chunk_start = max(cursor, binding._base_offset)
                 cursors[source] = new_cursor
-                if not data:
+
+                if data:
+                    existing = buffers.get(source, b"")
+                    existing_start = buffer_starts.get(source, chunk_start)
+                    combined, combined_start = self._append_capped_buffer(
+                        existing=existing,
+                        existing_start=existing_start,
+                        data=data,
+                        chunk_start=chunk_start,
+                        max_buffer=max_buffer,
+                    )
+                    buffers[source] = combined
+                    buffer_starts[source] = combined_start
+
+                combined = buffers.get(source, b"")
+                if not combined:
                     continue
+                combined_start = buffer_starts.get(source, chunk_start)
 
-                existing = buffers.get(source, b"")
-                if not existing:
-                    buffer_starts[source] = chunk_start
-                combined = existing + data
-                combined_start = buffer_starts[source]
-                if len(combined) > max_buffer:
-                    trim = len(combined) - max_buffer
-                    combined = combined[trim:]
-                    combined_start += trim
-                buffers[source] = combined
-                buffer_starts[source] = combined_start
+                for outcome in source_outcomes:
+                    pattern = outcome.get("pattern")
+                    if not pattern:
+                        continue
+                    pattern_bytes = pattern.encode("utf-8")
+                    match = re.search(pattern_bytes, combined, re.MULTILINE)
+                    if match:
+                        offset = combined_start + match.start()
+                        log_path = str(binding.log_path)
+                        next_step = outcome.get("next", step.get("on_timeout", "fail"))
+                        return next_step, OutcomeMatch(
+                            label=outcome.get("label", "match"),
+                            next_step=next_step,
+                            pattern=pattern,
+                            source=source,
+                            log_path=log_path,
+                            log_offset=offset,
+                        )
+            time.sleep(0.1)
+        next_step = step.get("on_timeout", "fail")
+        return next_step, OutcomeMatch(
+            label="timeout",
+            next_step=next_step,
+            pattern=None,
+            source=None,
+            log_path=None,
+            log_offset=None,
+        )
 
-                pattern_bytes = pattern.encode("utf-8")
-                match = re.search(pattern_bytes, combined, re.MULTILINE)
-                if match:
-                    offset = combined_start + match.start()
-                    log_path = str(binding.log_path)
-                    next_step = outcome.get("next", step.get("on_timeout", "fail"))
+    def _step_case(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        timeout_s = int(step.get("timeout_s", 30))
+        source = str(step.get("source", "")).strip()
+        if not source:
+            raise ValueError("case requires source")
+        clauses = step.get("clauses")
+        if not isinstance(clauses, list) or not clauses:
+            raise ValueError("case requires non-empty clauses list")
+        start_from = str(step.get("start_from", "head")).strip().lower()
+        if start_from not in ("head", "tail"):
+            raise ValueError("case start_from must be head|tail")
+        binding = self.ctx["sources"].get(source)
+        if not binding:
+            raise ValueError(f"unknown source {source}")
+
+        compiled = []
+        for idx, clause in enumerate(clauses):
+            if not isinstance(clause, dict):
+                raise ValueError(f"case clause[{idx}] must be object")
+            label = str(clause.get("label", "")).strip()
+            pattern = str(clause.get("pattern", "")).strip()
+            next_step = str(clause.get("next", "")).strip()
+            if not label:
+                raise ValueError(f"case clause[{idx}] requires non-empty label")
+            if not pattern:
+                raise ValueError(f"case clause[{idx}] requires non-empty pattern")
+            if not next_step:
+                raise ValueError(f"case clause[{idx}] requires non-empty next")
+            compiled.append((label, pattern, next_step, re.compile(pattern.encode("utf-8"), re.MULTILINE)))
+
+        cursor = self._initial_cursor(binding, start_from)
+
+        max_buffer = 65536
+        buffer = b""
+        buffer_start = cursor
+        start = time.time()
+        while time.time() - start < timeout_s:
+            self._poll_runtime_events()
+            data, new_cursor = binding.read_since(cursor)
+            chunk_start = max(cursor, binding._base_offset)
+            cursor = new_cursor
+            if data:
+                buffer, buffer_start = self._append_capped_buffer(
+                    existing=buffer,
+                    existing_start=buffer_start,
+                    data=data,
+                    chunk_start=chunk_start,
+                    max_buffer=max_buffer,
+                )
+
+                for label, pattern, next_step, compiled_pattern in compiled:
+                    match = compiled_pattern.match(buffer)
+                    if not match:
+                        continue
+                    if next_step == "self":
+                        if match.end() <= match.start():
+                            raise ValueError(
+                                f"case clause '{label}' matched empty span with next=self; "
+                                f"pattern={pattern}"
+                            )
+                        consumed = match.end()
+                        buffer = buffer[consumed:]
+                        buffer_start += consumed
+                        break
+
+                    offset = buffer_start + match.start()
                     return next_step, OutcomeMatch(
-                        label=outcome.get("label", "match"),
+                        label=label,
                         next_step=next_step,
                         pattern=pattern,
                         source=source,
-                        log_path=log_path,
+                        log_path=str(binding.log_path),
                         log_offset=offset,
                     )
             time.sleep(0.1)
+
         next_step = step.get("on_timeout", "fail")
         return next_step, OutcomeMatch(
             label="timeout",

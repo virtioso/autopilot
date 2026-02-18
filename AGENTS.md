@@ -69,3 +69,4 @@ of first-pass triage.
 - Monitor branches must be fail-only by design.
 - Monitor branches must never contain terminal `pass` steps.
 - Runtime validation rejects monitor branches that can reach `pass`.
+- For single-source ordered classification (non-concurrent), use `case`.

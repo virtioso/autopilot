@@ -1,0 +1,169 @@
+{
+  "overall_status": "pass",
+  "test_verdict": "pass",
+  "workflow_state": "completed",
+  "abort_reason": null,
+  "steps": [
+    {
+      "step": "relay_before_boot_efi",
+      "status": "ok",
+      "started_at": 1771369496.549535,
+      "finished_at": 1771369497.4702451,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "boot_stock_linux"
+      ],
+      "outcome_label": "ok",
+      "next_step": "boot_extlinux",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 0,
+          "end_offset": 3969,
+          "bytes": 3969
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 0,
+          "end_offset": 1,
+          "bytes": 1
+        }
+      }
+    },
+    {
+      "step": "boot_extlinux",
+      "status": "ok",
+      "started_at": 1771369497.4705117,
+      "finished_at": 1771369524.727066,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "boot_stock_linux"
+      ],
+      "outcome_label": "ok",
+      "next_step": "wait_stock_prompt",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 4993,
+          "end_offset": 115071,
+          "bytes": 110078
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 1,
+          "end_offset": 5289,
+          "bytes": 5288
+        }
+      }
+    },
+    {
+      "step": "wait_stock_prompt",
+      "status": "ok",
+      "started_at": 1771369524.7273262,
+      "finished_at": 1771369544.578498,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "boot_stock_linux"
+      ],
+      "outcome_label": "prompt",
+      "next_step": "verify_ssh_ready",
+      "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
+      "source": "tty0",
+      "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+      "log_offset": 118204,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 115071,
+          "end_offset": 118255,
+          "bytes": 3184
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 5289,
+          "end_offset": 5483,
+          "bytes": 194
+        }
+      }
+    },
+    {
+      "step": "verify_ssh_ready",
+      "status": "ok",
+      "started_at": 1771369544.5787897,
+      "finished_at": 1771369549.105058,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "boot_stock_linux"
+      ],
+      "outcome_label": "ok",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 118255,
+          "end_offset": 119325,
+          "bytes": 1070
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 5483,
+          "end_offset": 5483,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "step": "pass",
+      "status": "ok",
+      "started_at": 1771369549.1053622,
+      "finished_at": 1771369549.1133583,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "boot_stock_linux",
+      "chain_stack": [
+        "boot_stock_linux"
+      ],
+      "outcome_label": "pass",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 119325,
+          "end_offset": 119325,
+          "bytes": 0
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 5483,
+          "end_offset": 5483,
+          "bytes": 0
+        }
+      }
+    }
+  ],
+  "parallel_groups": {}
+}

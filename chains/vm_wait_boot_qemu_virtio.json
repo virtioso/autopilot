@@ -3,7 +3,7 @@
   "steps": {
     "wait_vm0_login_or_shell": {
       "type": "wait_pattern",
-      "timeout_s": 180,
+      "timeout_s": 300,
       "outcomes": [
         {
           "label": "ftrace_overflow",
@@ -12,14 +12,14 @@
           "next": "emit_ftrace_overflow_marker"
         },
         {
-          "label": "shell",
-          "pattern": "root@.*:~#",
+          "label": "driver_vm_shell",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
           "source": "tty0",
           "next": "arm_ftrace_late"
         },
         {
-          "label": "login",
-          "pattern": "login:",
+          "label": "driver_vm_login",
+          "pattern": "driver-vm login:|login:",
           "source": "tty0",
           "next": "send_root_login"
         }
@@ -50,8 +50,8 @@
           "next": "emit_ftrace_overflow_marker"
         },
         {
-          "label": "shell",
-          "pattern": "root@.*:~#",
+          "label": "driver_vm_shell",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
           "source": "tty0",
           "next": "arm_ftrace_late"
         }
@@ -79,14 +79,14 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "wait_vm1_boot_or_ftrace_overflow"
+          "next": "wait_first_rpc_or_cap"
         }
       ],
       "on_timeout": "fail"
     },
-    "wait_vm1_boot_or_ftrace_overflow": {
+    "wait_first_rpc_or_cap": {
       "type": "wait_pattern",
-      "timeout_s": 240,
+      "timeout_s": 120,
       "outcomes": [
         {
           "label": "ftrace_overflow",
@@ -95,18 +95,63 @@
           "next": "emit_ftrace_overflow_marker"
         },
         {
-          "label": "vm1",
-          "pattern": "Booting Linux|driver-vm login:|login:",
-          "source": "tty1",
-          "next": "dump_ftrace_after_dwell"
+          "label": "rpc_activity",
+          "pattern": "rpc_run summary:|rpcdbg: resp\\[|rpcdbg: event\\[",
+          "source": "tty0",
+          "next": "wait_rpc_inactivity_or_overflow"
+        }
+      ],
+      "on_timeout": "emit_dump_reason_hard_cap"
+    },
+    "wait_rpc_inactivity_or_overflow": {
+      "type": "wait_pattern",
+      "timeout_s": 20,
+      "outcomes": [
+        {
+          "label": "ftrace_overflow",
+          "pattern": "FTRACE: Storage full",
+          "source": "tty0",
+          "next": "emit_ftrace_overflow_marker"
+        },
+        {
+          "label": "rpc_activity",
+          "pattern": "rpc_run summary:|rpcdbg: resp\\[|rpcdbg: event\\[",
+          "source": "tty0",
+          "next": "wait_rpc_inactivity_or_overflow"
+        }
+      ],
+      "on_timeout": "emit_dump_reason_rpc_inactivity"
+    },
+    "emit_dump_reason_rpc_inactivity": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "echo 'AUTOPILOT_INFO: FTRACE_DUMP_REASON=RPC_INACTIVITY_20S'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "dump_ftrace"
         }
       ],
       "on_timeout": "fail"
     },
-    "dump_ftrace_after_dwell": {
+    "emit_dump_reason_hard_cap": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "sleep 25; if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x2; elif command -v devmem >/dev/null 2>&1; then devmem 0x0F010000 32 0x2; else echo 'WARN: no devmem tool for hyp-ftrace DUMP'; fi",
+      "cmd": "echo 'AUTOPILOT_INFO: FTRACE_DUMP_REASON=HARD_CAP_120S_NO_RPC'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "dump_ftrace"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "dump_ftrace": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x2; elif command -v devmem >/dev/null 2>&1; then devmem 0x0F010000 32 0x2; else echo 'WARN: no devmem tool for hyp-ftrace DUMP'; fi",
       "suffix": "\n",
       "outcomes": [
         {

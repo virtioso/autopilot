@@ -1,6 +1,6 @@
 # Chain Specification
 
-**Last Updated**: 2026-02-11
+**Last Updated**: 2026-02-17
 
 This document defines the JSON schema used for chain-based execution.
 
@@ -31,7 +31,7 @@ Common fields:
 - `on_timeout`: label to transition on timeout.
 - `on_error`: label to transition on exception (optional).
 - `outcomes`: list of outcomes (regex or action results).
-- `start_from` (for `wait_pattern`): `head` (default) or `tail`.
+- `start_from` (for `wait_pattern` and `case`): `head` (default) or `tail`.
 
 Interactive console fields:
 - `hold_open`: if false, create sessions and return immediately.
@@ -57,6 +57,7 @@ Action steps:
 - `boot_efi`
 - `uefi_shell_run`
 - `wait_pattern`
+- `case`
 - `upload_kernel`
 - `upload_efi`
 - `reboot`
@@ -137,6 +138,31 @@ Monitor branch policy:
 
 `call_chain` runs the target chain synchronously in the same request context.
 The calling step must define outcomes for `pass` and `fail` labels.
+
+## Example: case
+
+```json
+{
+  "type": "case",
+  "source": "tty0",
+  "start_from": "tail",
+  "timeout_s": 300,
+  "clauses": [
+    { "label": "skip_ws", "pattern": "^\\s+", "next": "self" },
+    { "label": "elfloader", "pattern": "^ELF-loader started on CPU.*(?:\\r?\\n|$)", "next": "elfloader_started" },
+    { "label": "unexpected", "pattern": "^\\S.*(?:\\r?\\n|$)", "next": "fail" }
+  ],
+  "on_timeout": "fail"
+}
+```
+
+`case` evaluates `clauses` in order against the unconsumed stream prefix for one
+source. The first matching clause wins.
+
+- `next: "self"` is a reserved in-step continue target for `case` only.
+- `next: "self"` consumes the matched bytes and keeps waiting in the same step.
+- `next` may also target a normal step label for terminal transitions.
+- `case` is preferred for single-source ordered classification logic.
 
 ## Example: split + join
 
@@ -247,8 +273,18 @@ When parallel groups are used, `chain.json` includes:
 `cancel_reason` is set when a branch is canceled due to another branch winning
 (for example `winner:ftrace_watchdog`).
 
-For regex outcomes recorded by `wait_pattern`, `log_offset` is a raw-byte offset
+For regex outcomes recorded by `wait_pattern` and `case`, `log_offset` is a raw-byte offset
 into the corresponding `console/*.raw` file.
+
+Each step record also includes `source_ranges` (object keyed by source) with:
+- `log_path`: source log path
+- `start_offset`: source byte offset at step start
+- `end_offset`: source byte offset at step end
+- `bytes`: `end_offset - start_offset`
+
+`source_ranges` is recorded for all mapped sources and enables deterministic
+between-step snippet reconstruction without embedding raw console payloads in
+`chain.json`.
 
 ## Verdict and Workflow State
 

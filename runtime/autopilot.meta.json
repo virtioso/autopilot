@@ -1,0 +1,12 @@
+{
+  "command": "python3 /home/hlyytine/autopilot/orin_kernel_autopilot.py",
+  "marker": "orin_kernel_autopilot.py",
+  "tmux_session": "autopilot",
+  "use_tmux": true,
+  "platform": "orin-agx-uefi-netboot",
+  "tty0": "/dev/ttyACM0",
+  "tty1": "/dev/ttyACM1",
+  "pid": 524376,
+  "start_time": "2026-02-17T23:04:56.352441Z",
+  "log_path": "/home/hlyytine/autopilot/runtime/autopilot.log"
+}

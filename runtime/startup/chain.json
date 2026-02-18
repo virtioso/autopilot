@@ -1,0 +1,163 @@
+{
+  "overall_status": "pass",
+  "test_verdict": "pass",
+  "workflow_state": "completed",
+  "abort_reason": null,
+  "steps": [
+    {
+      "step": "map_tty0",
+      "status": "ok",
+      "started_at": 1771369496.5078228,
+      "finished_at": 1771369496.5093951,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "startup",
+      "chain_stack": [
+        "startup"
+      ],
+      "outcome_label": "ok",
+      "next_step": "map_tty1",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "step": "map_tty1",
+      "status": "ok",
+      "started_at": 1771369496.5095239,
+      "finished_at": 1771369496.5103307,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "startup",
+      "chain_stack": [
+        "startup"
+      ],
+      "outcome_label": "ok",
+      "next_step": "window1",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "step": "window1",
+      "status": "ok",
+      "started_at": 1771369496.5104473,
+      "finished_at": 1771369496.5287182,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "startup",
+      "chain_stack": [
+        "startup"
+      ],
+      "outcome_label": "ok",
+      "next_step": "window2",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "step": "window2",
+      "status": "ok",
+      "started_at": 1771369496.52895,
+      "finished_at": 1771369496.5472677,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "startup",
+      "chain_stack": [
+        "startup"
+      ],
+      "outcome_label": "ok",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "step": "pass",
+      "status": "ok",
+      "started_at": 1771369496.5475,
+      "finished_at": 1771369496.5477068,
+      "error_code": null,
+      "error_message": null,
+      "chain_name": "startup",
+      "chain_stack": [
+        "startup"
+      ],
+      "outcome_label": "pass",
+      "next_step": "pass",
+      "pattern": null,
+      "source": null,
+      "log_path": null,
+      "log_offset": null,
+      "source_ranges": {
+        "tty0": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty0.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        },
+        "tty1": {
+          "log_path": "/home/hlyytine/autopilot/runtime/startup/console/tty1.jsonl",
+          "start_offset": 0,
+          "end_offset": 0,
+          "bytes": 0
+        }
+      }
+    }
+  ],
+  "parallel_groups": {}
+}

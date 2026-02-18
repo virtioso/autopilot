@@ -1,0 +1,29 @@
+{
+  "updated_at": "2026-02-17T23:10:15Z",
+  "request_id": null,
+  "profile": null,
+  "chain": null,
+  "step": null,
+  "elapsed_s": null,
+  "status_text": "",
+  "source_map": {
+    "tty0": {
+      "tty": "/dev/ttyACM0",
+      "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty0.raw"
+    },
+    "tty1": {
+      "tty": "/dev/ttyACM1",
+      "log_path": "/home/hlyytine/autopilot/results/20260218-010500/console/tty1.raw"
+    }
+  },
+  "window_map": {
+    "1": {
+      "source": "tty0",
+      "title": "TTY0"
+    },
+    "2": {
+      "source": "tty1",
+      "title": "TTY1"
+    }
+  }
+}
