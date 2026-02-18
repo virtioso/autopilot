@@ -304,36 +304,46 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
     return {"required": True, "ok": True, "summary": summary}
 
 
-def wait_for_ftrace_uart_drain(result_dir: Path, timeout_s: float = 45.0) -> None:
+def _read_ftrace_transfer_state(result_dir: Path) -> dict:
+    tty0 = result_dir / "console" / "tty0.raw"
+    if not tty0.exists():
+        return {"exists": False, "has_start": False, "has_end": False, "has_terminal": False, "size": 0}
+    try:
+        data = tty0.read_bytes()
+    except Exception:
+        return {"exists": True, "has_start": False, "has_end": False, "has_terminal": False, "size": 0}
+    return {
+        "exists": True,
+        "has_start": b"=== BINARY TRANSFER START ===" in data,
+        "has_end": b"=== BINARY TRANSFER END ===" in data,
+        "has_terminal": b"TRACE_DUMP_TERMINAL:" in data,
+        "size": len(data),
+    }
+
+
+def wait_for_ftrace_uart_drain(result_dir: Path, timeout_s: float = 180.0) -> dict:
     """
     Guard against relay/power reset while ftrace binary dump is still flowing.
     """
-    tty0 = result_dir / "console" / "tty0.raw"
-    if not tty0.exists():
-        return
-
     start = time.time()
     last_size = -1
     stable_rounds = 0
     while time.time() - start < timeout_s:
-        try:
-            data = tty0.read_bytes()
-        except Exception:
-            return
+        state = _read_ftrace_transfer_state(result_dir)
+        if not state["exists"] or not state["has_start"]:
+            return state
 
-        if b"=== BINARY TRANSFER START ===" not in data:
-            return
-
-        if (b"TRACE_DUMP_TERMINAL:" in data or b"=== BINARY TRANSFER END ===" in data):
-            size_now = len(data)
+        if state["has_terminal"] or state["has_end"]:
+            size_now = state["size"]
             if size_now == last_size:
                 stable_rounds += 1
             else:
                 stable_rounds = 0
             last_size = size_now
             if stable_rounds >= 2:
-                return
+                return state
         time.sleep(0.5)
+    return _read_ftrace_transfer_state(result_dir)
 
 
 def poll_idle_events(event_queue: queue.Queue, exit_flag: threading.Event) -> None:
@@ -725,7 +735,7 @@ def main() -> None:
             ui_state.clear_request()
             write_post_run_dtb_artifacts(result_dir, status)
 
-        wait_for_ftrace_uart_drain(result_dir)
+        transfer_state = wait_for_ftrace_uart_drain(result_dir)
         ftrace_post = run_post_run_ftrace_pipeline(result_dir)
         if ftrace_post.get("required"):
             if not ftrace_post.get("ok"):
@@ -755,7 +765,15 @@ def main() -> None:
             processing_file.rename(FAILED_DIR / request_file.name)
 
         print(f"=== {timestamp} completed: {status} ===", flush=True)
-        prepare_lifecycle.run_prepare_cycle(trigger=f"request_complete:{timestamp}")
+        if transfer_state.get("has_start") and not (
+            transfer_state.get("has_terminal") or transfer_state.get("has_end")
+        ):
+            print(
+                f"Skipping prepare_next_run relay reset: ftrace transfer still incomplete for {timestamp}",
+                flush=True,
+            )
+        else:
+            prepare_lifecycle.run_prepare_cycle(trigger=f"request_complete:{timestamp}")
 
     control.stop()
     ui.stop()
