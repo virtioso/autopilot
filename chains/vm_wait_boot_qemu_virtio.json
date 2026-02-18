@@ -61,7 +61,7 @@
     "arm_ftrace_late": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "/usr/bin/hyp-ftrace-ctl arm || echo 'AUTOPILOT_FAIL: HYP_FTRACE_ARM_CMD_FAILED'",
+      "cmd": "/usr/bin/hyp-ftrace-ctl arm",
       "suffix": "\n",
       "outcomes": [
         {
@@ -171,7 +171,7 @@
     "dump_ftrace": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "/usr/bin/hyp-ftrace-ctl dump || echo 'AUTOPILOT_FAIL: HYP_FTRACE_DUMP_CMD_FAILED'",
+      "cmd": "/usr/bin/hyp-ftrace-ctl dump",
       "suffix": "\n",
       "outcomes": [
         {
