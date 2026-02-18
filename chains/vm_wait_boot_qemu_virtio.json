@@ -61,11 +61,31 @@
     "arm_ftrace_late": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x1; elif command -v devmem >/dev/null 2>&1; then devmem 0x0F010000 32 0x1; else echo 'WARN: no devmem tool for hyp-ftrace ARM'; fi",
+      "cmd": "/usr/bin/hyp-ftrace-ctl arm || echo 'AUTOPILOT_FAIL: HYP_FTRACE_ARM_CMD_FAILED'",
       "suffix": "\n",
       "outcomes": [
         {
           "label": "ok",
+          "next": "wait_arm_ftrace_result"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_arm_ftrace_result": {
+      "type": "wait_pattern",
+      "start_from": "tail",
+      "timeout_s": 20,
+      "outcomes": [
+        {
+          "label": "arm_failed",
+          "pattern": "AUTOPILOT_FAIL: HYP_FTRACE_ARM_CMD_FAILED|AUTOPILOT_FAIL: HYP_FTRACE_ARM_",
+          "source": "tty0",
+          "next": "fail"
+        },
+        {
+          "label": "shell_prompt",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
+          "source": "tty0",
           "next": "run_qemu_rnd_helper"
         }
       ],
@@ -151,11 +171,31 @@
     "dump_ftrace": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x2; elif command -v devmem >/dev/null 2>&1; then devmem 0x0F010000 32 0x2; else echo 'WARN: no devmem tool for hyp-ftrace DUMP'; fi",
+      "cmd": "/usr/bin/hyp-ftrace-ctl dump || echo 'AUTOPILOT_FAIL: HYP_FTRACE_DUMP_CMD_FAILED'",
       "suffix": "\n",
       "outcomes": [
         {
           "label": "ok",
+          "next": "wait_dump_ftrace_result"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_dump_ftrace_result": {
+      "type": "wait_pattern",
+      "start_from": "tail",
+      "timeout_s": 20,
+      "outcomes": [
+        {
+          "label": "dump_failed",
+          "pattern": "AUTOPILOT_FAIL: HYP_FTRACE_DUMP_CMD_FAILED|AUTOPILOT_FAIL: HYP_FTRACE_DUMP_",
+          "source": "tty0",
+          "next": "fail"
+        },
+        {
+          "label": "shell_prompt",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
+          "source": "tty0",
           "next": "pass"
         }
       ],
