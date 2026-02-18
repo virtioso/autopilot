@@ -1,6 +1,28 @@
 {
-  "entry": "upload_efi",
+  "entry": "prepare_vm_image_dir",
   "steps": {
+    "prepare_vm_image_dir": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "mkdir -p /var/lib/virtioso-vm-images",
+      "outcomes": [
+        { "label": "ok", "next": "upload_driver_vm_rootfs" }
+      ],
+      "on_timeout": "fail"
+    },
+    "upload_driver_vm_rootfs": {
+      "type": "upload_file",
+      "local_path": "/home/hlyytine/tii-sel4/vm-images/build/tmp/deploy/images/vm-jetson-agx-orin/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "target_path": "/var/lib/virtioso-vm-images/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4",
+      "skip_if_same": "sha256",
+      "outcomes": [
+        { "label": "ok", "next": "upload_efi" }
+      ],
+      "on_timeout": "fail"
+    },
     "upload_efi": {
       "type": "upload_efi",
       "target_user": "root",
