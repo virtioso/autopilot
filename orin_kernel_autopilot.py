@@ -207,6 +207,11 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
         "summary_generated": False,
         "dump_reason": None,
         "dump_reason_code": None,
+        "storage_full": None,
+        "overflow_events": None,
+        "compress_fail_events": None,
+        "total_entries": None,
+        "dump_terminal_seen": _has_ftrace_dump_evidence(result_dir),
     }
     summary_path = result_dir / "ftrace.summary.json"
     if not required:
@@ -257,6 +262,10 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
         header = meta.get("header", {})
         dump_reason = header["DUMP_REASON"]
         dump_reason_code = header["DUMP_REASON_CODE"]
+        storage_full = bool(header.get("STORAGE_FULL", False))
+        overflow_events = int(header.get("OVERFLOW_EVENTS", 0))
+        compress_fail_events = int(header.get("COMPRESS_FAIL_EVENTS", 0))
+        total_entries = int(header.get("TOTAL_ENTRIES", meta.get("entry_count", 0)))
     except Exception as exc:
         return {
             "required": True,
@@ -271,6 +280,10 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
         "summary_generated": True,
         "dump_reason": dump_reason,
         "dump_reason_code": dump_reason_code,
+        "storage_full": storage_full,
+        "overflow_events": overflow_events,
+        "compress_fail_events": compress_fail_events,
+        "total_entries": total_entries,
         "artifact_paths": {
             "bin": str(bin_path),
             "meta": str(meta_path),
