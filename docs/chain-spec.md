@@ -60,6 +60,7 @@ Action steps:
 - `case`
 - `upload_kernel`
 - `upload_efi`
+- `upload_file`
 - `reboot`
 - `ssh_cmd`
 - `ssh_wait_ready`
@@ -309,12 +310,24 @@ This allows housekeeping/preparation flows to continue after verdict is known.
 
 ## Upload Methods
 
-`upload_kernel` and `upload_efi` support:
+`upload_kernel`, `upload_efi`, and `upload_file` support:
 
 - `method: "scp"` (default): copy to remote target via SCP.
 - `method: "local_copy"`: copy on the host filesystem to `target_path`.
 
 `local_copy` is useful for host-local deployment targets such as TFTP roots.
+
+`upload_file` fields:
+
+- required: `local_path`, `target_user`, `target_ip`, `target_path`
+- optional: `skip_if_same: "sha256"`, `method` (default `scp`), `atomic_replace` (default `true`)
+
+`upload_file` with `skip_if_same=sha256`:
+1. Computes local SHA-256.
+2. Probes remote SHA-256 when target exists.
+3. Skips transfer when hashes match.
+4. Otherwise uploads and verifies SHA-256 on remote copy.
+5. If `atomic_replace=true`, uploads to a temp path and atomically `mv -f` to target.
 
 ## Example: ssh_wait_ready
 

@@ -2,9 +2,12 @@ import json
 import os
 import queue
 import re
+import shlex
+import subprocess
 import threading
 import time
 import shutil
+import hashlib
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -634,6 +637,8 @@ class ChainRunner:
                 return self._step_upload(step, kind="kernel")
             if step_type == "upload_efi":
                 return self._step_upload(step, kind="efi")
+            if step_type == "upload_file":
+                return self._step_upload_file(step)
             if step_type == "reboot":
                 return self._step_reboot(step)
             if step_type == "ssh_cmd":
@@ -1195,8 +1200,6 @@ class ChainRunner:
         return self._simple_outcome(step)
 
     def _step_upload(self, step: dict, kind: str) -> Tuple[str, OutcomeMatch]:
-        import subprocess
-
         self._check_cancel()
         local_path = self._resolve_value(step.get("local_path"))
         if not local_path:
@@ -1226,6 +1229,128 @@ class ChainRunner:
             os.replace(str(tmp_file), str(target_file))
         else:
             raise ValueError(f"unknown upload method: {method}")
+        return self._simple_outcome(step)
+
+    def _sha256_file(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _ssh_run_capture(self, target_user: str, target_ip: str, cmd: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                f"{target_user}@{target_ip}",
+                cmd,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def _remote_sha256(self, target_user: str, target_ip: str, target_path: str) -> Optional[str]:
+        target_q = shlex.quote(target_path)
+        cmd = f"if [ -f {target_q} ]; then sha256sum {target_q} | awk '{{print $1}}'; fi"
+        proc = self._ssh_run_capture(target_user, target_ip, cmd)
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").strip()
+            raise RuntimeError(f"remote sha256 query failed for {target_path}: {stderr or 'unknown error'}")
+        digest = (proc.stdout or "").strip()
+        if not digest:
+            return None
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+            raise RuntimeError(f"invalid remote sha256 output for {target_path}: {digest}")
+        return digest.lower()
+
+    def _step_upload_file(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        self._check_cancel()
+        local_path_value = self._resolve_value(step.get("local_path"))
+        if not local_path_value:
+            raise ValueError("upload_file requires local_path")
+        local_path = Path(str(local_path_value))
+        if not local_path.exists():
+            raise ValueError(f"upload_file local_path does not exist: {local_path}")
+
+        target_user = step.get("target_user")
+        if not target_user:
+            raise ValueError("upload_file requires target_user")
+        target_path = self._resolve_value(step.get("target_path"))
+        if not target_path:
+            raise ValueError("upload_file requires target_path")
+
+        method = step.get("method", "scp")
+        skip_if_same = step.get("skip_if_same")
+        atomic_replace = bool(step.get("atomic_replace", True))
+        local_sha = self._sha256_file(local_path)
+
+        if method == "local_copy":
+            target_file = Path(str(target_path))
+            if skip_if_same == "sha256" and target_file.exists():
+                remote_sha = self._sha256_file(target_file)
+                if remote_sha == local_sha:
+                    return self._simple_outcome(step)
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            if atomic_replace:
+                tmp_file = target_file.with_name(f".{target_file.name}.tmp.{os.getpid()}")
+                shutil.copy2(str(local_path), str(tmp_file))
+                if self._sha256_file(tmp_file) != local_sha:
+                    tmp_file.unlink(missing_ok=True)
+                    raise RuntimeError(f"upload_file local hash mismatch after copy to {tmp_file}")
+                os.replace(str(tmp_file), str(target_file))
+            else:
+                shutil.copy2(str(local_path), str(target_file))
+                if self._sha256_file(target_file) != local_sha:
+                    raise RuntimeError(f"upload_file local hash mismatch after copy to {target_file}")
+            return self._simple_outcome(step)
+
+        if method != "scp":
+            raise ValueError(f"upload_file unknown method: {method}")
+
+        target_ip = self._resolve_value(step.get("target_ip")) or self.ctx.get("target_ip")
+        if not target_ip:
+            raise ValueError("upload_file requires target_ip for method=scp")
+
+        if skip_if_same == "sha256":
+            remote_sha = self._remote_sha256(target_user, str(target_ip), str(target_path))
+            if remote_sha == local_sha:
+                return self._simple_outcome(step)
+        elif skip_if_same not in (None, ""):
+            raise ValueError(f"upload_file unknown skip_if_same mode: {skip_if_same}")
+
+        upload_path = str(target_path)
+        if atomic_replace:
+            upload_path = f"{target_path}.autopilot-tmp-{os.getpid()}"
+
+        subprocess.run(
+            [
+                "scp",
+                "-o",
+                "StrictHostKeyChecking=no",
+                str(local_path),
+                f"{target_user}@{target_ip}:{upload_path}",
+            ],
+            check=True,
+        )
+
+        uploaded_sha = self._remote_sha256(target_user, str(target_ip), upload_path)
+        if uploaded_sha != local_sha:
+            if atomic_replace:
+                cleanup_cmd = f"rm -f {shlex.quote(upload_path)}"
+                self._ssh_run_capture(target_user, str(target_ip), cleanup_cmd)
+            raise RuntimeError(
+                f"upload_file remote hash mismatch for {upload_path}: expected {local_sha} got {uploaded_sha}"
+            )
+
+        if atomic_replace:
+            move_cmd = f"mv -f {shlex.quote(upload_path)} {shlex.quote(str(target_path))}"
+            proc = self._ssh_run_capture(target_user, str(target_ip), move_cmd)
+            if proc.returncode != 0:
+                stderr = (proc.stderr or "").strip()
+                raise RuntimeError(f"upload_file atomic move failed: {stderr or 'unknown error'}")
         return self._simple_outcome(step)
 
     def _step_reboot(self, step: dict) -> Tuple[str, OutcomeMatch]:

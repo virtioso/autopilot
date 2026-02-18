@@ -363,6 +363,7 @@ Example step types:
 - `case`
 - `upload_kernel`
 - `upload_efi`
+- `upload_file`
 - `reboot`
 - `map_source`
 - `map_window`
