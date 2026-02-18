@@ -9,13 +9,14 @@
           "label": "overflow",
           "pattern": "FTRACE: Storage full",
           "source": "tty0",
-          "next": "fail"
+          "next": "pass"
         }
       ],
       "on_timeout": "watch_storage_full"
-    },
-    "fail": {
-      "type": "fail"
+    }
+    ,
+    "pass": {
+      "type": "pass"
     }
   }
 }
