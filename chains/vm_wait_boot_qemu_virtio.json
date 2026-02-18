@@ -204,12 +204,32 @@
     "emit_ftrace_overflow_marker": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_FAIL: FTRACE_OVERFLOW_EARLY (storage full before VM1 trace window)'",
+      "cmd": "echo 'AUTOPILOT_INFO: FTRACE_OVERFLOW_OBSERVED (storage full observed; kernel auto-dump expected)'",
       "suffix": "\n",
       "outcomes": [
         {
           "label": "ok",
-          "next": "fail"
+          "next": "wait_dump_terminal_or_shell"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_dump_terminal_or_shell": {
+      "type": "wait_pattern",
+      "start_from": "tail",
+      "timeout_s": 120,
+      "outcomes": [
+        {
+          "label": "dump_terminal",
+          "pattern": "TRACE_DUMP_TERMINAL:",
+          "source": "tty0",
+          "next": "pass"
+        },
+        {
+          "label": "shell_prompt",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
+          "source": "tty0",
+          "next": "pass"
         }
       ],
       "on_timeout": "fail"
