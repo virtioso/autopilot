@@ -22,7 +22,7 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 - [x] S1 Remove `initcall_debug` from VM1 bootargs in `projects/virtioso-camkes-vm/apps/Arm/vm_qemu_virtio/orinagx/devices.camkes`
 - [x] S2 Add Autopilot runtime step `upload_file` with checksum-gated logic
 - [x] S3 Integrate rootfs sync into `deploy_and_boot_test_efi.json` before EFI upload
-- [ ] S4 Update init scripts default `ROOTFS_IMAGE` to canonical path under `/var/lib/virtioso-vm-images`
+- [x] S4 Update init scripts default `ROOTFS_IMAGE` to canonical path under `/var/lib/virtioso-vm-images`
 - [ ] S5 Run Autopilot preflight validation and record results
 - [ ] S6 Run full clean build + test workflow and record evidence
 - [ ] S7 Final acceptance closure
@@ -111,7 +111,7 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 | S1 | projects/virtioso-camkes-vm | feb1193 | completed | Remove initcall_debug |
 | S2 | autopilot | a2ed147 | completed | Add upload_file runtime + docs |
 | S3 | autopilot | 1b70e1f | completed | Chain deploy integration |
-| S4 | vm-images/virtioso-yocto-layers | _pending_ | not started | Initramfs path cutover |
+| S4 | vm-images/virtioso-yocto-layers | 63a07a8 | completed | Initramfs path cutover |
 | S5 | autopilot | _pending_ | not started | Validation evidence update |
 | S6 | autopilot | _pending_ | not started | Test evidence update |
 | S7 | autopilot | _pending_ | not started | Final closure |
