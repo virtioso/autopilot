@@ -142,7 +142,7 @@
       "command": [
         "bash",
         "-lc",
-        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; if grep -a -E -q \"TRACE_DUMP_TERMINAL:.*reason=storage_full\" \"{result_dir}/console/tty0.raw\"; then printf \"\\nAUTOPILOT_FAIL: FTRACE_OVERFLOW_STORAGE_FULL (kernel auto-dump reason=storage_full)\\n\" >> \"{result_dir}/console/sel4.log\"; fi"
+        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/tty0.filtered.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; if grep -a -E -q \"TRACE_DUMP_TERMINAL:.*reason=storage_full\" \"{result_dir}/console/tty0.raw\"; then printf \"\\nAUTOPILOT_FAIL: FTRACE_OVERFLOW_STORAGE_FULL (kernel auto-dump reason=storage_full)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; fi"
       ],
       "outcomes": [
         {
@@ -157,7 +157,7 @@
       "command": [
         "bash",
         "-lc",
-        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; if ! grep -a -q \"ELF-loader started on CPU\" \"{result_dir}/console/tty0.raw\"; then printf \"\\nAUTOPILOT_FAIL: ELFLOADER_NOT_REACHED (missing ELF-loader start marker within timeout)\\n\" >> \"{result_dir}/console/sel4.log\"; elif grep -a -q \"FTRACE: Storage full\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: FTRACE_OVERFLOW_STORAGE_FULL (storage full before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/sel4.log\"; fi"
+        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/tty0.filtered.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; if ! grep -a -q \"ELF-loader started on CPU\" \"{result_dir}/console/tty0.raw\"; then printf \"\\nAUTOPILOT_FAIL: ELFLOADER_NOT_REACHED (missing ELF-loader start marker within timeout)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif grep -a -q \"FTRACE: Storage full\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: FTRACE_OVERFLOW_STORAGE_FULL (storage full before VM1 boot evidence)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"{result_dir}/console/tty0.raw\" && ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"{result_dir}/console/tty1.raw\"; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; fi"
       ],
       "outcomes": [
         {

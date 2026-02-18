@@ -61,7 +61,7 @@
       "command": [
         "bash",
         "-lc",
-        "{code_root}/filter_sel4_start.py \"{binary_name}\" < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\""
+        "{code_root}/filter_sel4_start.py \"{binary_name}\" < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/tty0.filtered.log\""
       ],
       "outcomes": [
         {
@@ -76,7 +76,7 @@
       "command": [
         "bash",
         "-lc",
-        "{code_root}/filter_sel4_start.py \"{binary_name}\" < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\""
+        "{code_root}/filter_sel4_start.py \"{binary_name}\" < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/tty0.filtered.log\""
       ],
       "outcomes": [
         {

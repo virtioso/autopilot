@@ -174,17 +174,17 @@ def write_post_run_dtb_artifacts(result_dir: Path, status: str) -> None:
         print(f"WARNING: DTB extraction failed: {exc}", flush=True)
 
 
-def _append_sel4_failure_marker(result_dir: Path, message: str) -> None:
-    sel4_log = result_dir / "console" / "sel4.log"
-    sel4_log.parent.mkdir(parents=True, exist_ok=True)
-    with sel4_log.open("a") as fh:
+def _append_failure_marker(result_dir: Path, message: str) -> None:
+    fail_log = result_dir / "console" / "autopilot.fail.log"
+    fail_log.parent.mkdir(parents=True, exist_ok=True)
+    with fail_log.open("a") as fh:
         fh.write(f"\nAUTOPILOT_FAIL: {message}\n")
 
 
 def _has_ftrace_dump_evidence(result_dir: Path) -> bool:
     marker_bytes = [b"=== BINARY TRANSFER START ===", b"TRACE_DUMP_TERMINAL:"]
     marker_text = ["=== BINARY TRANSFER START ===", "TRACE_DUMP_TERMINAL:", "FTRACE: Storage full"]
-    for log_name in ("console/tty0.raw", "console/sel4.log"):
+    for log_name in ("console/tty0.raw",):
         log_path = result_dir / log_name
         if not log_path.exists():
             continue
@@ -230,8 +230,6 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
 
     extract_script = SCRIPT_DIR / "extract_ftrace.py"
     source_log = result_dir / "console" / "tty0.raw"
-    if not source_log.exists():
-        source_log = result_dir / "console" / "sel4.log"
 
     if not extract_script.exists() or not source_log.exists():
         return {
@@ -745,7 +743,7 @@ def main() -> None:
                     stderr_lines = [ln for ln in ftrace_post["stderr"].splitlines() if ln.strip()]
                     if stderr_lines:
                         stderr_tail = f"; detail={stderr_lines[-1]}"
-                _append_sel4_failure_marker(
+                _append_failure_marker(
                     result_dir,
                     f"FTRACE_POSTPROCESS_FAILED ({reason}{stderr_tail})",
                 )
@@ -753,7 +751,7 @@ def main() -> None:
             else:
                 dump_reason = ftrace_post.get("summary", {}).get("dump_reason")
                 if dump_reason == "storage_full":
-                    _append_sel4_failure_marker(
+                    _append_failure_marker(
                         result_dir,
                         "FTRACE_OVERFLOW_STORAGE_FULL (kernel auto-dump reason=storage_full)"
                     )
