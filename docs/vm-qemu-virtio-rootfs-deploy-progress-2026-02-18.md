@@ -23,7 +23,7 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 - [x] S2 Add Autopilot runtime step `upload_file` with checksum-gated logic
 - [x] S3 Integrate rootfs sync into `deploy_and_boot_test_efi.json` before EFI upload
 - [x] S4 Update init scripts default `ROOTFS_IMAGE` to canonical path under `/var/lib/virtioso-vm-images`
-- [ ] S5 Run Autopilot preflight validation and record results
+- [x] S5 Run Autopilot preflight validation and record results
 - [ ] S6 Run full clean build + test workflow and record evidence
 - [ ] S7 Final acceptance closure
 
@@ -84,6 +84,12 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
   - `python3 /home/hlyytine/autopilot/scripts/preflight_autopilot.py`
 - Record output and pass/fail in this file.
 
+Result (2026-02-18):
+- `[OK] py_compile`
+- `[OK] prepare_lifecycle_lint`
+- `[OK] validate_chain_all (19 chains)`
+- `[OK] preflight_autopilot`
+
 ### S6 End-to-end verification
 - Build sequence:
   1. `make mrproper`
@@ -112,7 +118,7 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 | S2 | autopilot | a2ed147 | completed | Add upload_file runtime + docs |
 | S3 | autopilot | 1b70e1f | completed | Chain deploy integration |
 | S4 | vm-images/virtioso-yocto-layers | 63a07a8 | completed | Initramfs path cutover |
-| S5 | autopilot | _pending_ | not started | Validation evidence update |
+| S5 | autopilot | _pending_ | completed | Validation evidence update (recorded) |
 | S6 | autopilot | _pending_ | not started | Test evidence update |
 | S7 | autopilot | _pending_ | not started | Final closure |
 
