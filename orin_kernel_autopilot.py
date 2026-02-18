@@ -5,6 +5,7 @@ import os
 import queue
 import re
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -171,6 +172,113 @@ def write_post_run_dtb_artifacts(result_dir: Path, status: str) -> None:
             )
     except Exception as exc:
         print(f"WARNING: DTB extraction failed: {exc}", flush=True)
+
+
+def _append_sel4_failure_marker(result_dir: Path, message: str) -> None:
+    sel4_log = result_dir / "console" / "sel4.log"
+    sel4_log.parent.mkdir(parents=True, exist_ok=True)
+    with sel4_log.open("a") as fh:
+        fh.write(f"\nAUTOPILOT_FAIL: {message}\n")
+
+
+def _has_ftrace_dump_evidence(result_dir: Path) -> bool:
+    for log_name in ("console/tty0.raw", "console/sel4.log"):
+        log_path = result_dir / log_name
+        if not log_path.exists():
+            continue
+        try:
+            content = log_path.read_text(errors="ignore")
+        except Exception:
+            continue
+        if "=== BINARY TRANSFER START ===" in content or "TRACE_DUMP_TERMINAL:" in content:
+            return True
+    return False
+
+
+def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
+    """
+    Enforce ftrace extraction/indexing/summary generation when dump evidence exists.
+    """
+    required = _has_ftrace_dump_evidence(result_dir)
+    summary = {
+        "required": required,
+        "extracted": False,
+        "indexed": False,
+        "summary_generated": False,
+        "dump_reason": None,
+        "dump_reason_code": None,
+    }
+    summary_path = result_dir / "ftrace.summary.json"
+    if not required:
+        summary_path.write_text(json.dumps(summary, indent=2))
+        return {"required": False, "ok": True, "summary": summary}
+
+    extract_script = SCRIPT_DIR / "extract_ftrace.py"
+    source_log = result_dir / "console" / "sel4.log"
+    if not source_log.exists():
+        source_log = result_dir / "console" / "tty0.raw"
+
+    if not extract_script.exists() or not source_log.exists():
+        return {
+            "required": True,
+            "ok": False,
+            "error": "FTRACE_POSTPROCESS_MISSING_INPUTS",
+            "summary": summary,
+        }
+
+    proc = subprocess.run(
+        ["python3", str(extract_script), str(source_log), str(result_dir)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    if proc.returncode != 0:
+        return {
+            "required": True,
+            "ok": False,
+            "error": f"FTRACE_EXTRACT_FAILED rc={proc.returncode}",
+            "stderr": proc.stderr,
+            "summary": summary,
+        }
+
+    bin_path = result_dir / "ftrace.bin"
+    meta_path = result_dir / "ftrace.meta"
+    idx_path = result_dir / "ftrace.idx"
+    if not (bin_path.exists() and meta_path.exists() and idx_path.exists()):
+        return {
+            "required": True,
+            "ok": False,
+            "error": "FTRACE_POSTPROCESS_ARTIFACTS_MISSING",
+            "summary": summary,
+        }
+
+    try:
+        meta = json.loads(meta_path.read_text())
+        header = meta.get("header", {})
+        dump_reason = header["DUMP_REASON"]
+        dump_reason_code = header["DUMP_REASON_CODE"]
+    except Exception as exc:
+        return {
+            "required": True,
+            "ok": False,
+            "error": f"FTRACE_META_PARSE_FAILED ({exc})",
+            "summary": summary,
+        }
+
+    summary.update({
+        "extracted": True,
+        "indexed": True,
+        "summary_generated": True,
+        "dump_reason": dump_reason,
+        "dump_reason_code": dump_reason_code,
+        "artifact_paths": {
+            "bin": str(bin_path),
+            "meta": str(meta_path),
+            "idx": str(idx_path),
+        },
+    })
+    summary_path.write_text(json.dumps(summary, indent=2))
+    return {"required": True, "ok": True, "summary": summary}
 
 
 def poll_idle_events(event_queue: queue.Queue, exit_flag: threading.Event) -> None:
@@ -561,6 +669,21 @@ def main() -> None:
         finally:
             ui_state.clear_request()
             write_post_run_dtb_artifacts(result_dir, status)
+
+        ftrace_post = run_post_run_ftrace_pipeline(result_dir)
+        if ftrace_post.get("required"):
+            if not ftrace_post.get("ok"):
+                reason = ftrace_post.get("error", "FTRACE_POSTPROCESS_FAILED")
+                _append_sel4_failure_marker(result_dir, f"FTRACE_POSTPROCESS_FAILED ({reason})")
+                status = "failed"
+            else:
+                dump_reason = ftrace_post.get("summary", {}).get("dump_reason")
+                if dump_reason == "storage_full":
+                    _append_sel4_failure_marker(
+                        result_dir,
+                        "FTRACE_OVERFLOW_STORAGE_FULL (kernel auto-dump reason=storage_full)"
+                    )
+                    status = "failed"
 
         if status == "pass":
             processing_file.rename(COMPLETED_DIR / request_file.name)
