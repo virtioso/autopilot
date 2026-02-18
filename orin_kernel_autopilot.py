@@ -182,15 +182,20 @@ def _append_sel4_failure_marker(result_dir: Path, message: str) -> None:
 
 
 def _has_ftrace_dump_evidence(result_dir: Path) -> bool:
+    marker_bytes = [b"=== BINARY TRANSFER START ===", b"TRACE_DUMP_TERMINAL:"]
+    marker_text = ["=== BINARY TRANSFER START ===", "TRACE_DUMP_TERMINAL:", "FTRACE: Storage full"]
     for log_name in ("console/tty0.raw", "console/sel4.log"):
         log_path = result_dir / log_name
         if not log_path.exists():
             continue
         try:
-            content = log_path.read_text(errors="ignore")
+            raw = log_path.read_bytes()
+            if any(marker in raw for marker in marker_bytes):
+                return True
+            content = raw.decode("utf-8", errors="ignore")
         except Exception:
             continue
-        if "=== BINARY TRANSFER START ===" in content or "TRACE_DUMP_TERMINAL:" in content:
+        if any(marker in content for marker in marker_text):
             return True
     return False
 
@@ -199,7 +204,12 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
     """
     Enforce ftrace extraction/indexing/summary generation when dump evidence exists.
     """
-    required = _has_ftrace_dump_evidence(result_dir)
+    required = False
+    for _ in range(5):
+        if _has_ftrace_dump_evidence(result_dir):
+            required = True
+            break
+        time.sleep(0.3)
     summary = {
         "required": required,
         "extracted": False,
@@ -219,9 +229,9 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
         return {"required": False, "ok": True, "summary": summary}
 
     extract_script = SCRIPT_DIR / "extract_ftrace.py"
-    source_log = result_dir / "console" / "sel4.log"
+    source_log = result_dir / "console" / "tty0.raw"
     if not source_log.exists():
-        source_log = result_dir / "console" / "tty0.raw"
+        source_log = result_dir / "console" / "sel4.log"
 
     if not extract_script.exists() or not source_log.exists():
         return {
