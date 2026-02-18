@@ -54,6 +54,8 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
     base64_lines = []
     block_data = []  # For v3 streaming format
     current_block = None
+    tail_raw_entries = 0
+    tail_base64_lines = []
     expected_checksum = 0
 
     state = "searching"
@@ -80,13 +82,15 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
                     header[key] = value
                 elif key in ("VERSION", "ENTRIES", "TOTAL_ENTRIES", "TOTAL_LOGGED",
                            "BLOCKS", "DICT_SIZE", "DATA_SIZE", "RAW_SIZE",
-                           "COMPRESSED_SIZE", "TOTAL_COMPRESSED"):
+                           "COMPRESSED_SIZE", "TOTAL_COMPRESSED", "DUMP_REASON_CODE"):
                     try:
                         header[key] = int(value)
                     except ValueError:
                         header[key] = value
                 elif key in ("OVERFLOW", "STORAGE_FULL"):
                     header[key] = value == "YES"
+                elif key == "DUMP_REASON":
+                    header[key] = value
 
         elif state == "dictionary":
             if line == "===":
@@ -128,10 +132,22 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
                         current_block = None
                 continue
 
+            if line.startswith("TAIL_RAW_ENTRIES:"):
+                if current_block is not None:
+                    block_data.append(current_block)
+                    current_block = None
+                try:
+                    tail_raw_entries = int(line.split(':', 1)[1])
+                except ValueError:
+                    tail_raw_entries = 0
+                continue
+
             # Base64 line
             if line and re.match(r'^[A-Za-z0-9+/=]+$', line):
                 if current_block is not None:
                     current_block['base64_lines'].append(line)
+                elif tail_raw_entries > 0:
+                    tail_base64_lines.append(line)
                 else:
                     base64_lines.append(line)
 
@@ -142,6 +158,11 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
                     header['expected_checksum'] = expected_checksum
                 except ValueError:
                     pass
+
+    # Strict schema enforcement for new dump format.
+    if 'DUMP_REASON' not in header or 'DUMP_REASON_CODE' not in header:
+        print("Error: Unsupported legacy ftrace dump format (missing DUMP_REASON fields)", file=sys.stderr)
+        return False
 
     # Determine format and decompress
     is_stream = header.get('TYPE') == 'FTRACE_STREAM' or header.get('VERSION', 0) >= 3
@@ -172,6 +193,22 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
             except Exception as e:
                 print(f"Warning: Block decompression failed: {e}", file=sys.stderr)
                 continue
+
+        if tail_raw_entries > 0 and tail_base64_lines:
+            try:
+                tail_b64 = ''.join(tail_base64_lines)
+                tail_data = base64.b64decode(tail_b64)
+                expected_tail_size = tail_raw_entries * 2
+                if len(tail_data) < expected_tail_size:
+                    print(
+                        f"Error: tail raw payload too short ({len(tail_data)} < {expected_tail_size})",
+                        file=sys.stderr
+                    )
+                    return False
+                all_raw_data.append(tail_data[:expected_tail_size])
+            except Exception as e:
+                print(f"Error: Failed to decode tail raw payload: {e}", file=sys.stderr)
+                return False
     else:
         # V2 single block format
         try:
