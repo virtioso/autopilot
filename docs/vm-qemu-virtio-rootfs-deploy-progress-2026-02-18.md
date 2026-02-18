@@ -24,7 +24,7 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 - [x] S3 Integrate rootfs sync into `deploy_and_boot_test_efi.json` before EFI upload
 - [x] S4 Update init scripts default `ROOTFS_IMAGE` to canonical path under `/var/lib/virtioso-vm-images`
 - [x] S5 Run Autopilot preflight validation and record results
-- [ ] S6 Run full clean build + test workflow and record evidence
+- [x] S6 Run full clean build + test workflow and record evidence
 - [ ] S7 Final acceptance closure
 
 ## Detailed Plan
@@ -104,6 +104,23 @@ Result (2026-02-18):
   - no `/usr/bin/hyp-ftrace-ctl: No such file or directory`
   - init lookup path uses `/mnt/emmc/var/lib/virtioso-vm-images/...`
 
+Result (2026-02-18):
+- Build sequence run:
+  - `make mrproper`
+  - `make orinagx_defconfig`
+  - `make vm_qemu_virtio`
+  - `make linux-image`
+  - `make vm_qemu_virtio` (repack with latest initramfs artifact)
+- Test run: `request_id=20260218-105129` (overall status `failed`, failure occurs later in VM boot flow after `run_qemu_rnd_helper`; not in deploy/rootfs-sync stage).
+- Deploy/rootfs evidence:
+  - `chain.json` includes `prepare_vm_image_dir` -> `upload_driver_vm_rootfs` -> `upload_efi` with `status: ok`.
+  - `tty0.raw`: `Looking for rootfs image: /mnt/emmc/var/lib/virtioso-vm-images/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4`
+  - `tty0.raw`: `Found rootfs image: var/lib/virtioso-vm-images/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4`
+- Ftrace tool evidence:
+  - `tty0.raw`: `/usr/bin/hyp-ftrace-ctl arm`
+  - `tty0.raw`: `AUTOPILOT_INFO: HYP_FTRACE_ARM_OK via busybox-devmem`
+  - no `/usr/bin/hyp-ftrace-ctl: No such file or directory` observed.
+
 ### S7 Closure
 - Mark acceptance checklist complete.
 - Final tracking commit.
@@ -119,7 +136,7 @@ Result (2026-02-18):
 | S3 | autopilot | 1b70e1f | completed | Chain deploy integration |
 | S4 | vm-images/virtioso-yocto-layers | 63a07a8 | completed | Initramfs path cutover |
 | S5 | autopilot | 5c7d2d0 | completed | Validation evidence update (recorded) |
-| S6 | autopilot | _pending_ | not started | Test evidence update |
+| S6 | autopilot | _pending_ | completed | Test evidence update |
 | S7 | autopilot | _pending_ | not started | Final closure |
 
 ## Acceptance Checklist
