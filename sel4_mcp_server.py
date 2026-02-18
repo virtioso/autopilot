@@ -864,17 +864,81 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         request_id = arguments["request_id"]
         result_dir = paths['results'] / request_id
         idx_path = result_dir / 'ftrace.idx'
+        meta_path = result_dir / 'ftrace.meta'
+        bin_path = result_dir / 'ftrace.bin'
+        tty0_raw = result_dir / 'console' / 'tty0.raw'
 
         if not idx_path.exists():
-            # Check if ftrace.bin exists but wasn't indexed
-            bin_path = result_dir / 'ftrace.bin'
-            if bin_path.exists():
+            repaired = False
+            # One-shot repair path 1: index existing ftrace.bin + ftrace.meta.
+            if bin_path.exists() and meta_path.exists():
+                indexer_candidates = [
+                    Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace-index-rs'),
+                    Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace-index/target/release/ftrace-index'),
+                ]
+                for indexer in indexer_candidates:
+                    if not indexer.exists():
+                        continue
+                    proc = subprocess.run(
+                        [
+                            str(indexer),
+                            '--binary', str(bin_path),
+                            '--meta', str(meta_path),
+                            '--output', str(idx_path),
+                            '--build-index'
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    if proc.returncode == 0 and idx_path.exists():
+                        repaired = True
+                        break
+
+            # One-shot repair path 2: derive artifacts from raw UART capture.
+            if not repaired and tty0_raw.exists():
+                raw_content = tty0_raw.read_text(errors='ignore')
+                if "=== BINARY TRANSFER START ===" in raw_content:
+                    extract_script = Path('/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/extract_indexed_ftrace.sh')
+                    if extract_script.exists():
+                        proc = subprocess.run(
+                            [str(extract_script), request_id, str(autopilot_dir)],
+                            capture_output=True,
+                            text=True,
+                            timeout=180,
+                        )
+                        repaired = proc.returncode == 0 and idx_path.exists()
+
+            if repaired and idx_path.exists():
+                pass
+            elif bin_path.exists():
                 return {
-                    "content": [{"type": "text", "text": f"Ftrace data exists but not indexed.\nRun: ftrace-index-rs --binary {bin_path} --meta {result_dir/'ftrace.meta'} --output {idx_path} --build-index"}],
+                    "content": [{"type": "text", "text": f"Ftrace data exists but auto-repair failed for request {request_id}."}],
                     "isError": True
                 }
+            elif not idx_path.exists():
+                return {
+                    "content": [{"type": "text", "text": f"No ftrace data found for request {request_id}. Was ftrace enabled (el2-ftrace mode)?"}],
+                    "isError": True
+                }
+
+        # Strict format gate: reject legacy metadata without reason fields.
+        if not meta_path.exists():
             return {
-                "content": [{"type": "text", "text": f"No ftrace data found for request {request_id}. Was ftrace enabled (el2-ftrace mode)?"}],
+                "content": [{"type": "text", "text": "UNSUPPORTED_LEGACY_FORMAT: missing ftrace.meta"}],
+                "isError": True
+            }
+        try:
+            meta = json.loads(meta_path.read_text())
+            header = meta.get("header", {})
+            if "DUMP_REASON" not in header or "DUMP_REASON_CODE" not in header:
+                return {
+                    "content": [{"type": "text", "text": "UNSUPPORTED_LEGACY_FORMAT: missing DUMP_REASON fields"}],
+                    "isError": True
+                }
+        except Exception as exc:
+            return {
+                "content": [{"type": "text", "text": f"UNSUPPORTED_LEGACY_FORMAT: invalid metadata ({exc})"}],
                 "isError": True
             }
 
