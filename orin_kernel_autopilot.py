@@ -344,6 +344,33 @@ def wait_for_ftrace_uart_drain(result_dir: Path, timeout_s: float = 180.0) -> di
     return _read_ftrace_transfer_state(result_dir)
 
 
+def should_skip_prepare_cycle(result_dir: Path, transfer_state: dict) -> tuple[bool, str]:
+    if transfer_state.get("has_start") and not (
+        transfer_state.get("has_terminal") or transfer_state.get("has_end")
+    ):
+        return True, "ftrace transfer started but completion markers missing"
+
+    tty0 = result_dir / "console" / "tty0.raw"
+    if tty0.exists():
+        try:
+            data = tty0.read_bytes()
+            if b"FTRACE: Storage full" in data:
+                return True, "storage-full marker observed in tty0.raw"
+        except Exception:
+            pass
+
+    fail_log = result_dir / "console" / "autopilot.fail.log"
+    if fail_log.exists():
+        try:
+            content = fail_log.read_text(errors="ignore")
+            if "FTRACE_OVERFLOW_STORAGE_FULL" in content:
+                return True, "overflow fail marker present in autopilot.fail.log"
+        except Exception:
+            pass
+
+    return False, ""
+
+
 def poll_idle_events(event_queue: queue.Queue, exit_flag: threading.Event) -> None:
     while True:
         try:
@@ -763,11 +790,10 @@ def main() -> None:
             processing_file.rename(FAILED_DIR / request_file.name)
 
         print(f"=== {timestamp} completed: {status} ===", flush=True)
-        if transfer_state.get("has_start") and not (
-            transfer_state.get("has_terminal") or transfer_state.get("has_end")
-        ):
+        skip_prepare, skip_reason = should_skip_prepare_cycle(result_dir, transfer_state)
+        if skip_prepare:
             print(
-                f"Skipping prepare_next_run relay reset: ftrace transfer still incomplete for {timestamp}",
+                f"Skipping prepare_next_run relay reset: {skip_reason} ({timestamp})",
                 flush=True,
             )
         else:
