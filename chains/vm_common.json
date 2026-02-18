@@ -142,7 +142,7 @@
       "command": [
         "bash",
         "-lc",
-        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\""
+        "{code_root}/filter_capdl_start.py < \"{result_dir}/console/tty0.raw\" > \"{result_dir}/console/sel4.log\" && {code_root}/filter_vm_console.py < \"{result_dir}/console/tty1.raw\" > \"{result_dir}/console/vm.log\"; if grep -a -E -q \"TRACE_DUMP_TERMINAL:.*reason=storage_full\" \"{result_dir}/console/tty0.raw\"; then printf \"\\nAUTOPILOT_FAIL: FTRACE_OVERFLOW_STORAGE_FULL (kernel auto-dump reason=storage_full)\\n\" >> \"{result_dir}/console/sel4.log\"; fi"
       ],
       "outcomes": [
         {
