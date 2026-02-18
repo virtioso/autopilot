@@ -140,7 +140,7 @@ Closure note:
 | S4 | vm-images/virtioso-yocto-layers | 63a07a8 | completed | Initramfs path cutover |
 | S5 | autopilot | 5c7d2d0 | completed | Validation evidence update (recorded) |
 | S6 | autopilot | ede631a | completed | Test evidence update |
-| S7 | autopilot | _pending_ | completed | Final closure |
+| S7 | autopilot | fccfc81 | completed | Final closure |
 
 ## Acceptance Checklist
 - [x] `initcall_debug` removed from VM1 bootargs
