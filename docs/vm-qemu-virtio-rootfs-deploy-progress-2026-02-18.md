@@ -25,7 +25,7 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 - [x] S4 Update init scripts default `ROOTFS_IMAGE` to canonical path under `/var/lib/virtioso-vm-images`
 - [x] S5 Run Autopilot preflight validation and record results
 - [x] S6 Run full clean build + test workflow and record evidence
-- [ ] S7 Final acceptance closure
+- [x] S7 Final acceptance closure
 
 ## Detailed Plan
 
@@ -125,6 +125,9 @@ Result (2026-02-18):
 - Mark acceptance checklist complete.
 - Final tracking commit.
 
+Closure note:
+- Supporting chain fix committed in autopilot: `6d05d93` (remove inline fail-marker echo from ftrace arm/dump commands to avoid false regex matches).
+
 ## Commit Log
 | Step | Repo | Commit | Status | Notes |
 |---|---|---|---|---|
@@ -137,12 +140,12 @@ Result (2026-02-18):
 | S4 | vm-images/virtioso-yocto-layers | 63a07a8 | completed | Initramfs path cutover |
 | S5 | autopilot | 5c7d2d0 | completed | Validation evidence update (recorded) |
 | S6 | autopilot | ede631a | completed | Test evidence update |
-| S7 | autopilot | _pending_ | not started | Final closure |
+| S7 | autopilot | _pending_ | completed | Final closure |
 
 ## Acceptance Checklist
-- [ ] `initcall_debug` removed from VM1 bootargs
-- [ ] `upload_file` step implemented and documented
-- [ ] `deploy_and_boot_test_efi` syncs driver rootfs before EFI upload
-- [ ] initramfs default rootfs path uses `/var/lib/virtioso-vm-images`
-- [ ] preflight validation passes
-- [ ] end-to-end run confirms updated rootfs used by driver-vm
+- [x] `initcall_debug` removed from VM1 bootargs
+- [x] `upload_file` step implemented and documented
+- [x] `deploy_and_boot_test_efi` syncs driver rootfs before EFI upload
+- [x] initramfs default rootfs path uses `/var/lib/virtioso-vm-images`
+- [x] preflight validation passes
+- [x] end-to-end run confirms updated rootfs used by driver-vm
