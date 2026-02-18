@@ -674,7 +674,15 @@ def main() -> None:
         if ftrace_post.get("required"):
             if not ftrace_post.get("ok"):
                 reason = ftrace_post.get("error", "FTRACE_POSTPROCESS_FAILED")
-                _append_sel4_failure_marker(result_dir, f"FTRACE_POSTPROCESS_FAILED ({reason})")
+                stderr_tail = ""
+                if ftrace_post.get("stderr"):
+                    stderr_lines = [ln for ln in ftrace_post["stderr"].splitlines() if ln.strip()]
+                    if stderr_lines:
+                        stderr_tail = f"; detail={stderr_lines[-1]}"
+                _append_sel4_failure_marker(
+                    result_dir,
+                    f"FTRACE_POSTPROCESS_FAILED ({reason}{stderr_tail})",
+                )
                 status = "failed"
             else:
                 dump_reason = ftrace_post.get("summary", {}).get("dump_reason")
