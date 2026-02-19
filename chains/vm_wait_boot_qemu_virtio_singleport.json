@@ -213,6 +213,12 @@
       "timeout_s": 20,
       "outcomes": [
         {
+          "label": "dump_transfer_marker",
+          "pattern": "=== BINARY TRANSFER START ===|TRACE_DUMP_TERMINAL:",
+          "source": "tty0",
+          "next": "pass"
+        },
+        {
           "label": "dump_failed",
           "pattern": "AUTOPILOT_FAIL: HYP_FTRACE_DUMP_CMD_FAILED|AUTOPILOT_FAIL: HYP_FTRACE_DUMP_",
           "source": "tty0",
@@ -222,7 +228,20 @@
           "label": "shell_prompt",
           "pattern": "root@driver-vm:~#|root@.*:~#",
           "source": "tty0",
-          "next": "pass"
+          "next": "emit_dump_no_transfer_fail"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "emit_dump_no_transfer_fail": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "echo 'AUTOPILOT_FAIL: HYP_FTRACE_DUMP_NO_TRANSFER_MARKER'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fail"
         }
       ],
       "on_timeout": "fail"
