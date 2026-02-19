@@ -36,11 +36,19 @@ from config import get_autopilot_dir, get_paths
 from chain_runtime import ChainValidationError, validate_chain
 
 
-class QueueNotEmptyError(RuntimeError):
-    def __init__(self, pending: list, processing: list):
-        super().__init__("queue_not_empty")
+class QueueCapacityExceededError(RuntimeError):
+    def __init__(self, pending: list, processing: list, max_inflight: int):
+        super().__init__("queue_capacity_exceeded")
         self.pending = pending
         self.processing = processing
+        self.max_inflight = max_inflight
+        self.inflight = len(pending) + len(processing)
+
+
+class QueueNotEmptyError(QueueCapacityExceededError):
+    # Backward-compatible alias for older callers.
+    def __init__(self, pending: list, processing: list):
+        super().__init__(pending, processing, max_inflight=1)
 
 
 def _validate_chain_admission(profile: str) -> None:
@@ -108,10 +116,15 @@ RUNTIME_DIR = _DEFAULT_PATHS['runtime']
 
 
 def ensure_queue_empty(autopilot_dir: str = None) -> None:
+    ensure_queue_capacity(max_inflight=1, autopilot_dir=autopilot_dir)
+
+
+def ensure_queue_capacity(max_inflight: int = 2, autopilot_dir: str = None) -> None:
     pending = list_pending(autopilot_dir=autopilot_dir)
     processing = list_processing(autopilot_dir=autopilot_dir)
-    if pending or processing:
-        raise QueueNotEmptyError(pending, processing)
+    inflight = len(pending) + len(processing)
+    if inflight >= max_inflight:
+        raise QueueCapacityExceededError(pending, processing, max_inflight=max_inflight)
 
 
 def submit_sel4_efi_test(
@@ -138,7 +151,7 @@ def submit_sel4_efi_test(
     Returns:
         timestamp: Request ID that can be used to check status/get results
     """
-    ensure_queue_empty(autopilot_dir=autopilot_dir)
+    ensure_queue_capacity(max_inflight=2, autopilot_dir=autopilot_dir)
     _validate_chain_admission(profile)
     paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -210,7 +223,7 @@ def submit_boot_interactive(
     if interactive is None:
         raise ValueError("interactive config is required")
 
-    ensure_queue_empty(autopilot_dir=autopilot_dir)
+    ensure_queue_capacity(max_inflight=2, autopilot_dir=autopilot_dir)
     _validate_chain_admission(profile)
     paths = get_paths(autopilot_dir)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')

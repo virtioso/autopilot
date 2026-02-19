@@ -61,7 +61,7 @@ from sel4_client import (
     get_autopilot_status,
     get_test_status,
     cancel_test,
-    QueueNotEmptyError,
+    QueueCapacityExceededError,
     get_console_manifest,
     open_console_session,
     read_console_output,
@@ -680,12 +680,15 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                 profile=profile,
                 autopilot_dir=autopilot_dir
             )
-        except QueueNotEmptyError as e:
+        except QueueCapacityExceededError as e:
             payload = {
-                "error": "queue_not_empty",
+                "error": "queue_capacity_exceeded",
+                "reason": "inflight_requests_at_capacity",
+                "max_inflight": e.max_inflight,
+                "inflight": e.inflight,
                 "pending": e.pending,
                 "processing": e.processing,
-                "hint": "Investigate why a request is pending/processing (use autopilot_status/get_test_status).",
+                "hint": "Retry after one in-flight request finishes (use autopilot_status/get_test_status).",
             }
             return {
                 "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
