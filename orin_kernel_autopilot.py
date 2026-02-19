@@ -39,6 +39,20 @@ FAILED_DIR = PATHS["failed"]
 RESULTS_DIR = PATHS["results"]
 RUNTIME_DIR = PATHS["runtime"]
 
+PROFILE_ANALYSIS_HOOKS = {
+    "vm-qemu-virtio": {
+        "required": [
+            "ftrace_index_integrity",
+            "crossvm_irq_path_check",
+            "virtio_console_probe_window_check",
+        ],
+        "optional": [
+            "timeline_render",
+            "summary_markdown_export",
+        ],
+    },
+}
+
 
 def ensure_dirs() -> None:
     for d in [PENDING_DIR, PROCESSING_DIR, COMPLETED_DIR, FAILED_DIR, RESULTS_DIR, RUNTIME_DIR]:
@@ -302,6 +316,287 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
     return {"required": True, "ok": True, "summary": summary}
 
 
+def _hook_result(
+    hook_id: str,
+    result: str,
+    summary: str,
+    artifacts: list[str] = None,
+    error: str = None,
+) -> dict:
+    payload = {
+        "hook_id": hook_id,
+        "result": result,
+        "summary": summary,
+        "artifacts": artifacts or [],
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def _run_hook_ftrace_index_integrity(result_dir: Path, ftrace_post: dict) -> dict:
+    summary_path = result_dir / "ftrace.summary.json"
+    if not ftrace_post.get("required"):
+        return _hook_result(
+            "ftrace_index_integrity",
+            "pass",
+            "ftrace dump not required for this run",
+            artifacts=[str(summary_path)] if summary_path.exists() else [],
+        )
+
+    if not ftrace_post.get("ok"):
+        return _hook_result(
+            "ftrace_index_integrity",
+            "fail",
+            "ftrace post-run processing failed",
+            error=ftrace_post.get("error", "unknown"),
+        )
+
+    paths = ftrace_post.get("summary", {}).get("artifact_paths", {})
+    missing = []
+    found = []
+    for key in ("bin", "meta", "idx"):
+        p = paths.get(key)
+        if not p or not Path(p).exists():
+            missing.append(key)
+        else:
+            found.append(p)
+    if missing:
+        return _hook_result(
+            "ftrace_index_integrity",
+            "fail",
+            f"missing required indexed artifacts: {', '.join(missing)}",
+            artifacts=found,
+        )
+    return _hook_result(
+        "ftrace_index_integrity",
+        "pass",
+        "indexed ftrace artifacts present",
+        artifacts=found,
+    )
+
+
+def _run_hook_crossvm_irq_path_check(result_dir: Path) -> dict:
+    tty0 = result_dir / "console" / "tty0.raw"
+    if not tty0.exists():
+        return _hook_result(
+            "crossvm_irq_path_check",
+            "fail",
+            "console log missing",
+            error="tty0.raw not found",
+        )
+    raw = tty0.read_bytes()
+    if b"irq=236" in raw:
+        return _hook_result(
+            "crossvm_irq_path_check",
+            "pass",
+            "cross-VM IRQ continuity marker irq=236 observed",
+            artifacts=[str(tty0)],
+        )
+    return _hook_result(
+        "crossvm_irq_path_check",
+        "fail",
+        "cross-VM IRQ continuity marker irq=236 not observed",
+        artifacts=[str(tty0)],
+    )
+
+
+def _run_hook_virtio_console_probe_window_check(result_dir: Path) -> dict:
+    tty0 = result_dir / "console" / "tty0.raw"
+    if not tty0.exists():
+        return _hook_result(
+            "virtio_console_probe_window_check",
+            "fail",
+            "console log missing",
+            error="tty0.raw not found",
+        )
+    text = tty0.read_text(errors="ignore")
+    has_init = "virtio_console_init" in text
+    has_probe = "virtcons_probe" in text
+    if has_init and has_probe:
+        return _hook_result(
+            "virtio_console_probe_window_check",
+            "pass",
+            "both virtio_console_init and virtcons_probe markers observed",
+            artifacts=[str(tty0)],
+        )
+    if has_init:
+        return _hook_result(
+            "virtio_console_probe_window_check",
+            "pass",
+            "virtio_console_init marker observed (probe marker absent)",
+            artifacts=[str(tty0)],
+        )
+    return _hook_result(
+        "virtio_console_probe_window_check",
+        "fail",
+        "virtio console probe window markers not observed",
+        artifacts=[str(tty0)],
+    )
+
+
+def _run_hook_timeline_render(result_dir: Path) -> dict:
+    tty0 = result_dir / "console" / "tty0.raw"
+    out = result_dir / "analysis_hooks" / "timeline.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not tty0.exists():
+        out.write_text("# Timeline\n\nconsole log missing\n")
+        return _hook_result(
+            "timeline_render",
+            "fail",
+            "unable to render timeline: tty0.raw not found",
+            artifacts=[str(out)],
+        )
+    data = tty0.read_bytes()
+    markers = [
+        b"virtio_console_init",
+        b"virtcons_probe",
+        b"irq=236",
+        b"TRACE_DUMP_TERMINAL:",
+    ]
+    lines = ["# Timeline", ""]
+    for marker in markers:
+        idx = data.find(marker)
+        if idx >= 0:
+            lines.append(f"- `{marker.decode(errors='ignore')}` at byte `{idx}`")
+        else:
+            lines.append(f"- `{marker.decode(errors='ignore')}` not found")
+    out.write_text("\n".join(lines) + "\n")
+    return _hook_result("timeline_render", "pass", "timeline markdown rendered", artifacts=[str(out)])
+
+
+def _run_hook_summary_markdown_export(result_dir: Path, hook_results: list[dict]) -> dict:
+    out = result_dir / "analysis_hooks" / "summary.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["# Post-run Analysis Summary", ""]
+    for result in hook_results:
+        lines.append(
+            f"- `{result.get('hook_id')}`: `{result.get('result')}` - {result.get('summary')}"
+        )
+    out.write_text("\n".join(lines) + "\n")
+    return _hook_result(
+        "summary_markdown_export",
+        "pass",
+        "summary markdown exported",
+        artifacts=[str(out)],
+    )
+
+
+def run_external_analysis_hooks(result_dir: Path, profile_name: str, ftrace_post: dict) -> dict:
+    hooks_cfg = PROFILE_ANALYSIS_HOOKS.get(profile_name)
+    if hooks_cfg is None:
+        return {
+            "ok": False,
+            "error": "HOOKS_REQUIRED_DEFINITION_MISSING",
+            "required": [],
+            "optional": [],
+            "required_ok": False,
+        }
+
+    required_results: list[dict] = []
+    optional_results: list[dict] = []
+
+    required_dispatch = {
+        "ftrace_index_integrity": lambda: _run_hook_ftrace_index_integrity(result_dir, ftrace_post),
+        "crossvm_irq_path_check": lambda: _run_hook_crossvm_irq_path_check(result_dir),
+        "virtio_console_probe_window_check": lambda: _run_hook_virtio_console_probe_window_check(result_dir),
+    }
+    optional_dispatch = {
+        "timeline_render": lambda: _run_hook_timeline_render(result_dir),
+        "summary_markdown_export": lambda: _run_hook_summary_markdown_export(
+            result_dir, required_results + optional_results
+        ),
+    }
+
+    for hook_id in hooks_cfg.get("required", []):
+        runner = required_dispatch.get(hook_id)
+        if runner is None:
+            required_results.append(
+                _hook_result(
+                    hook_id,
+                    "fail",
+                    "required hook is not implemented",
+                    error="UNIMPLEMENTED_REQUIRED_HOOK",
+                )
+            )
+            continue
+        try:
+            required_results.append(runner())
+        except Exception as exc:
+            required_results.append(
+                _hook_result(hook_id, "fail", "required hook execution failed", error=str(exc))
+            )
+
+    for hook_id in hooks_cfg.get("optional", []):
+        runner = optional_dispatch.get(hook_id)
+        if runner is None:
+            optional_results.append(
+                _hook_result(
+                    hook_id,
+                    "fail",
+                    "optional hook is not implemented",
+                    error="UNIMPLEMENTED_OPTIONAL_HOOK",
+                )
+            )
+            continue
+        try:
+            optional_results.append(runner())
+        except Exception as exc:
+            optional_results.append(
+                _hook_result(hook_id, "fail", "optional hook execution failed", error=str(exc))
+            )
+
+    required_ok = all(item.get("result") == "pass" for item in required_results)
+    payload = {
+        "profile": profile_name,
+        "required": required_results,
+        "optional": optional_results,
+        "required_ok": required_ok,
+    }
+    out = result_dir / "analysis_hooks" / "analysis_hooks.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2))
+    payload["artifact"] = str(out)
+    payload["ok"] = required_ok
+    if not required_ok:
+        payload["error"] = "REQUIRED_HOOK_FAILED"
+    return payload
+
+
+def write_post_run_lifecycle(
+    result_dir: Path,
+    request_id: str,
+    profile_name: str,
+    request_status: str,
+    transfer_state: dict,
+    ftrace_post: dict,
+    hooks_post: dict,
+    prepare_gate: dict,
+) -> dict:
+    lifecycle = {
+        "request_id": request_id,
+        "profile": profile_name,
+        "status": request_status,
+        "ordering": [
+            "wait_for_ftrace_uart_drain",
+            "run_post_run_ftrace_pipeline",
+            "run_external_analysis_hooks",
+            "prepare_next_run",
+        ],
+        "drain": {
+            "state": transfer_state.get("drain_state", "not_required"),
+            "details": transfer_state,
+        },
+        "ftrace_post": ftrace_post,
+        "analysis_hooks": hooks_post,
+        "prepare_gate": prepare_gate,
+    }
+    path = result_dir / "post_run.lifecycle.json"
+    path.write_text(json.dumps(lifecycle, indent=2))
+    lifecycle["artifact"] = str(path)
+    return lifecycle
+
+
 def _read_ftrace_transfer_state(result_dir: Path) -> dict:
     tty0 = result_dir / "console" / "tty0.raw"
     if not tty0.exists():
@@ -329,6 +624,7 @@ def wait_for_ftrace_uart_drain(result_dir: Path, timeout_s: float = 180.0) -> di
     while time.time() - start < timeout_s:
         state = _read_ftrace_transfer_state(result_dir)
         if not state["exists"] or not state["has_start"]:
+            state["drain_state"] = "not_required"
             return state
 
         if state["has_terminal"] or state["has_end"]:
@@ -339,9 +635,12 @@ def wait_for_ftrace_uart_drain(result_dir: Path, timeout_s: float = 180.0) -> di
                 stable_rounds = 0
             last_size = size_now
             if stable_rounds >= 2:
+                state["drain_state"] = "drain_complete"
                 return state
         time.sleep(0.5)
-    return _read_ftrace_transfer_state(result_dir)
+    state = _read_ftrace_transfer_state(result_dir)
+    state["drain_state"] = "drain_timeout" if state.get("has_start") else "not_required"
+    return state
 
 
 def should_skip_prepare_cycle(result_dir: Path, transfer_state: dict) -> tuple[bool, str]:
@@ -784,18 +1083,62 @@ def main() -> None:
                     )
                     status = "failed"
 
+        hooks_post = run_external_analysis_hooks(result_dir, profile_name, ftrace_post)
+        if not hooks_post.get("ok"):
+            reason = hooks_post.get("error", "REQUIRED_HOOK_FAILED")
+            _append_failure_marker(
+                result_dir,
+                f"ANALYSIS_HOOKS_FAILED ({reason})",
+            )
+            status = "failed"
+
         if status == "pass":
             processing_file.rename(COMPLETED_DIR / request_file.name)
         else:
             processing_file.rename(FAILED_DIR / request_file.name)
 
+        prepare_gate = {
+            "allow_prepare": True,
+            "reason": "ok",
+            "reasons": [],
+        }
+        if transfer_state.get("drain_state") == "drain_timeout":
+            prepare_gate["allow_prepare"] = False
+            prepare_gate["reasons"].append("drain_timeout")
+        if ftrace_post.get("required") and not ftrace_post.get("ok"):
+            prepare_gate["allow_prepare"] = False
+            prepare_gate["reasons"].append("ftrace_postprocess_failed")
+        if not hooks_post.get("ok"):
+            prepare_gate["allow_prepare"] = False
+            prepare_gate["reasons"].append("required_hook_failed")
+        if status != "pass":
+            prepare_gate["allow_prepare"] = False
+            prepare_gate["reasons"].append("request_status_failed")
+        if not prepare_gate["allow_prepare"]:
+            prepare_gate["reason"] = ",".join(prepare_gate["reasons"])
+
+        lifecycle = write_post_run_lifecycle(
+            result_dir=result_dir,
+            request_id=timestamp,
+            profile_name=profile_name,
+            request_status=status,
+            transfer_state=transfer_state,
+            ftrace_post=ftrace_post,
+            hooks_post=hooks_post,
+            prepare_gate=prepare_gate,
+        )
+
         print(f"=== {timestamp} completed: {status} ===", flush=True)
-        skip_prepare, skip_reason = should_skip_prepare_cycle(result_dir, transfer_state)
-        if skip_prepare:
+        if not prepare_gate["allow_prepare"]:
+            blocked_reason = (
+                f"post-run lifecycle gate blocked prepare_next_run: {prepare_gate['reason']}"
+            )
             print(
-                f"Skipping prepare_next_run relay reset: {skip_reason} ({timestamp})",
+                f"Skipping prepare_next_run relay reset: {blocked_reason} ({timestamp})",
                 flush=True,
             )
+            prepare_lifecycle._set_state("degraded", reason=blocked_reason)
+            print(f"Post-run lifecycle: {lifecycle.get('artifact')}", flush=True)
         else:
             prepare_lifecycle.run_prepare_cycle(trigger=f"request_complete:{timestamp}")
 
