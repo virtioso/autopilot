@@ -5,7 +5,8 @@
       "type": "set_overrides",
       "overrides": {
         "chain_aliases": {
-          "vm_wait_boot": "vm_wait_boot_qemu_virtio_singleport"
+          "vm_wait_boot": "vm_wait_boot_qemu_virtio_singleport",
+          "monitor_ftrace_storage_full": "monitor_ftrace_noop"
         }
       },
       "outcomes": [

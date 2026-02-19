@@ -1,0 +1,18 @@
+{
+  "entry": "wait_cancel",
+  "steps": {
+    "wait_cancel": {
+      "type": "wait_pattern",
+      "timeout_s": 30,
+      "outcomes": [
+        {
+          "label": "never",
+          "pattern": "AUTOPILOT_INTERNAL_NEVER_MATCH",
+          "source": "tty0",
+          "next": "wait_cancel"
+        }
+      ],
+      "on_timeout": "wait_cancel"
+    }
+  }
+}
