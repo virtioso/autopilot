@@ -1,0 +1,41 @@
+{
+  "entry": "set_vm_wait_boot_alias",
+  "steps": {
+    "set_vm_wait_boot_alias": {
+      "type": "set_overrides",
+      "overrides": {
+        "chain_aliases": {
+          "vm_wait_boot": "vm_wait_boot_qemu_virtio_singleport"
+        }
+      },
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "run_vm_common"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "run_vm_common": {
+      "type": "call_chain",
+      "chain": "vm_common",
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "pass"
+        },
+        {
+          "label": "fail",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    }
+  }
+}

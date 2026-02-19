@@ -51,6 +51,16 @@ PROFILE_ANALYSIS_HOOKS = {
             "summary_markdown_export",
         ],
     },
+    "vm-qemu-virtio-singleport": {
+        "required": [],
+        "optional": [
+            "ftrace_index_integrity",
+            "crossvm_irq_path_check",
+            "virtio_console_probe_window_check",
+            "timeline_render",
+            "summary_markdown_export",
+        ],
+    },
 }
 
 
