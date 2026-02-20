@@ -33,8 +33,8 @@ Shell acquisition budget from reset assert: <= 60s.
 | ID | Scope | Files | Preflight | Validation | Commit message | Status | Commit SHA |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | S1 | Create tracking artifact | `docs/orin-agx-uefi-shell-reset-hardening-plan-2026-02-20.md` | global guardrails | `git diff -- docs/orin-agx-uefi-shell-reset-hardening-plan-2026-02-20.md` | `docs: add Orin UEFI shell reset hardening progress plan` | done | `c8c1dae` |
-| S2 | Add explicit reset-line API | `BoardControl.py` | global guardrails | `python3 -m py_compile BoardControl.py` | `board: add explicit reset line control methods` | in_progress | - |
-| S3 | Implement Orin reset-to-shell in `boot_efi` | `chain_runtime.py` | global guardrails | `python3 -m py_compile chain_runtime.py` | `runtime: implement Orin reset-to-UEFI-shell boot_efi flow` | pending | - |
+| S2 | Add explicit reset-line API | `BoardControl.py` | global guardrails | `python3 -m py_compile BoardControl.py` | `board: add explicit reset line control methods` | done | `b363fe6` |
+| S3 | Implement Orin reset-to-shell in `boot_efi` | `chain_runtime.py` | global guardrails | `python3 -m py_compile chain_runtime.py` | `runtime: implement Orin reset-to-UEFI-shell boot_efi flow` | in_progress | - |
 | S4 | Fix chain entry drift | `chains/boot_stock_linux.json` | global guardrails | chain validation via daemon startup path | `chains: fix boot_stock_linux entry flow` | pending | - |
 | S5 | Autopilot docs sync | `docs/chain-spec.md`, `docs/runbook.md`, `docs/README.md`, `docs/architecture.md`, `docs/boot-sequence.md` | global guardrails | targeted `rg` checks for stale behavior text | `docs: align autopilot boot flow docs with Orin shell sequence` | pending | - |
 | S6 | Diagram sync | `diagrams/*.mmd`, `diagrams/README.md` | global guardrails | verify changed diagrams reference current chain names | `diagrams: sync chain visuals with current boot flow` | pending | - |

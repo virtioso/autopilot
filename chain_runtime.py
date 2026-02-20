@@ -976,6 +976,67 @@ class ChainRunner:
     def _wait_for_pattern(self, source: str, pattern: str, timeout_s: int) -> bool:
         return self._wait_for_any_pattern(source, [pattern], timeout_s) == 0
 
+    def _is_orin_agx_uefi_netboot(self) -> bool:
+        return (os.environ.get("AUTOPILOT_PLATFORM", "") or "").strip() == "orin-agx-uefi-netboot"
+
+    def _assert_reset_line(self) -> None:
+        board = self.ctx.get("board")
+        if board is None:
+            raise RuntimeError("reset line control unavailable: board not configured")
+        if hasattr(board, "assert_reset_line"):
+            board.assert_reset_line()
+            return
+        if hasattr(board, "set_reset"):
+            board.set_reset(True)
+            return
+        raise RuntimeError("reset line control unavailable: assert operation is not supported")
+
+    def _deassert_reset_line(self) -> None:
+        board = self.ctx.get("board")
+        if board is None:
+            raise RuntimeError("reset line control unavailable: board not configured")
+        if hasattr(board, "deassert_reset_line"):
+            board.deassert_reset_line()
+            return
+        if hasattr(board, "set_reset"):
+            board.set_reset(False)
+            return
+        raise RuntimeError("reset line control unavailable: deassert operation is not supported")
+
+    def _wait_for_uart_quiescence(self, quiet_s: float, timeout_s: float) -> None:
+        if quiet_s <= 0:
+            return
+        sources = self.ctx.get("sources")
+        if not sources:
+            raise RuntimeError("uart quiescence check requires mapped sources")
+
+        now = time.time()
+        deadline = now + timeout_s
+        offsets: Dict[str, int] = {}
+        for source_name, binding in list(sources.sources.items()):
+            offsets[source_name] = binding.current_offset()
+        last_activity = now
+
+        while time.time() < deadline:
+            self._poll_runtime_events()
+            now = time.time()
+            changed = False
+            for source_name, binding in list(sources.sources.items()):
+                offset = binding.current_offset()
+                prev = offsets.get(source_name)
+                if prev is None or offset != prev:
+                    offsets[source_name] = offset
+                    changed = True
+            if changed:
+                last_activity = now
+            elif (now - last_activity) >= quiet_s:
+                return
+            time.sleep(0.05)
+
+        raise RuntimeError(
+            f"uart traffic did not quiesce for {quiet_s:.3f}s within {timeout_s:.3f}s"
+        )
+
     def _step_boot_efi(self, step: dict) -> Tuple[str, OutcomeMatch]:
         source = step.get("source")
         if not source:
@@ -987,6 +1048,9 @@ class ChainRunner:
         prompt_timeout_s = int(step.get("prompt_timeout_s", 90))
         post_send_delay_s = float(step.get("post_send_delay_s", 0))
         success_timeout_s = int(step.get("success_timeout_s", 15))
+        prompt_poke = str(step.get("prompt_poke", "\r"))
+        prompt_poke_interval_s = float(step.get("prompt_poke_interval_s", 8.0))
+        prompt_poke_max = int(step.get("prompt_poke_max", 1))
         prompt_patterns = step.get("prompt_patterns") or [
             r"Shell>",
             r"FS[0-9]+:\\>",
@@ -1012,12 +1076,98 @@ class ChainRunner:
         if not binding:
             raise ValueError(f"unknown source {source}")
 
+        shell_ready = False
+        if self._is_orin_agx_uefi_netboot():
+            shell_timeout_s = int(step.get("shell_timeout_s", 60))
+            uart_quiet_s = float(step.get("uart_quiet_s", 1.0))
+            uart_quiet_timeout_s = float(step.get("uart_quiet_timeout_s", 30.0))
+            post_quiet_delay_s = float(step.get("post_quiet_delay_s", 0.5))
+            startup_patterns = step.get("startup_patterns") or [
+                r"startup\.nsh",
+            ]
+            shell_patterns = step.get("shell_patterns") or [
+                r"Shell>",
+            ]
+            if not isinstance(startup_patterns, list) or not startup_patterns:
+                raise ValueError("boot_efi startup_patterns must be a non-empty list")
+            if not isinstance(shell_patterns, list) or not shell_patterns:
+                raise ValueError("boot_efi shell_patterns must be a non-empty list")
+
+            _, cursor = binding.read_since(1 << 60)
+            deasserted = False
+            saw_startup = False
+            start = time.time()
+            try:
+                self._assert_reset_line()
+                self._wait_for_uart_quiescence(
+                    quiet_s=uart_quiet_s,
+                    timeout_s=uart_quiet_timeout_s,
+                )
+                if post_quiet_delay_s > 0:
+                    time.sleep(post_quiet_delay_s)
+                self._deassert_reset_line()
+                deasserted = True
+
+                while time.time() - start < shell_timeout_s:
+                    self._poll_runtime_events()
+                    data, new_cursor = binding.read_since(cursor)
+                    cursor = new_cursor
+                    if not data:
+                        time.sleep(0.1)
+                        continue
+                    text = data.decode("utf-8", errors="ignore")
+                    if (not saw_startup) and any(
+                        re.search(pattern, text, re.MULTILINE) for pattern in startup_patterns
+                    ):
+                        binding.write("\r")
+                        saw_startup = True
+                    if any(re.search(pattern, text, re.MULTILINE) for pattern in shell_patterns):
+                        shell_ready = True
+                        break
+                else:
+                    raise RuntimeError(
+                        f"boot_efi: failed to reach UEFI Shell prompt within {shell_timeout_s}s"
+                    )
+            finally:
+                if not deasserted:
+                    try:
+                        self._deassert_reset_line()
+                    except Exception:
+                        pass
+
         # Start from fresh output to avoid stale prompt matches from previous boot phases.
         _, cursor = binding.read_since(1 << 60)
-        # Force prompt redraw for already-idle UEFI shells/menu screens.
-        binding.write("\r")
-        last_probe_at = time.time()
+        if shell_ready:
+            binding.write(f"{command}\r")
+            if post_send_delay_s > 0:
+                time.sleep(post_send_delay_s)
+            if success_patterns:
+                if not isinstance(success_patterns, list) or not success_patterns:
+                    raise ValueError("boot_efi success_patterns must be a non-empty list when set")
+                success_deadline = time.time() + success_timeout_s
+                while time.time() < success_deadline:
+                    self._check_cancel()
+                    event = self._poll_event()
+                    if event:
+                        if event.kind == "abort":
+                            self._handle_abort()
+                        if event.kind == "exit":
+                            self.ctx["exit_flag"].set()
+                            raise AbortRun()
+                    sdata, new_cursor = binding.read_since(cursor)
+                    cursor = new_cursor
+                    if not sdata:
+                        time.sleep(0.1)
+                        continue
+                    stext = sdata.decode("utf-8", errors="ignore")
+                    if any(re.search(pattern, stext, re.MULTILINE) for pattern in success_patterns):
+                        return self._simple_outcome(step)
+                raise RuntimeError("boot_efi: command dispatched but success criterion not observed")
+            return self._simple_outcome(step)
+
         start = time.time()
+        last_poke_at = start
+        poke_count = 0
         while time.time() - start < prompt_timeout_s:
             self._check_cancel()
             event = self._poll_event()
@@ -1031,9 +1181,15 @@ class ChainRunner:
             cursor = new_cursor
             if not data:
                 now = time.time()
-                if now - last_probe_at >= 1.0:
-                    binding.write("\r")
-                    last_probe_at = now
+                if (
+                    prompt_poke
+                    and prompt_poke_max > 0
+                    and poke_count < prompt_poke_max
+                    and (now - last_poke_at) >= prompt_poke_interval_s
+                ):
+                    binding.write(prompt_poke)
+                    poke_count += 1
+                    last_poke_at = now
                 time.sleep(0.1)
                 continue
             text = data.decode("utf-8", errors="ignore")
