@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 import serial
 
 from console_sessions import load_profile
+from tty_match import normalize_tty_bytes, normalize_tty_text, to_raw_offset
 
 
 class ChainValidationError(Exception):
@@ -782,6 +783,50 @@ class ChainRunner:
             combined_start += trim
         return combined, combined_start
 
+    def _append_capped_text(
+        self,
+        existing: str,
+        data: str,
+        max_buffer: int,
+    ) -> str:
+        combined = existing + data
+        if len(combined) > max_buffer:
+            combined = combined[-max_buffer:]
+        return combined
+
+    def _wait_any_pattern_on_binding(
+        self,
+        binding: SourceBinding,
+        cursor: int,
+        patterns: List[str],
+        timeout_s: int,
+        max_buffer: int = 65536,
+    ) -> Tuple[int, int]:
+        compiled = [re.compile(pattern, re.MULTILINE) for pattern in patterns]
+        buffer = ""
+        start = time.time()
+        while time.time() - start < timeout_s:
+            self._check_cancel()
+            event = self._poll_event()
+            if event:
+                if event.kind == "abort":
+                    self._handle_abort()
+                if event.kind == "exit":
+                    self.ctx["exit_flag"].set()
+                    raise AbortRun()
+            data, new_cursor = binding.read_since(cursor)
+            cursor = new_cursor
+            if not data:
+                time.sleep(0.1)
+                continue
+            text = normalize_tty_text(data.decode("utf-8", errors="ignore"))
+            if text:
+                buffer = self._append_capped_text(buffer, text, max_buffer)
+                for idx, regex in enumerate(compiled):
+                    if regex.search(buffer):
+                        return idx, cursor
+        return -1, cursor
+
     def _step_wait_pattern(self, step: dict) -> Tuple[str, OutcomeMatch]:
         timeout_s = int(step.get("timeout_s", 30))
         outcomes = step.get("outcomes", [])
@@ -831,15 +876,18 @@ class ChainRunner:
                 if not combined:
                     continue
                 combined_start = buffer_starts.get(source, chunk_start)
+                normalized, norm_map = normalize_tty_bytes(combined)
+                if not normalized:
+                    continue
 
                 for outcome in source_outcomes:
                     pattern = outcome.get("pattern")
                     if not pattern:
                         continue
                     pattern_bytes = pattern.encode("utf-8")
-                    match = re.search(pattern_bytes, combined, re.MULTILINE)
+                    match = re.search(pattern_bytes, normalized, re.MULTILINE)
                     if match:
-                        offset = combined_start + match.start()
+                        offset = to_raw_offset(match.start(), norm_map, combined_start)
                         log_path = str(binding.log_path)
                         next_step = outcome.get("next", step.get("on_timeout", "fail"))
                         return next_step, OutcomeMatch(
@@ -910,9 +958,13 @@ class ChainRunner:
                     chunk_start=chunk_start,
                     max_buffer=max_buffer,
                 )
+                normalized, norm_map = normalize_tty_bytes(buffer)
+                if not normalized:
+                    time.sleep(0.1)
+                    continue
 
                 for label, pattern, next_step, compiled_pattern in compiled:
-                    match = compiled_pattern.match(buffer)
+                    match = compiled_pattern.match(normalized)
                     if not match:
                         continue
                     if next_step == "self":
@@ -921,12 +973,13 @@ class ChainRunner:
                                 f"case clause '{label}' matched empty span with next=self; "
                                 f"pattern={pattern}"
                             )
-                        consumed = match.end()
-                        buffer = buffer[consumed:]
-                        buffer_start += consumed
+                        consumed_norm = match.end()
+                        consumed_raw = norm_map[consumed_norm - 1] + 1
+                        buffer = buffer[consumed_raw:]
+                        buffer_start += consumed_raw
                         break
 
-                    offset = buffer_start + match.start()
+                    offset = to_raw_offset(match.start(), norm_map, buffer_start)
                     return next_step, OutcomeMatch(
                         label=label,
                         next_step=next_step,
@@ -948,29 +1001,17 @@ class ChainRunner:
         )
 
     def _wait_for_any_pattern(self, source: str, patterns: List[str], timeout_s: int) -> int:
-        start = time.time()
-        cursor = 0
         binding = self.ctx["sources"].get(source)
         if not binding:
             raise ValueError(f"unknown source {source}")
-        while time.time() - start < timeout_s:
-            self._check_cancel()
-            event = self._poll_event()
-            if event:
-                if event.kind == "abort":
-                    self._handle_abort()
-                if event.kind == "exit":
-                    self.ctx["exit_flag"].set()
-                    raise AbortRun()
-            data, new_cursor = binding.read_since(cursor)
-            cursor = new_cursor
-            if not data:
-                time.sleep(0.1)
-                continue
-            text = data.decode("utf-8", errors="ignore")
-            for idx, pattern in enumerate(patterns):
-                if re.search(pattern, text, re.MULTILINE):
-                    return idx
+        idx, _ = self._wait_any_pattern_on_binding(
+            binding=binding,
+            cursor=0,
+            patterns=patterns,
+            timeout_s=timeout_s,
+        )
+        if idx != -1:
+            return idx
         return -1
 
     def _wait_for_pattern(self, source: str, pattern: str, timeout_s: int) -> bool:
@@ -1119,10 +1160,13 @@ class ChainRunner:
                 raise ValueError("boot_efi startup_patterns must be a non-empty list")
             if not isinstance(shell_patterns, list) or not shell_patterns:
                 raise ValueError("boot_efi shell_patterns must be a non-empty list")
+            startup_compiled = [re.compile(pattern, re.MULTILINE) for pattern in startup_patterns]
+            shell_compiled = [re.compile(pattern, re.MULTILINE) for pattern in shell_patterns]
 
             _, cursor = binding.read_since(1 << 60)
             deasserted = False
             saw_startup = False
+            shell_buffer = ""
             start = time.time()
             try:
                 self._flush_tty_tmux_views()
@@ -1143,13 +1187,13 @@ class ChainRunner:
                     if not data:
                         time.sleep(0.1)
                         continue
-                    text = data.decode("utf-8", errors="ignore")
-                    if (not saw_startup) and any(
-                        re.search(pattern, text, re.MULTILINE) for pattern in startup_patterns
-                    ):
+                    text = normalize_tty_text(data.decode("utf-8", errors="ignore"))
+                    if text:
+                        shell_buffer = self._append_capped_text(shell_buffer, text, 65536)
+                    if (not saw_startup) and any(regex.search(shell_buffer) for regex in startup_compiled):
                         binding.write("\r")
                         saw_startup = True
-                    if any(re.search(pattern, text, re.MULTILINE) for pattern in shell_patterns):
+                    if any(regex.search(shell_buffer) for regex in shell_compiled):
                         shell_ready = True
                         break
                 else:
@@ -1172,30 +1216,22 @@ class ChainRunner:
             if success_patterns:
                 if not isinstance(success_patterns, list) or not success_patterns:
                     raise ValueError("boot_efi success_patterns must be a non-empty list when set")
-                success_deadline = time.time() + success_timeout_s
-                while time.time() < success_deadline:
-                    self._check_cancel()
-                    event = self._poll_event()
-                    if event:
-                        if event.kind == "abort":
-                            self._handle_abort()
-                        if event.kind == "exit":
-                            self.ctx["exit_flag"].set()
-                            raise AbortRun()
-                    sdata, new_cursor = binding.read_since(cursor)
-                    cursor = new_cursor
-                    if not sdata:
-                        time.sleep(0.1)
-                        continue
-                    stext = sdata.decode("utf-8", errors="ignore")
-                    if any(re.search(pattern, stext, re.MULTILINE) for pattern in success_patterns):
-                        return self._simple_outcome(step)
+                idx, cursor = self._wait_any_pattern_on_binding(
+                    binding=binding,
+                    cursor=cursor,
+                    patterns=success_patterns,
+                    timeout_s=success_timeout_s,
+                )
+                if idx != -1:
+                    return self._simple_outcome(step)
                 raise RuntimeError("boot_efi: command dispatched but success criterion not observed")
             return self._simple_outcome(step)
 
         start = time.time()
         last_poke_at = start
         poke_count = 0
+        prompt_compiled = [re.compile(pattern, re.MULTILINE) for pattern in prompt_patterns]
+        prompt_buffer = ""
         while time.time() - start < prompt_timeout_s:
             self._check_cancel()
             event = self._poll_event()
@@ -1220,32 +1256,24 @@ class ChainRunner:
                     last_poke_at = now
                 time.sleep(0.1)
                 continue
-            text = data.decode("utf-8", errors="ignore")
-            if any(re.search(pattern, text, re.MULTILINE) for pattern in prompt_patterns):
+            text = normalize_tty_text(data.decode("utf-8", errors="ignore"))
+            if text:
+                prompt_buffer = self._append_capped_text(prompt_buffer, text, 65536)
+            if any(regex.search(prompt_buffer) for regex in prompt_compiled):
                 binding.write(f"{command}\r")
                 if post_send_delay_s > 0:
                     time.sleep(post_send_delay_s)
                 if success_patterns:
                     if not isinstance(success_patterns, list) or not success_patterns:
                         raise ValueError("boot_efi success_patterns must be a non-empty list when set")
-                    success_deadline = time.time() + success_timeout_s
-                    while time.time() < success_deadline:
-                        self._check_cancel()
-                        event = self._poll_event()
-                        if event:
-                            if event.kind == "abort":
-                                self._handle_abort()
-                            if event.kind == "exit":
-                                self.ctx["exit_flag"].set()
-                                raise AbortRun()
-                        sdata, new_cursor = binding.read_since(cursor)
-                        cursor = new_cursor
-                        if not sdata:
-                            time.sleep(0.1)
-                            continue
-                        stext = sdata.decode("utf-8", errors="ignore")
-                        if any(re.search(pattern, stext, re.MULTILINE) for pattern in success_patterns):
-                            return self._simple_outcome(step)
+                    idx, cursor = self._wait_any_pattern_on_binding(
+                        binding=binding,
+                        cursor=cursor,
+                        patterns=success_patterns,
+                        timeout_s=success_timeout_s,
+                    )
+                    if idx != -1:
+                        return self._simple_outcome(step)
                     raise RuntimeError("boot_efi: command dispatched but success criterion not observed")
                 return self._simple_outcome(step)
         raise RuntimeError("boot_efi: failed to detect UEFI prompt")
@@ -1275,25 +1303,14 @@ class ChainRunner:
 
         def wait_any(patterns: List[str], timeout_s: int) -> int:
             nonlocal cursor
-            start = time.time()
-            while time.time() - start < timeout_s:
-                self._check_cancel()
-                event = self._poll_event()
-                if event:
-                    if event.kind == "abort":
-                        self._handle_abort()
-                    if event.kind == "exit":
-                        self.ctx["exit_flag"].set()
-                        raise AbortRun()
-                data, new_cursor = binding.read_since(cursor)
-                cursor = new_cursor
-                if not data:
-                    time.sleep(0.1)
-                    continue
-                text = data.decode("utf-8", errors="ignore")
-                for idx, pattern in enumerate(patterns):
-                    if re.search(pattern, text, re.MULTILINE):
-                        return idx
+            idx, cursor = self._wait_any_pattern_on_binding(
+                binding=binding,
+                cursor=cursor,
+                patterns=patterns,
+                timeout_s=timeout_s,
+            )
+            if idx != -1:
+                return idx
             return -1
 
         # Wait for UEFI prompt and enter menu
@@ -2292,7 +2309,7 @@ class ChainRunner:
                 buffer += chunk
                 if len(buffer) > 65536:
                     buffer = buffer[-65536:]
-                if compiled.search(buffer):
+                if compiled.search(normalize_tty_text(buffer)):
                     return buffer, cursor, True
             else:
                 time.sleep(0.1)

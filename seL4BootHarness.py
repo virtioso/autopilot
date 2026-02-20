@@ -15,13 +15,14 @@ import re
 import subprocess
 import time
 from pexpect import TIMEOUT, EOF
+from tty_match import normalize_tty_text
 
 # ANSI escape sequence pattern for stripping color codes
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
 
 def strip_ansi(text):
     """Strip ANSI escape sequences from text."""
-    return ANSI_ESCAPE.sub('', text)
+    return normalize_tty_text(ANSI_ESCAPE.sub('', text))
 
 import BootHarness
 from BootHarness import BootHarness as BaseBootHarness, debug_print
@@ -218,13 +219,17 @@ class SeL4RunHarness(BaseBootHarness):
 
         # Check for immediate error (binary not found)
         idx = self.child.expect([
-            r'is not recognized as an internal or external command',
             r'.+',  # Any other output (likely seL4 starting)
             TIMEOUT,
         ], timeout=2)
 
         if idx == 0:
-            raise RuntimeError(f'Binary not found on target: {self.binary_name}')
+            recent = self.child.after or ""
+            if isinstance(recent, bytes):
+                recent = recent.decode("utf-8", errors="replace")
+            if re.search(r'is not recognized as an internal or external command',
+                         normalize_tty_text(recent), re.MULTILINE):
+                raise RuntimeError(f'Binary not found on target: {self.binary_name}')
 
 
 class SeL4RunInteractiveHarness(SeL4RunHarness):
@@ -411,13 +416,17 @@ class VMMinimalRunHarness(BaseBootHarness):
 
         # Check for immediate error (binary not found)
         idx = self.child.expect([
-            r'is not recognized as an internal or external command',
             r'.+',  # Any other output (likely seL4 starting)
             TIMEOUT,
         ], timeout=2)
 
         if idx == 0:
-            raise RuntimeError(f'Binary not found on target: {self.binary_name}')
+            recent = self.child.after or ""
+            if isinstance(recent, bytes):
+                recent = recent.decode("utf-8", errors="replace")
+            if re.search(r'is not recognized as an internal or external command',
+                         normalize_tty_text(recent), re.MULTILINE):
+                raise RuntimeError(f'Binary not found on target: {self.binary_name}')
 
     def _wait_for_vm_quiescence(self):
         """Wait for BINARY TRANSFER END marker on ttyACM0, while capturing both consoles."""

@@ -9,6 +9,7 @@ from typing import Optional, List
 
 import serial
 
+from tty_match import normalize_tty_text
 
 DEFAULT_BAUD = 115200
 LOG_BUFFER_LIMIT = 65536
@@ -152,7 +153,7 @@ class ConsoleSession:
                 buffer += chunk
                 if len(buffer) > LOG_BUFFER_LIMIT:
                     buffer = buffer[-LOG_BUFFER_LIMIT:]
-                if compiled.search(buffer):
+                if compiled.search(normalize_tty_text(buffer)):
                     return buffer, offset, True
             else:
                 time.sleep(0.1)

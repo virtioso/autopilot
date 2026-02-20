@@ -255,6 +255,11 @@ Autopilot publishes runtime state and tmux renders the status line. It shows:
 - `canceled`
 - `validation_error`
 
+`console/autopilot.fail.log` also carries classification markers. For failed VM
+boot starts, `AUTOPILOT_FAIL: BINARY_NOT_UPLOADED` means UEFI reported
+`is not recognized as an internal or external command` when launching the EFI
+binary.
+
 For parallel groups, `chain.json` also includes `parallel_groups` with:
 - split origin metadata (`split_step`, `split_chain`)
 - winner metadata (`branch`, `status`, `finished_at`)

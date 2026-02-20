@@ -49,6 +49,12 @@ If regex-based:
 - `pattern`: regex to match.
 - `source`: logical source name (e.g., `tty0`, `vm0`).
 
+TTY source matching normalization:
+- before regex evaluation, tty input is normalized by stripping ANSI escape
+  sequences and removing `\r` and `\n`.
+- this applies to `wait_pattern`, `case`, boot prompt matchers, and interactive
+  console prompt waits.
+
 ## Step Types (v2)
 
 Action steps:

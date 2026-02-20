@@ -80,21 +80,41 @@
         },
         {
           "label": "skip_efi_command_echo",
-          "pattern": "^\\s*fs2:\\\\efiboot\\\\[^\\r\\n]*\\.[Ee][Ff][Ii]\\s*(?:\\r?\\n|$)",
+          "pattern": "^\\s*fs2:\\\\efiboot\\\\\\S*\\.[Ee][Ff][Ii]\\s*",
           "next": "self"
         },
         {
           "label": "elfloader",
-          "pattern": "^ELF-loader started on CPU.*(?:\\r?\\n|$)",
+          "pattern": "^ELF-loader started on CPU",
           "next": "parallel_vm_boot_split"
         },
         {
+          "label": "binary_not_uploaded",
+          "pattern": "^.*is not recognized as an internal or external command",
+          "next": "emit_binary_not_uploaded_fail"
+        },
+        {
           "label": "unexpected_non_whitespace",
-          "pattern": "^\\S.*(?:\\r?\\n|$)",
+          "pattern": "^\\S",
           "next": "filter_logs_fail"
         }
       ],
       "on_timeout": "filter_logs_fail"
+    },
+    "emit_binary_not_uploaded_fail": {
+      "type": "analyze_logs",
+      "command": [
+        "bash",
+        "-lc",
+        "printf \"\\nAUTOPILOT_FAIL: BINARY_NOT_UPLOADED (UEFI shell reported command not recognized)\\n\" >> \"{result_dir}/console/autopilot.fail.log\""
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "set_verdict_fail"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
     },
     "parallel_vm_boot_split": {
       "type": "split",
