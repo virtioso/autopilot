@@ -198,7 +198,7 @@ journalctl -u autopilot -f
 | File | Purpose |
 |------|---------|
 | `orin_kernel_autopilot.py` | Main orchestration daemon |
-| `BootHarness.py` | Boot sequence control and console monitoring |
+| `chain_runtime.py` | Chain step execution (authoritative runtime behavior) |
 | `BoardControl.py` | Hardware power control |
 | `filter_*.py` | Log processing scripts |
 
@@ -309,25 +309,23 @@ screen /tmp/ttyACM0 115200
 ssh 192.168.101.110 './boot.sh normal'
 ```
 
-### Kernel Download Timeout
+### EFI Boot Timeout
 
-**Symptom**: UpdateBootHarness times out after 180 seconds
+**Symptom**: `boot_efi` fails before stock Linux or test EFI boot
 
 **Causes**:
-- Network connectivity issue
-- SSH key authentication failed
-- Firewall blocking SSH
+- Reset-line control unavailable or miswired
+- UART mapping mismatch (`AUTOPILOT_TTY0`, `AUTOPILOT_TTY1`)
+- UEFI shell acquisition failed within timeout
 
 **Resolution**:
 ```bash
-# Test SSH from target to host (manual boot first)
-ssh hlyytine@192.168.101.100 'echo test'
+# Verify platform and UART env
+echo "$AUTOPILOT_PLATFORM"
+echo "$AUTOPILOT_TTY0" "$AUTOPILOT_TTY1"
 
-# Check network from target
-ping 192.168.101.100
-
-# Check SSH key authentication
-ssh-copy-id hlyytine@192.168.101.100  # If needed
+# Confirm startup markers and shell prompt on tty0 logs
+rg -n "startup.nsh|Shell>" results/<request_id>/console/tty0*
 ```
 
 ## Development Guide
@@ -360,20 +358,9 @@ with open(result_dir / 'input.log', "rb") as fin, \
 
 ### Adding New Boot Modes
 
-Extend `BootHarness.py`:
-
-```python
-class MyCustomBootHarness(BootHarness):
-    def __init__(self, board, tty, filename, hyp_tty, hyp_filename):
-        super().__init__(board, tty, filename, hyp_tty, hyp_filename)
-        self.boot_option = '1'  # Select extlinux option 1
-
-    def run(self):
-        super().run()  # Navigate UEFI menus
-
-        # Custom wait logic
-        self.child.expect(r'My custom pattern', timeout=60)
-```
+Add/modify chain files under `chains/*.json` and corresponding step behavior in
+`chain_runtime.py` when needed. Do not add new harness-driven flows for active
+profiles.
 
 ### Testing Changes Locally
 
@@ -381,18 +368,12 @@ class MyCustomBootHarness(BootHarness):
 # Test log filters directly
 cat test_kernel.log | ./filter_nvhe_bug.py
 
-# Test boot harness without full autopilot
-python3 -c "
-import BoardControl
-import BootHarness
-
-board = BoardControl.BoardControlRemote()
-harness = BootHarness.UpdateBootHarness(
-    board, '/tmp/ttyACM0', 'test.log',
-    '/tmp/ttyACM1', 'test-hyp.log'
-)
-harness.run()
-"
+# Validate chain schema and runtime syntax
+python3 - <<'PY'
+from orin_kernel_autopilot import validate_all_chains
+validate_all_chains()
+print('chain validation ok')
+PY
 ```
 
 ## Performance Metrics

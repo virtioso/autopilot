@@ -97,14 +97,32 @@ Terminal steps:
 }
 ```
 
-`boot_efi` waits for a UEFI prompt and sends a fixed command by `mode`:
+`boot_efi` dispatches a fixed command by `mode`:
 - `mode=extlinux` -> `fs3:\EFI\BOOT\BOOTAA64.EFI`
 - `mode=test_efi` -> `fs2:\efiboot\{target_binary_name}`
+
+Platform behavior:
+- On `AUTOPILOT_PLATFORM=orin-agx-uefi-netboot`, `boot_efi` performs a reset-line
+  handshake before command dispatch:
+  - assert reset line,
+  - wait until mapped UARTs are quiet for `uart_quiet_s` (default `1.0`),
+  - wait an extra `post_quiet_delay_s` (default `0.5`),
+  - deassert reset line,
+  - wait for `startup_patterns` (default includes `startup.nsh`) and/or `shell_patterns` (`Shell>`),
+  - send Enter once startup marker is seen,
+  - require shell prompt within `shell_timeout_s` (default `60`).
+- Other platforms use prompt detection via `prompt_patterns`.
 
 Optional fields:
 - `prompt_patterns`: non-empty list of regex prompts
 - `prompt_timeout_s`: prompt wait timeout
 - `post_send_delay_s`: delay after command send
+- `uart_quiet_s`: Orin reset handshake quiescence window (seconds)
+- `uart_quiet_timeout_s`: max time to wait for quiescence (seconds)
+- `post_quiet_delay_s`: fixed delay after quiescence and before reset deassert
+- `startup_patterns`: patterns indicating startup script banner (Orin path)
+- `shell_patterns`: shell prompt patterns (Orin path)
+- `shell_timeout_s`: max time from reset assert to shell acquisition (Orin path)
 
 ## Chain Reference Rules
 

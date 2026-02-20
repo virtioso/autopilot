@@ -41,6 +41,8 @@ operator interaction.
 - **Step**: A unit of work such as `boot_menu`, `wait_pattern`, `upload_efi`.
 - **Outcome**: Regex match on a source, routes to the next step.
 - **Named Chain**: A reusable chain file addressable by name.
+- **Platform-specialized behavior**: selected steps (for example `boot_efi`) can
+  apply platform policy such as Orin reset-line + shell-entry handshake.
 
 **Data outputs**
 - `chain.json`: structured step results, outcomes, error codes, log offsets,
@@ -48,14 +50,11 @@ operator interaction.
 - Status model separates `test_verdict` from `workflow_state` so post-test
   housekeeping can run without changing test outcome.
 
-### 3) Boot Harnesses
+### 3) Legacy Harness Modules
 
-Low-level UART and boot control utilities are still used:
-- `BootHarness.py`
-- `seL4BootHarness.py`
-
-These provide serial handling and existing boot helpers, while control flow is
-now driven by chain steps.
+`BootHarness.py` and `seL4BootHarness.py` remain in-tree as legacy utilities.
+Authoritative orchestration for active test flows is the chain runtime in
+`chain_runtime.py` plus `chains/*.json`.
 
 ### 4) Board Control
 

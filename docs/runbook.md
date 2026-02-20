@@ -161,6 +161,15 @@ This ensures tmux source windows can be created immediately.
 - `deploy_and_boot_test_efi`: canonical test EFI deployment/boot path
   (SCP to `/efiboot/{target_binary_name}` + SSH reboot + `boot_efi(mode=test_efi)`).
 
+For Orin AGX (`AUTOPILOT_PLATFORM=orin-agx-uefi-netboot`), `boot_efi` includes
+reset-line orchestration before command dispatch:
+- assert reset line,
+- wait for UART quiescence on mapped sources,
+- wait an additional fixed delay,
+- deassert reset line,
+- wait for startup marker and shell prompt on `tty0`,
+- send Enter at startup marker and then dispatch the EFI command.
+
 ### Prepare Lifecycle (Daemon-Owned)
 
 Prepare lifecycle is daemon-managed, not request-chain managed.
