@@ -16,12 +16,18 @@ class BoardControlLocal(object):
     def set_reset(self, value):
         usbrelay_py.board_control(self.board[0], 2, value)
 
+    def assert_reset_line(self):
+        self.set_reset(True)
+
+    def deassert_reset_line(self):
+        self.set_reset(False)
+
     def boot(self, recovery):
         self.set_recovery(recovery)
         time.sleep(0.1)
-        self.set_reset(True)
+        self.assert_reset_line()
         time.sleep(0.1)
-        self.set_reset(False)
+        self.deassert_reset_line()
         time.sleep(0.5)
         self.set_recovery(False)
 
@@ -39,3 +45,9 @@ class BoardControlRemote(object):
             text=True,
             check=False,
         )
+
+    def assert_reset_line(self):
+        raise NotImplementedError("remote boot controller does not expose reset line assert")
+
+    def deassert_reset_line(self):
+        raise NotImplementedError("remote boot controller does not expose reset line deassert")
