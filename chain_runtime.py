@@ -1037,6 +1037,33 @@ class ChainRunner:
             f"uart traffic did not quiesce for {quiet_s:.3f}s within {timeout_s:.3f}s"
         )
 
+    def _flush_tty_tmux_views(self) -> None:
+        sources = self.ctx.get("sources")
+        if not sources or not hasattr(sources, "sources"):
+            return
+        tty_sources = sorted(
+            source_name
+            for source_name in sources.sources.keys()
+            if str(source_name).startswith("tty")
+        )
+        if not tty_sources:
+            return
+
+        ui = self.ctx.get("ui")
+        if ui and hasattr(ui, "state"):
+            for source_name in tty_sources:
+                try:
+                    live_path = ui.state.live_path_for_source(source_name)
+                    live_path.parent.mkdir(parents=True, exist_ok=True)
+                    live_path.write_bytes(b"")
+                except Exception:
+                    pass
+        if ui and hasattr(ui, "clear_source_windows"):
+            try:
+                ui.clear_source_windows(tty_sources)
+            except Exception:
+                pass
+
     def _step_boot_efi(self, step: dict) -> Tuple[str, OutcomeMatch]:
         source = step.get("source")
         if not source:
@@ -1098,6 +1125,7 @@ class ChainRunner:
             saw_startup = False
             start = time.time()
             try:
+                self._flush_tty_tmux_views()
                 self._assert_reset_line()
                 self._wait_for_uart_quiescence(
                     quiet_s=uart_quiet_s,

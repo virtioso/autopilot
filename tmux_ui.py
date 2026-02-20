@@ -190,6 +190,12 @@ class TmuxWindowManager:
             check=False,
         )
 
+    def clear_window_history(self, window: int) -> None:
+        target = f"{self.session}:{window}"
+        if not self._window_exists(window):
+            return
+        subprocess.run(["tmux", "clear-history", "-t", target], check=False)
+
     def _window_exists(self, window: int) -> bool:
         target = f"{self.session}:{window}"
         proc = subprocess.run(
@@ -267,3 +273,16 @@ class TmuxUICompat:
     def set_status(self, text: str) -> None:
         self.status_text = text
         self.state.set_status_text(text)
+
+    def clear_source_windows(self, sources: list[str]) -> None:
+        if not self.windows:
+            return
+        wanted = set(str(source) for source in sources)
+        if not wanted:
+            return
+        for window, source in list(self.window_map.items()):
+            if source in wanted:
+                try:
+                    self.windows.clear_window_history(window)
+                except Exception:
+                    pass
