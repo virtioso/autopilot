@@ -1,0 +1,12 @@
+flowchart TD
+subgraph post_test_fallback_relay[post_test_fallback_relay]
+post_test_fallback_relay_start((start))
+post_test_fallback_relay_start --> post_test_fallback_relay__relay
+post_test_fallback_relay__relay["relay<br/>type=relay"]
+post_test_fallback_relay__pass["pass<br/>type=pass"]
+post_test_fallback_relay__relay -->|label=ok| post_test_fallback_relay__pass
+post_test_fallback_relay__relay -.->|timeout| post_test_fallback_relay__pass
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class post_test_fallback_relay__pass pass;

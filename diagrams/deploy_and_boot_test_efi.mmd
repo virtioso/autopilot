@@ -2,11 +2,11 @@ flowchart TD
 subgraph deploy_and_boot_test_efi[deploy_and_boot_test_efi]
 deploy_and_boot_test_efi_start((start))
 deploy_and_boot_test_efi_start --> deploy_and_boot_test_efi__prepare_vm_image_dir
-deploy_and_boot_test_efi__prepare_vm_image_dir["prepare_vm_image_dir<br/>type=ssh_cmd<br/>target_user=root<br/>target_ip={target_ip}<br/>cmd=mkdir -p /var/lib/virtioso-vm-images"]
-deploy_and_boot_test_efi__upload_driver_vm_rootfs["upload_driver_vm_rootfs<br/>type=upload_file<br/>target_user=root<br/>target_ip={target_ip}<br/>target_path=/var/lib/virtioso-vm-images/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4<br/>skip_if_same=sha256"]
+deploy_and_boot_test_efi__prepare_vm_image_dir["prepare_vm_image_dir<br/>type=ssh_cmd"]
+deploy_and_boot_test_efi__upload_driver_vm_rootfs["upload_driver_vm_rootfs<br/>type=upload_file"]
 deploy_and_boot_test_efi__upload_efi["upload_efi<br/>type=upload_efi<br/>target_user=root<br/>target_ip={target_ip}<br/>target_path=/efiboot/{target_binary_name}"]
 deploy_and_boot_test_efi__reboot_efi["reboot_efi<br/>type=reboot<br/>method=ssh<br/>target_user=root<br/>target_ip={target_ip}"]
-deploy_and_boot_test_efi__boot_efi["boot_efi<br/>type=boot_efi<br/>mode=test_efi"]
+deploy_and_boot_test_efi__boot_efi["boot_efi<br/>type=boot_efi"]
 deploy_and_boot_test_efi__pass["pass<br/>type=pass"]
 deploy_and_boot_test_efi__fail["fail<br/>type=fail"]
 deploy_and_boot_test_efi__prepare_vm_image_dir -->|label=ok| deploy_and_boot_test_efi__upload_driver_vm_rootfs
@@ -20,8 +20,7 @@ deploy_and_boot_test_efi__reboot_efi -.->|timeout| deploy_and_boot_test_efi__fai
 deploy_and_boot_test_efi__boot_efi -->|label=ok| deploy_and_boot_test_efi__pass
 deploy_and_boot_test_efi__boot_efi -.->|timeout| deploy_and_boot_test_efi__fail
 end
-
-classDef pass fill:#6cc644,stroke:#2c7a2c,color:#fff;
-classDef fail fill:#d73a49,stroke:#7a1f25,color:#fff;
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
 class deploy_and_boot_test_efi__pass pass;
 class deploy_and_boot_test_efi__fail fail;

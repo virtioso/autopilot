@@ -1,0 +1,9 @@
+flowchart TD
+subgraph post_test_fallback_noop[post_test_fallback_noop]
+post_test_fallback_noop_start((start))
+post_test_fallback_noop_start --> post_test_fallback_noop__pass
+post_test_fallback_noop__pass["pass<br/>type=pass"]
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
+class post_test_fallback_noop__pass pass;

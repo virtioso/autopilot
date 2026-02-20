@@ -1,0 +1,10 @@
+flowchart TD
+subgraph monitor_ftrace_noop[monitor_ftrace_noop]
+monitor_ftrace_noop_start((start))
+monitor_ftrace_noop_start --> monitor_ftrace_noop__wait_cancel
+monitor_ftrace_noop__wait_cancel["wait_cancel<br/>type=wait_pattern<br/>timeout_s=30"]
+monitor_ftrace_noop__wait_cancel -->|label=never, src=tty0, pat=AUTOPILOT_INTERNAL_NEVER_MATCH| monitor_ftrace_noop__wait_cancel
+monitor_ftrace_noop__wait_cancel -.->|timeout| monitor_ftrace_noop__wait_cancel
+end
+classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
+classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;

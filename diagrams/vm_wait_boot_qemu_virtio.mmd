@@ -2,36 +2,70 @@ flowchart TD
 subgraph vm_wait_boot_qemu_virtio[vm_wait_boot_qemu_virtio]
 vm_wait_boot_qemu_virtio_start((start))
 vm_wait_boot_qemu_virtio_start --> vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell
-vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell["wait_vm0_login_or_shell<br/>type=wait_pattern<br/>timeout_s=180"]
+vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell["wait_vm0_login_or_shell<br/>type=wait_pattern<br/>timeout_s=300"]
 vm_wait_boot_qemu_virtio__send_root_login["send_root_login<br/>type=send_cmd<br/>source=tty0<br/>cmd=root"]
 vm_wait_boot_qemu_virtio__wait_vm0_shell["wait_vm0_shell<br/>type=wait_pattern<br/>timeout_s=120"]
-vm_wait_boot_qemu_virtio__arm_ftrace_late["arm_ftrace_late<br/>type=send_cmd<br/>source=tty0<br/>cmd=if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x1; elif co..."]
+vm_wait_boot_qemu_virtio__arm_ftrace_late["arm_ftrace_late<br/>type=send_cmd<br/>source=tty0<br/>cmd=/usr/bin/hyp-ftrace-ctl arm"]
+vm_wait_boot_qemu_virtio__wait_arm_ftrace_result["wait_arm_ftrace_result<br/>type=wait_pattern<br/>timeout_s=20"]
 vm_wait_boot_qemu_virtio__run_qemu_rnd_helper["run_qemu_rnd_helper<br/>type=send_cmd<br/>source=tty0<br/>cmd=qemu-rnd-helper >/tmp/qemu-rnd-helper.log 2>&1 &"]
-vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow["wait_vm1_boot_or_ftrace_overflow<br/>type=wait_pattern<br/>timeout_s=240"]
-vm_wait_boot_qemu_virtio__dump_ftrace_after_dwell["dump_ftrace_after_dwell<br/>type=send_cmd<br/>source=tty0<br/>cmd=sleep 25; if command -v devmem2 >/dev/null 2>&1; then devmem2 0x0F010000 w 0x..."]
-vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker["emit_ftrace_overflow_marker<br/>type=send_cmd<br/>source=tty0<br/>cmd=echo 'AUTOPILOT_FAIL: FTRACE_OVERFLOW_EARLY (storage full before VM1 trace wi..."]
+vm_wait_boot_qemu_virtio__wait_first_rpc_or_cap["wait_first_rpc_or_cap<br/>type=wait_pattern<br/>timeout_s=120"]
+vm_wait_boot_qemu_virtio__wait_rpc_inactivity_or_overflow["wait_rpc_inactivity_or_overflow<br/>type=wait_pattern<br/>timeout_s=20"]
+vm_wait_boot_qemu_virtio__emit_dump_reason_rpc_inactivity["emit_dump_reason_rpc_inactivity<br/>type=send_cmd<br/>source=tty0<br/>cmd=echo 'AUTOPILOT_INFO: FTRACE_DUMP_REASON=RPC_INACTIVITY_20S'"]
+vm_wait_boot_qemu_virtio__emit_dump_reason_hard_cap["emit_dump_reason_hard_cap<br/>type=send_cmd<br/>source=tty0<br/>cmd=echo 'AUTOPILOT_INFO: FTRACE_DUMP_REASON=HARD_CAP_120S_NO_RPC'"]
+vm_wait_boot_qemu_virtio__dump_ftrace["dump_ftrace<br/>type=send_cmd<br/>source=tty0<br/>cmd=/usr/bin/hyp-ftrace-ctl dump"]
+vm_wait_boot_qemu_virtio__wait_dump_ftrace_result["wait_dump_ftrace_result<br/>type=wait_pattern<br/>timeout_s=20"]
+vm_wait_boot_qemu_virtio__wait_dump_transfer_completion["wait_dump_transfer_completion<br/>type=wait_pattern<br/>timeout_s=360"]
+vm_wait_boot_qemu_virtio__emit_dump_no_transfer_fail["emit_dump_no_transfer_fail<br/>type=send_cmd<br/>source=tty0<br/>cmd=echo 'AUTOPILOT_FAIL: HYP_FTRACE_DUMP_NO_TRANSFER_MARKER'"]
+vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker["emit_ftrace_overflow_marker<br/>type=send_cmd<br/>source=tty0<br/>cmd=echo 'AUTOPILOT_INFO: FTRACE_OVERFLOW_OBSERVED (storage full observed; waitin..."]
+vm_wait_boot_qemu_virtio__wait_dump_terminal_or_shell["wait_dump_terminal_or_shell<br/>type=wait_pattern<br/>timeout_s=360"]
+vm_wait_boot_qemu_virtio__emit_overflow_no_transfer_fail["emit_overflow_no_transfer_fail<br/>type=send_cmd<br/>source=tty0<br/>cmd=echo 'AUTOPILOT_FAIL: FTRACE_OVERFLOW_NO_TRANSFER_MARKER'"]
 vm_wait_boot_qemu_virtio__pass["pass<br/>type=pass"]
 vm_wait_boot_qemu_virtio__fail["fail<br/>type=fail"]
 vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -->|label=ftrace_overflow, src=tty0, pat=FTRACE: Storage full| vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker
-vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -->|label=shell, src=tty0, pat=root@.*:~#| vm_wait_boot_qemu_virtio__arm_ftrace_late
-vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -->|label=login, src=tty0, pat=login:| vm_wait_boot_qemu_virtio__send_root_login
+vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -->|label=driver_vm_shell, src=tty0, pat=root@driver-vm:~#/root@.*:~#| vm_wait_boot_qemu_virtio__arm_ftrace_late
+vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -->|label=driver_vm_login, src=tty0, pat=driver-vm login:/login:| vm_wait_boot_qemu_virtio__send_root_login
 vm_wait_boot_qemu_virtio__wait_vm0_login_or_shell -.->|timeout| vm_wait_boot_qemu_virtio__fail
 vm_wait_boot_qemu_virtio__send_root_login -->|label=ok| vm_wait_boot_qemu_virtio__wait_vm0_shell
 vm_wait_boot_qemu_virtio__send_root_login -.->|timeout| vm_wait_boot_qemu_virtio__fail
 vm_wait_boot_qemu_virtio__wait_vm0_shell -->|label=ftrace_overflow, src=tty0, pat=FTRACE: Storage full| vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker
-vm_wait_boot_qemu_virtio__wait_vm0_shell -->|label=shell, src=tty0, pat=root@.*:~#| vm_wait_boot_qemu_virtio__arm_ftrace_late
+vm_wait_boot_qemu_virtio__wait_vm0_shell -->|label=driver_vm_shell, src=tty0, pat=root@driver-vm:~#/root@.*:~#| vm_wait_boot_qemu_virtio__arm_ftrace_late
 vm_wait_boot_qemu_virtio__wait_vm0_shell -.->|timeout| vm_wait_boot_qemu_virtio__fail
-vm_wait_boot_qemu_virtio__arm_ftrace_late -->|label=ok| vm_wait_boot_qemu_virtio__run_qemu_rnd_helper
+vm_wait_boot_qemu_virtio__arm_ftrace_late -->|label=ok| vm_wait_boot_qemu_virtio__wait_arm_ftrace_result
 vm_wait_boot_qemu_virtio__arm_ftrace_late -.->|timeout| vm_wait_boot_qemu_virtio__fail
-vm_wait_boot_qemu_virtio__run_qemu_rnd_helper -->|label=ok| vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow
+vm_wait_boot_qemu_virtio__wait_arm_ftrace_result -->|label=arm_failed, src=tty0, pat=AUTOPILOT_FAIL: HYP_FTRACE_ARM_CMD_FAILED/AUTOPILOT_FAIL: HYP_FTRACE_ARM_| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__wait_arm_ftrace_result -->|label=shell_prompt, src=tty0, pat=root@driver-vm:~#/root@.*:~#| vm_wait_boot_qemu_virtio__run_qemu_rnd_helper
+vm_wait_boot_qemu_virtio__wait_arm_ftrace_result -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__run_qemu_rnd_helper -->|label=ok| vm_wait_boot_qemu_virtio__wait_first_rpc_or_cap
 vm_wait_boot_qemu_virtio__run_qemu_rnd_helper -.->|timeout| vm_wait_boot_qemu_virtio__fail
-vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow -->|label=ftrace_overflow, src=tty0, pat=FTRACE: Storage full| vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker
-vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow -->|label=vm1, src=tty1, pat=Booting Linux/driver-vm login:/login:| vm_wait_boot_qemu_virtio__dump_ftrace_after_dwell
-vm_wait_boot_qemu_virtio__wait_vm1_boot_or_ftrace_overflow -.->|timeout| vm_wait_boot_qemu_virtio__fail
-vm_wait_boot_qemu_virtio__dump_ftrace_after_dwell -->|label=ok| vm_wait_boot_qemu_virtio__pass
-vm_wait_boot_qemu_virtio__dump_ftrace_after_dwell -.->|timeout| vm_wait_boot_qemu_virtio__fail
-vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker -->|label=ok| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__wait_first_rpc_or_cap -->|label=ftrace_overflow, src=tty0, pat=FTRACE: Storage full| vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker
+vm_wait_boot_qemu_virtio__wait_first_rpc_or_cap -->|label=rpc_activity, src=tty0, pat=rpc_run summary:/rpcdbg: resp\\[/rpcdbg: event\\[| vm_wait_boot_qemu_virtio__wait_rpc_inactivity_or_overflow
+vm_wait_boot_qemu_virtio__wait_first_rpc_or_cap -.->|timeout| vm_wait_boot_qemu_virtio__emit_dump_reason_hard_cap
+vm_wait_boot_qemu_virtio__wait_rpc_inactivity_or_overflow -->|label=ftrace_overflow, src=tty0, pat=FTRACE: Storage full| vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker
+vm_wait_boot_qemu_virtio__wait_rpc_inactivity_or_overflow -->|label=rpc_activity, src=tty0, pat=rpc_run summary:/rpcdbg: resp\\[/rpcdbg: event\\[| vm_wait_boot_qemu_virtio__wait_rpc_inactivity_or_overflow
+vm_wait_boot_qemu_virtio__wait_rpc_inactivity_or_overflow -.->|timeout| vm_wait_boot_qemu_virtio__emit_dump_reason_rpc_inactivity
+vm_wait_boot_qemu_virtio__emit_dump_reason_rpc_inactivity -->|label=ok| vm_wait_boot_qemu_virtio__dump_ftrace
+vm_wait_boot_qemu_virtio__emit_dump_reason_rpc_inactivity -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__emit_dump_reason_hard_cap -->|label=ok| vm_wait_boot_qemu_virtio__dump_ftrace
+vm_wait_boot_qemu_virtio__emit_dump_reason_hard_cap -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__dump_ftrace -->|label=ok| vm_wait_boot_qemu_virtio__wait_dump_ftrace_result
+vm_wait_boot_qemu_virtio__dump_ftrace -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__wait_dump_ftrace_result -->|label=dump_transfer_start, src=tty0, pat==== BINARY TRANSFER START ===| vm_wait_boot_qemu_virtio__wait_dump_transfer_completion
+vm_wait_boot_qemu_virtio__wait_dump_ftrace_result -->|label=dump_transfer_complete, src=tty0, pat==== BINARY TRANSFER END ===/TRACE_DUMP_TERMINAL:| vm_wait_boot_qemu_virtio__pass
+vm_wait_boot_qemu_virtio__wait_dump_ftrace_result -->|label=dump_failed, src=tty0, pat=AUTOPILOT_FAIL: HYP_FTRACE_DUMP_CMD_FAILED/AUTOPILOT_FAIL: HYP_FTRACE_DUMP_| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__wait_dump_ftrace_result -->|label=shell_prompt, src=tty0, pat=root@driver-vm:~#/root@.*:~#| vm_wait_boot_qemu_virtio__emit_dump_no_transfer_fail
+vm_wait_boot_qemu_virtio__wait_dump_ftrace_result -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__wait_dump_transfer_completion -->|label=dump_transfer_complete, src=tty0, pat==== BINARY TRANSFER END ===/TRACE_DUMP_TERMINAL:| vm_wait_boot_qemu_virtio__pass
+vm_wait_boot_qemu_virtio__wait_dump_transfer_completion -->|label=shell_prompt, src=tty0, pat=root@driver-vm:~#/root@.*:~#| vm_wait_boot_qemu_virtio__emit_dump_no_transfer_fail
+vm_wait_boot_qemu_virtio__wait_dump_transfer_completion -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__emit_dump_no_transfer_fail -->|label=ok| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__emit_dump_no_transfer_fail -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker -->|label=ok| vm_wait_boot_qemu_virtio__wait_dump_terminal_or_shell
 vm_wait_boot_qemu_virtio__emit_ftrace_overflow_marker -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__wait_dump_terminal_or_shell -->|label=dump_transfer_marker, src=tty0, pat==== BINARY TRANSFER END ===/TRACE_DUMP_TERMINAL:| vm_wait_boot_qemu_virtio__pass
+vm_wait_boot_qemu_virtio__wait_dump_terminal_or_shell -->|label=shell_prompt, src=tty0, pat=root@driver-vm:~#/root@.*:~#| vm_wait_boot_qemu_virtio__emit_overflow_no_transfer_fail
+vm_wait_boot_qemu_virtio__wait_dump_terminal_or_shell -.->|timeout| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__emit_overflow_no_transfer_fail -->|label=ok| vm_wait_boot_qemu_virtio__fail
+vm_wait_boot_qemu_virtio__emit_overflow_no_transfer_fail -.->|timeout| vm_wait_boot_qemu_virtio__fail
 end
 classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
 classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;

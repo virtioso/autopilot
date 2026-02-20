@@ -1,15 +1,13 @@
 flowchart TD
 subgraph recovery_boot[recovery_boot]
 recovery_boot_start((start))
-recovery_boot_start --> recovery_boot__boot_stock
-recovery_boot__boot_stock["boot_stock<br/>type=boot_menu<br/>source=tty0<br/>boot_option=1"]
-recovery_boot__wait_prompt["wait_prompt<br/>type=wait_pattern<br/>timeout_s=180"]
+recovery_boot_start --> recovery_boot__run_boot_stock
+recovery_boot__run_boot_stock["run_boot_stock<br/>type=call_chain<br/>chain=boot_stock_linux<br/>chain_file=/home/hlyytine/autopilot/chains/boot_stock_linux.json"]
 recovery_boot__pass["pass<br/>type=pass"]
 recovery_boot__fail["fail<br/>type=fail"]
-recovery_boot__boot_stock -->|label=menu, src=tty0, pat=Press any .*boot default/Press ESCAPE for boot options/Enter to continue boot| recovery_boot__wait_prompt
-recovery_boot__boot_stock -.->|timeout| recovery_boot__fail
-recovery_boot__wait_prompt -->|label=prompt, src=tty0, pat=ubuntu@tegra-ubuntu:~\\$/tegra-ubuntu login:| recovery_boot__pass
-recovery_boot__wait_prompt -.->|timeout| recovery_boot__fail
+recovery_boot__run_boot_stock -->|label=pass| recovery_boot__pass
+recovery_boot__run_boot_stock -->|label=fail| recovery_boot__fail
+recovery_boot__run_boot_stock -.->|timeout| recovery_boot__fail
 end
 classDef pass fill:#dff0d8,stroke:#3c763d,stroke-width:1px;
 classDef fail fill:#f2dede,stroke:#a94442,stroke-width:1px;
