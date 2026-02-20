@@ -37,10 +37,17 @@ Shell acquisition budget from reset assert: <= 60s.
 | S3 | Implement Orin reset-to-shell in `boot_efi` | `chain_runtime.py` | global guardrails | `python3 -m py_compile chain_runtime.py` | `runtime: implement Orin reset-to-UEFI-shell boot_efi flow` | done | `8e382ba` |
 | S4 | Fix chain entry drift | `chains/boot_stock_linux.json` | global guardrails | chain validation via daemon startup path | `chains: fix boot_stock_linux entry flow` | done | `e0653e0` |
 | S5 | Autopilot docs sync | `docs/chain-spec.md`, `docs/runbook.md`, `docs/README.md`, `docs/architecture.md`, `docs/boot-sequence.md` | global guardrails | targeted `rg` checks for stale behavior text | `docs: align autopilot boot flow docs with Orin shell sequence` | done | `cc6af51` |
-| S6 | Diagram sync | `diagrams/*.mmd`, `diagrams/README.md` | global guardrails | verify changed diagrams reference current chain names | `diagrams: sync chain visuals with current boot flow` | in_progress | - |
-| S7 | Mirror docs sync in tii-sel4 repo | `/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/docs/agents/autopilot-testing-policy.md`, `/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/docs/reference/autopilot-chain-diagrams.md` | repo-local SSOT lint in tii-sel4 | repo-local grep + lint | `docs: sync Orin autopilot boot policy with reset-shell flow` | pending | - |
-| S8 | Final closure and verification stamp | tracking file + any final doc notes | global guardrails | py_compile + lint + summary check | `docs: finalize progress tracking with validation results` | pending | - |
+| S6 | Diagram sync | `diagrams/*.mmd`, `diagrams/README.md` | global guardrails | verify changed diagrams reference current chain names | `diagrams: sync chain visuals with current boot flow` | done | `493e799`, `02e2737` |
+| S7 | Mirror docs sync in tii-sel4 repo | `/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/docs/agents/autopilot-testing-policy.md`, `/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/docs/reference/autopilot-chain-diagrams.md` | repo-local SSOT lint in tii-sel4 | repo-local grep + lint | `docs: sync Orin autopilot boot policy with reset-shell flow` | done | `5bebff8` |
+| S8 | Final closure and verification stamp | tracking file + any final doc notes | global guardrails | py_compile + lint + summary check | `docs: finalize progress tracking with validation results` | done | - |
 
 ## Notes
 - This repo already had unrelated staged/unstaged work at start of execution. Work proceeds on top per explicit user instruction.
 - Commits are step-atomic and non-amended.
+- S7 completed in mirror repo (`/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm`) as commit `5bebff8`.
+- Stale-token guard (`bootefi_common|bootefi_orin_netboot|parallel_split|parallel_join`) still matches historical tracking docs by design; active chains/runtime were validated separately.
+
+## Final validation summary (S8)
+- `bash /home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/docs/agents/lint-ssot.sh`: pass
+- `python3 -m py_compile chain_runtime.py orin_kernel_autopilot.py BoardControl.py`: pass
+- `validate_all_chains()`: pass
