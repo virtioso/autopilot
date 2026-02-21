@@ -344,6 +344,13 @@ def _hook_result(
     return payload
 
 
+def _analysis_text_log_path(result_dir: Path, source: str = "tty0") -> Path:
+    ansi_log = result_dir / "console" / f"{source}.ansi.log"
+    if ansi_log.exists():
+        return ansi_log
+    return result_dir / "console" / f"{source}.raw"
+
+
 def _run_hook_ftrace_index_integrity(result_dir: Path, ftrace_post: dict) -> dict:
     summary_path = result_dir / "ftrace.summary.json"
     if not ftrace_post.get("required"):
@@ -387,17 +394,16 @@ def _run_hook_ftrace_index_integrity(result_dir: Path, ftrace_post: dict) -> dic
 
 
 def _run_hook_crossvm_irq_path_check(result_dir: Path) -> dict:
-    tty0 = result_dir / "console" / "tty0.raw"
+    tty0 = _analysis_text_log_path(result_dir, source="tty0")
     if not tty0.exists():
         return _hook_result(
             "crossvm_irq_path_check",
             "fail",
             "console log missing",
-            error="tty0.raw not found",
+            error="tty0 analysis log not found",
         )
-    raw = tty0.read_bytes()
-    text = raw.decode(errors="ignore")
-    if b"irq=236" in raw:
+    text = tty0.read_text(errors="ignore")
+    if "irq=236" in text:
         return _hook_result(
             "crossvm_irq_path_check",
             "pass",
@@ -425,13 +431,13 @@ def _run_hook_crossvm_irq_path_check(result_dir: Path) -> dict:
 
 
 def _run_hook_virtio_console_probe_window_check(result_dir: Path) -> dict:
-    tty0 = result_dir / "console" / "tty0.raw"
+    tty0 = _analysis_text_log_path(result_dir, source="tty0")
     if not tty0.exists():
         return _hook_result(
             "virtio_console_probe_window_check",
             "fail",
             "console log missing",
-            error="tty0.raw not found",
+            error="tty0 analysis log not found",
         )
     text = tty0.read_text(errors="ignore")
     has_init = "virtio_console_init" in text

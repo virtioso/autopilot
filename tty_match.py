@@ -2,6 +2,56 @@ import re
 from typing import List, Tuple
 
 
+class AnsiCsiStripper:
+    """Stateful stream sanitizer that strips ANSI CSI sequences."""
+
+    def __init__(self):
+        self._pending = bytearray()
+
+    def sanitize(self, data: bytes) -> bytes:
+        if not data and not self._pending:
+            return b""
+
+        buf = bytes(self._pending) + data
+        self._pending.clear()
+
+        out = bytearray()
+        i = 0
+        n = len(buf)
+        while i < n:
+            b = buf[i]
+            if b != 0x1B:
+                out.append(b)
+                i += 1
+                continue
+
+            if i + 1 >= n:
+                self._pending.extend(buf[i:])
+                break
+
+            if buf[i + 1] != 0x5B:  # '['
+                out.append(b)
+                i += 1
+                continue
+
+            j = i + 2
+            while j < n:
+                if 0x40 <= buf[j] <= 0x7E:
+                    i = j + 1
+                    break
+                j += 1
+            else:
+                self._pending.extend(buf[i:])
+                break
+
+        return bytes(out)
+
+    def flush(self) -> bytes:
+        tail = bytes(self._pending)
+        self._pending.clear()
+        return tail
+
+
 def normalize_tty_text(text: str) -> str:
     """Strip ANSI escapes and remove CR/LF for robust tty matching."""
     return _ANSI_ESCAPE_TEXT.sub("", text).replace("\r", "").replace("\n", "")

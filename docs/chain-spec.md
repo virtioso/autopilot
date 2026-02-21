@@ -54,6 +54,14 @@ TTY source matching normalization:
   sequences and removing `\r` and `\n`.
 - this applies to `wait_pattern`, `case`, boot prompt matchers, and interactive
   console prompt waits.
+- mapped tty sources also produce analysis mirrors at
+  `console/<source>.ansi.log` (ANSI CSI stripped, line endings preserved).
+- post-run textual analysis should prefer `*.ansi.log`; raw logs remain
+  authoritative for byte-accurate and transfer-oriented processing.
+
+Template placeholders for command strings:
+- `{tty0_analysis_log}` and `{tty1_analysis_log}` resolve to per-source
+  `*.ansi.log` paths after sources are mapped.
 
 ## Step Types (v2)
 

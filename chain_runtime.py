@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple
 import serial
 
 from console_sessions import load_profile
-from tty_match import normalize_tty_bytes, normalize_tty_text, to_raw_offset
+from tty_match import AnsiCsiStripper, normalize_tty_bytes, normalize_tty_text, to_raw_offset
 
 
 class ChainValidationError(Exception):
@@ -163,6 +163,7 @@ class SourceBinding:
         source: str,
         tty: str,
         log_path: Path,
+        analysis_log_path: Optional[Path] = None,
         live_log_path: Optional[Path] = None,
         baud: int = 115200,
         emit=None,
@@ -170,6 +171,7 @@ class SourceBinding:
         self.source = source
         self.tty = tty
         self.log_path = log_path
+        self.analysis_log_path = analysis_log_path
         self.live_log_path = live_log_path
         self.baud = baud
         self.emit = emit
@@ -179,6 +181,7 @@ class SourceBinding:
         self._base_offset = 0
         self._total_bytes = 0
         self._thread = threading.Thread(target=self._run, daemon=True)
+        self._analysis_sanitizer = AnsiCsiStripper()
         self._serial = serial.Serial(self.tty, baudrate=self.baud, timeout=0.1)
         # Always start from an empty UART state for deterministic pattern matching.
         self._serial.reset_input_buffer()
@@ -187,10 +190,13 @@ class SourceBinding:
 
     def _run(self) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.analysis_log_path:
+            self.analysis_log_path.parent.mkdir(parents=True, exist_ok=True)
         if self.live_log_path:
             self.live_log_path.parent.mkdir(parents=True, exist_ok=True)
         live_ctx = open(self.live_log_path, "ab", buffering=0) if self.live_log_path else nullcontext()
-        with open(self.log_path, "ab", buffering=0) as f, live_ctx as live_file:
+        analysis_ctx = open(self.analysis_log_path, "ab", buffering=0) if self.analysis_log_path else nullcontext()
+        with open(self.log_path, "ab", buffering=0) as f, analysis_ctx as analysis_file, live_ctx as live_file:
             while not self._stop.is_set():
                 try:
                     data = self._serial.read(1024)
@@ -202,6 +208,8 @@ class SourceBinding:
                 if self.emit:
                     self.emit(self.source, data)
                 f.write(data)
+                if analysis_file:
+                    analysis_file.write(self._analysis_sanitizer.sanitize(data))
                 if live_file:
                     live_file.write(data)
                 with self._lock:
@@ -235,6 +243,13 @@ class SourceBinding:
 
     def stop(self) -> None:
         self._stop.set()
+        trailing = self._analysis_sanitizer.flush()
+        if trailing and self.analysis_log_path:
+            try:
+                with open(self.analysis_log_path, "ab", buffering=0) as analysis_file:
+                    analysis_file.write(trailing)
+            except Exception:
+                pass
         try:
             self._serial.close()
         except Exception:
@@ -264,6 +279,7 @@ class SourceManager:
             self.sources[source].stop()
             del self.sources[source]
         log_path = self.result_dir / log_rel
+        analysis_log_path = log_path.with_suffix(".ansi.log")
         live_log_path = None
         if self.ui and hasattr(self.ui, "state"):
             live_log_path = self.ui.state.live_path_for_source(source)
@@ -271,6 +287,7 @@ class SourceManager:
             source,
             tty,
             log_path,
+            analysis_log_path=analysis_log_path,
             live_log_path=live_log_path,
             baud=baud,
             emit=self._emit,
@@ -284,6 +301,12 @@ class SourceManager:
 
     def get(self, source: str) -> Optional[SourceBinding]:
         return self.sources.get(source)
+
+    def analysis_log_for_source(self, source: str) -> Optional[str]:
+        binding = self.sources.get(source)
+        if not binding or not binding.analysis_log_path:
+            return None
+        return str(binding.analysis_log_path)
 
     def snapshot_offsets(self) -> Dict[str, Tuple[str, int]]:
         snapshot: Dict[str, Tuple[str, int]] = {}
@@ -2399,6 +2422,12 @@ class ChainRunner:
             format_ctx.setdefault("code_root", str(code_root))
             format_ctx.setdefault("chains_dir", str(code_root / "chains"))
             format_ctx.setdefault("profiles_dir", str(code_root / "profiles"))
+            sources = self.ctx.get("sources")
+            if sources and hasattr(sources, "analysis_log_for_source"):
+                for source_name in ("tty0", "tty1"):
+                    analysis_path = sources.analysis_log_for_source(source_name)
+                    if analysis_path:
+                        format_ctx.setdefault(f"{source_name}_analysis_log", analysis_path)
             format_ctx.update(self.ctx.get("request", {}))
             return value.format(**format_ctx)
         return value
