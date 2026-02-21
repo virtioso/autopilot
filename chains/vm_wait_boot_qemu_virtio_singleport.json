@@ -197,7 +197,7 @@
     "dump_ftrace": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "/usr/bin/hyp-ftrace-ctl dump",
+      "cmd": "echo 'AUTOPILOT_INFO: HYP_FTRACE_DUMP_CMD_BEGIN'; /usr/bin/hyp-ftrace-ctl dump; rc=$?; echo \"AUTOPILOT_INFO: HYP_FTRACE_DUMP_CMD_RC=${rc}\"; echo 'AUTOPILOT_INFO: HYP_FTRACE_DUMP_CMD_END'",
       "suffix": "\n",
       "outcomes": [
         {
@@ -225,10 +225,23 @@
           "next": "fail"
         },
         {
-          "label": "shell_prompt",
-          "pattern": "root@driver-vm:~#|root@.*:~#",
+          "label": "dump_cmd_nonzero_rc",
+          "pattern": "AUTOPILOT_INFO: HYP_FTRACE_DUMP_CMD_RC=[1-9][0-9]*",
           "source": "tty0",
-          "next": "emit_dump_no_transfer_fail"
+          "next": "emit_dump_cmd_nonzero_rc_fail"
+        }
+      ],
+      "on_timeout": "emit_dump_no_transfer_fail"
+    },
+    "emit_dump_cmd_nonzero_rc_fail": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "echo 'AUTOPILOT_FAIL: HYP_FTRACE_DUMP_CMD_NONZERO_RC'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fail"
         }
       ],
       "on_timeout": "fail"
