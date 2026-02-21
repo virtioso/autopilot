@@ -33,7 +33,7 @@
       "target_ip": "{target_ip}",
       "cmd": "uname -a",
       "per_try_timeout_s": 1,
-      "total_timeout_s": 10,
+      "total_timeout_s": 30,
       "retry_interval_s": 1,
       "outcomes": [
         {
