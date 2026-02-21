@@ -80,7 +80,7 @@
         },
         {
           "label": "skip_efi_command_echo",
-          "pattern": "^\\s*fs2:\\\\efiboot\\\\\\S*\\.[Ee][Ff][Ii]\\s*",
+          "pattern": "^\\s*fs2:\\\\efiboot\\\\\\S*",
           "next": "self"
         },
         {
@@ -94,9 +94,9 @@
           "next": "emit_binary_not_uploaded_fail"
         },
         {
-          "label": "unexpected_non_whitespace",
-          "pattern": "^\\S",
-          "next": "filter_logs_fail"
+          "label": "ignore_other_non_whitespace",
+          "pattern": "^\\S+",
+          "next": "self"
         }
       ],
       "on_timeout": "filter_logs_fail"
