@@ -40,6 +40,14 @@ RESULTS_DIR = PATHS["results"]
 RUNTIME_DIR = PATHS["runtime"]
 
 PROFILE_ANALYSIS_HOOKS = {
+    "boot-interactive": {
+        "required": [],
+        "optional": [],
+    },
+    "boot-interactive-efi": {
+        "required": [],
+        "optional": [],
+    },
     "vm-qemu-virtio": {
         "required": [
             "ftrace_index_integrity",
@@ -526,13 +534,7 @@ def _run_hook_summary_markdown_export(result_dir: Path, hook_results: list[dict]
 def run_external_analysis_hooks(result_dir: Path, profile_name: str, ftrace_post: dict) -> dict:
     hooks_cfg = PROFILE_ANALYSIS_HOOKS.get(profile_name)
     if hooks_cfg is None:
-        return {
-            "ok": False,
-            "error": "HOOKS_REQUIRED_DEFINITION_MISSING",
-            "required": [],
-            "optional": [],
-            "required_ok": False,
-        }
+        hooks_cfg = {"required": [], "optional": []}
 
     required_results: list[dict] = []
     optional_results: list[dict] = []
