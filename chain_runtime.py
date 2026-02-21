@@ -1417,11 +1417,37 @@ class ChainRunner:
             raise ValueError("upload step missing target_path")
         method = step.get("method", "scp")
         if method == "scp":
+            if not target_ip:
+                raise ValueError("upload step requires target_ip for method=scp")
             subprocess.run([
                 "scp", "-o", "StrictHostKeyChecking=no",
                 str(local_path),
                 f"{target_user}@{target_ip}:{target_path}"
             ], check=True)
+            sync_proc = self._ssh_run_capture(str(target_user), str(target_ip), "sync && sync")
+            if sync_proc.returncode != 0:
+                stderr = (sync_proc.stderr or "").strip()
+                raise RuntimeError(
+                    f"remote sync failed after upload to {target_path}: {stderr or 'unknown error'}"
+                )
+
+            local_md5 = self._md5_file(Path(str(local_path)))
+            verify_copy = self.ctx["result_dir"] / f".upload-verify-{os.getpid()}-{int(time.time() * 1000)}.bin"
+            try:
+                subprocess.run([
+                    "scp", "-o", "StrictHostKeyChecking=no",
+                    f"{target_user}@{target_ip}:{target_path}",
+                    str(verify_copy),
+                ], check=True)
+                roundtrip_md5 = self._md5_file(verify_copy)
+            finally:
+                verify_copy.unlink(missing_ok=True)
+
+            if roundtrip_md5 != local_md5:
+                raise RuntimeError(
+                    f"upload round-trip md5 mismatch for {target_path}: "
+                    f"expected {local_md5} got {roundtrip_md5}"
+                )
         elif method == "local_copy":
             target_file = Path(target_path)
             target_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1434,6 +1460,13 @@ class ChainRunner:
 
     def _sha256_file(self, path: Path) -> str:
         digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _md5_file(self, path: Path) -> str:
+        digest = hashlib.md5()
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
                 digest.update(chunk)
@@ -1546,12 +1579,50 @@ class ChainRunner:
                 f"upload_file remote hash mismatch for {upload_path}: expected {local_sha} got {uploaded_sha}"
             )
 
+        sync_proc = self._ssh_run_capture(target_user, str(target_ip), "sync && sync")
+        if sync_proc.returncode != 0:
+            stderr = (sync_proc.stderr or "").strip()
+            raise RuntimeError(
+                f"upload_file remote sync failed for {upload_path}: {stderr or 'unknown error'}"
+            )
+
         if atomic_replace:
             move_cmd = f"mv -f {shlex.quote(upload_path)} {shlex.quote(str(target_path))}"
             proc = self._ssh_run_capture(target_user, str(target_ip), move_cmd)
             if proc.returncode != 0:
                 stderr = (proc.stderr or "").strip()
                 raise RuntimeError(f"upload_file atomic move failed: {stderr or 'unknown error'}")
+
+            sync_proc = self._ssh_run_capture(target_user, str(target_ip), "sync && sync")
+            if sync_proc.returncode != 0:
+                stderr = (sync_proc.stderr or "").strip()
+                raise RuntimeError(
+                    f"upload_file remote sync failed after move to {target_path}: {stderr or 'unknown error'}"
+                )
+
+        verify_path = str(target_path) if atomic_replace else upload_path
+        verify_copy = self.ctx["result_dir"] / f".upload-file-verify-{os.getpid()}-{int(time.time() * 1000)}.bin"
+        local_md5 = self._md5_file(local_path)
+        try:
+            subprocess.run(
+                [
+                    "scp",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    f"{target_user}@{target_ip}:{verify_path}",
+                    str(verify_copy),
+                ],
+                check=True,
+            )
+            roundtrip_md5 = self._md5_file(verify_copy)
+        finally:
+            verify_copy.unlink(missing_ok=True)
+
+        if roundtrip_md5 != local_md5:
+            raise RuntimeError(
+                f"upload_file round-trip md5 mismatch for {verify_path}: "
+                f"expected {local_md5} got {roundtrip_md5}"
+            )
         return self._simple_outcome(step)
 
     def _step_reboot(self, step: dict) -> Tuple[str, OutcomeMatch]:
