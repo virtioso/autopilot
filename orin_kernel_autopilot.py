@@ -71,6 +71,14 @@ PROFILE_ANALYSIS_HOOKS = {
     },
 }
 
+VIO_MERGE_TOOL_CANDIDATES = []
+_env_merge_tool = os.environ.get("VIO_TRACE_MERGE_TOOL", "").strip()
+if _env_merge_tool:
+    VIO_MERGE_TOOL_CANDIDATES.append(Path(_env_merge_tool))
+VIO_MERGE_TOOL_CANDIDATES.append(
+    Path("/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/merge_vio_timeline.py")
+)
+
 
 def ensure_dirs() -> None:
     for d in [PENDING_DIR, PROCESSING_DIR, COMPLETED_DIR, FAILED_DIR, RESULTS_DIR, RUNTIME_DIR]:
@@ -487,6 +495,7 @@ def _run_hook_virtio_console_probe_window_check(result_dir: Path) -> dict:
 def _run_hook_timeline_render(result_dir: Path) -> dict:
     tty0 = result_dir / "console" / "tty0.raw"
     out = result_dir / "analysis_hooks" / "timeline.md"
+    merged_out = result_dir / "analysis_hooks" / "timeline_merged.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
     if not tty0.exists():
         out.write_text("# Timeline\n\nconsole log missing\n")
@@ -510,8 +519,114 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
             lines.append(f"- `{marker.decode(errors='ignore')}` at byte `{idx}`")
         else:
             lines.append(f"- `{marker.decode(errors='ignore')}` not found")
+
+    merge_tool = None
+    for candidate in VIO_MERGE_TOOL_CANDIDATES:
+        if candidate and candidate.exists():
+            merge_tool = candidate
+            break
+
+    artifacts = [str(out)]
+    if merge_tool is None:
+        lines.extend(
+            [
+                "",
+                "## Cross-Stream Merge",
+                "",
+                "merge tool unavailable; set `VIO_TRACE_MERGE_TOOL` or ensure canonical tool path exists",
+            ]
+        )
+        out.write_text("\n".join(lines) + "\n")
+        return _hook_result(
+            "timeline_render",
+            "pass",
+            "timeline markdown rendered (cross-stream merge tool unavailable)",
+            artifacts=artifacts,
+        )
+
+    cmd = [sys.executable, str(merge_tool), str(tty0), "--jsonl"]
+    cp = subprocess.run(cmd, capture_output=True, text=True)
+    if cp.returncode != 0:
+        lines.extend(
+            [
+                "",
+                "## Cross-Stream Merge",
+                "",
+                f"merge tool failed (`rc={cp.returncode}`):",
+                "```text",
+                (cp.stderr or cp.stdout or "(no output)").strip(),
+                "```",
+            ]
+        )
+        out.write_text("\n".join(lines) + "\n")
+        return _hook_result(
+            "timeline_render",
+            "pass",
+            "timeline markdown rendered (cross-stream merge failed)",
+            artifacts=artifacts,
+        )
+
+    jsonl = (cp.stdout or "").strip()
+    if not jsonl:
+        lines.extend(
+            [
+                "",
+                "## Cross-Stream Merge",
+                "",
+                "merge produced no records",
+            ]
+        )
+        out.write_text("\n".join(lines) + "\n")
+        return _hook_result(
+            "timeline_render",
+            "pass",
+            "timeline markdown rendered (cross-stream merge empty)",
+            artifacts=artifacts,
+        )
+
+    merged_out.write_text(jsonl + "\n")
+    artifacts.append(str(merged_out))
+
+    rows = []
+    counts = {}
+    for line in jsonl.splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rows.append(rec)
+        src = rec.get("source_type", "unknown")
+        counts[src] = counts.get(src, 0) + 1
+
+    lines.extend(["", "## Cross-Stream Merge", ""])
+    lines.append(f"- tool: `{merge_tool}`")
+    lines.append(f"- merged records: `{len(rows)}`")
+    if counts:
+        lines.append("- source counts:")
+        for src in sorted(counts):
+            lines.append(f"  - `{src}`: `{counts[src]}`")
+    lines.append(f"- artifact: `{merged_out}`")
+
+    preview = rows[:20]
+    if preview:
+        lines.extend(["", "### Preview (first 20 merged events)", ""])
+        lines.append("```text")
+        for rec in preview:
+            src = rec.get("source_type", "unknown")
+            ts = rec.get("ts")
+            seq = rec.get("seq")
+            idx = rec.get("idx")
+            payload = rec.get("payload", {})
+            lines.append(f"ts={ts} src={src} seq={seq} idx={idx} payload={payload}")
+        lines.append("```")
+
     out.write_text("\n".join(lines) + "\n")
-    return _hook_result("timeline_render", "pass", "timeline markdown rendered", artifacts=[str(out)])
+    return _hook_result(
+        "timeline_render",
+        "pass",
+        "timeline markdown rendered with merged cross-stream artifact",
+        artifacts=artifacts,
+    )
 
 
 def _run_hook_summary_markdown_export(result_dir: Path, hook_results: list[dict]) -> dict:
