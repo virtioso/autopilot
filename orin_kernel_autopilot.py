@@ -53,6 +53,7 @@ PROFILE_ANALYSIS_HOOKS = {
             "ftrace_index_integrity",
             "crossvm_irq_path_check",
             "virtio_console_probe_window_check",
+            "vio_trace_validate_strict",
         ],
         "optional": [
             "timeline_render",
@@ -776,6 +777,92 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
     )
 
 
+def _run_hook_vio_trace_validate_strict(result_dir: Path, profile_name: str) -> dict:
+    index_dir = result_dir / "analysis_hooks" / "vio_trace_index"
+    validate_log = result_dir / "analysis_hooks" / "vio_trace_validate.txt"
+    validate_log.parent.mkdir(parents=True, exist_ok=True)
+
+    trace_tool, trace_tool_error = _resolve_vio_trace_tool()
+    if trace_tool is None:
+        return _hook_result(
+            "vio_trace_validate_strict",
+            "fail",
+            "strict canonical validation blocked by vio-trace discovery failure",
+            artifacts=[str(validate_log)],
+            error=trace_tool_error,
+        )
+
+    if not index_dir.exists():
+        cmd_index = [
+            str(trace_tool),
+            "index",
+            "--run-dir",
+            str(result_dir),
+            "--out",
+            str(index_dir),
+        ]
+        cp_index = subprocess.run(cmd_index, capture_output=True, text=True)
+        if cp_index.returncode != 0:
+            validate_log.write_text(
+                "\n".join(
+                    [
+                        "vio-trace index failed",
+                        f"command: {' '.join(cmd_index)}",
+                        f"rc={cp_index.returncode}",
+                        "",
+                        (cp_index.stderr or cp_index.stdout or "(no output)").strip(),
+                    ]
+                )
+                + "\n"
+            )
+            return _hook_result(
+                "vio_trace_validate_strict",
+                "fail",
+                "strict canonical validation failed: unable to build index",
+                artifacts=[str(validate_log)],
+            )
+
+    cmd_validate = [
+        str(trace_tool),
+        "validate",
+        "--index",
+        str(index_dir),
+        "--profile",
+        str(profile_name),
+        "--strict-chronology",
+        "--min-confidence",
+        "medium",
+    ]
+    cp_validate = subprocess.run(cmd_validate, capture_output=True, text=True)
+    output = (cp_validate.stdout or cp_validate.stderr or "").strip()
+    validate_log.write_text(
+        "\n".join(
+            [
+                f"command: {' '.join(cmd_validate)}",
+                f"rc={cp_validate.returncode}",
+                "",
+                output or "(no output)",
+            ]
+        )
+        + "\n"
+    )
+    if cp_validate.returncode != 0:
+        return _hook_result(
+            "vio_trace_validate_strict",
+            "fail",
+            "strict canonical validation failed",
+            artifacts=[str(index_dir), str(validate_log)],
+        )
+
+    summary_line = output.splitlines()[0] if output else "strict canonical validation passed"
+    return _hook_result(
+        "vio_trace_validate_strict",
+        "pass",
+        summary_line,
+        artifacts=[str(index_dir), str(validate_log)],
+    )
+
+
 def _run_hook_summary_markdown_export(result_dir: Path, hook_results: list[dict]) -> dict:
     out = result_dir / "analysis_hooks" / "summary.md"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -805,6 +892,7 @@ def run_external_analysis_hooks(result_dir: Path, profile_name: str, ftrace_post
         "ftrace_index_integrity": lambda: _run_hook_ftrace_index_integrity(result_dir, ftrace_post),
         "crossvm_irq_path_check": lambda: _run_hook_crossvm_irq_path_check(result_dir),
         "virtio_console_probe_window_check": lambda: _run_hook_virtio_console_probe_window_check(result_dir),
+        "vio_trace_validate_strict": lambda: _run_hook_vio_trace_validate_strict(result_dir, profile_name),
         "timeline_render": lambda: _run_hook_timeline_render(result_dir),
         "summary_markdown_export": lambda: _run_hook_summary_markdown_export(
             result_dir, required_results + optional_results
