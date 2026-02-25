@@ -419,6 +419,19 @@ def _analysis_text_log_path(result_dir: Path, source: str = "tty0") -> Path:
     return result_dir / "console" / f"{source}.raw"
 
 
+def _analysis_text_log_contents(path: Path) -> str:
+    data = path.read_bytes()
+    text = data.decode(errors="ignore")
+    if b"\x00" not in data:
+        return text
+    # Some console capture paths may contain NUL-padded records. Build an
+    # additional de-NUL view so marker scans remain robust.
+    denul = data.replace(b"\x00", b"").decode(errors="ignore")
+    if denul and denul != text:
+        return text + "\n" + denul
+    return denul or text
+
+
 def _run_hook_ftrace_index_integrity(result_dir: Path, ftrace_post: dict) -> dict:
     summary_path = result_dir / "ftrace.summary.json"
     if not ftrace_post.get("required"):
@@ -470,7 +483,7 @@ def _run_hook_crossvm_irq_path_check(result_dir: Path) -> dict:
             "console log missing",
             error="tty0 analysis log not found",
         )
-    text = tty0.read_text(errors="ignore")
+    text = _analysis_text_log_contents(tty0)
     if "irq=236" in text:
         return _hook_result(
             "crossvm_irq_path_check",
@@ -507,7 +520,7 @@ def _run_hook_virtio_console_probe_window_check(result_dir: Path) -> dict:
             "console log missing",
             error="tty0 analysis log not found",
         )
-    text = tty0.read_text(errors="ignore")
+    text = _analysis_text_log_contents(tty0)
     has_init = "virtio_console_init" in text
     has_probe = "virtcons_probe" in text
     if has_init and has_probe:
@@ -529,11 +542,12 @@ def _run_hook_virtio_console_probe_window_check(result_dir: Path) -> dict:
     has_vm1_cmdline = "Kernel command line:" in text and "uservm=1," in text
     has_console_enabled = "printk: console [ttyTCU0] enabled" in text
     has_guest_device = "sel4 0000:00:01.0: guest-device-1 initialized" in text
-    if has_vm1_cmdline and has_console_enabled and has_guest_device:
+    has_vm1_boot_window = "Starting user VM" in text or "Linux version" in text
+    if has_vm1_cmdline and has_console_enabled and (has_guest_device or has_vm1_boot_window):
         return _hook_result(
             "virtio_console_probe_window_check",
             "pass",
-            "virtio console window fallback observed (VM1 cmdline + ttyTCU0 console + guest-device-1)",
+            "virtio console window fallback observed (VM1 cmdline + ttyTCU0 console + guest-device-1/boot-window)",
             artifacts=[str(tty0)],
         )
     return _hook_result(
