@@ -71,13 +71,65 @@ PROFILE_ANALYSIS_HOOKS = {
     },
 }
 
-VIO_TRACE_TOOL_CANDIDATES = []
-_env_trace_tool = os.environ.get("VIO_TRACE_TOOL", "").strip()
-if _env_trace_tool:
-    VIO_TRACE_TOOL_CANDIDATES.append(Path(_env_trace_tool))
-VIO_TRACE_TOOL_CANDIDATES.append(
-    Path("/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/vio-trace")
-)
+VIO_TRACE_TOOL_LOGICAL_REL = Path("projects/virtioso-camkes-vm/tools/vio-trace")
+
+
+def _workspace_roots_for_trace_tool() -> list[Path]:
+    roots: list[Path] = []
+    candidates = [
+        os.environ.get("WORKSPACE", "").strip(),
+        os.environ.get("TII_SEL4_WORKSPACE", "").strip(),
+        str(AUTOPILOT_DIR.parent),
+        "/home/hlyytine/tii-sel4",
+        "/home/hlyytine/pkvm",
+    ]
+    for raw in candidates:
+        if not raw:
+            continue
+        path = Path(raw).expanduser()
+        try:
+            path = path.resolve()
+        except OSError:
+            pass
+        if path not in roots:
+            roots.append(path)
+    return roots
+
+
+def _resolve_vio_trace_tool() -> tuple[Path | None, str | None]:
+    env_override = os.environ.get("VIO_TRACE_TOOL", "").strip()
+    if env_override:
+        override_path = Path(env_override).expanduser()
+        try:
+            override_path = override_path.resolve()
+        except OSError:
+            pass
+        if override_path.exists():
+            return override_path, None
+        return None, f"VIO_TRACE_TOOL path does not exist: {override_path}"
+
+    matches: list[Path] = []
+    for root in _workspace_roots_for_trace_tool():
+        candidate = root / VIO_TRACE_TOOL_LOGICAL_REL
+        if candidate.exists():
+            matches.append(candidate)
+
+    if len(matches) == 1:
+        return matches[0], None
+    if len(matches) > 1:
+        rendered = ", ".join(str(path) for path in matches)
+        return (
+            None,
+            "ambiguous vio-trace tool logical name across workspace roots: "
+            f"{rendered}",
+        )
+
+    searched = ", ".join(str(root) for root in _workspace_roots_for_trace_tool())
+    return (
+        None,
+        "vio-trace tool not found via workspace-first discovery; searched roots: "
+        f"{searched}",
+    )
 
 
 def ensure_dirs() -> None:
@@ -522,11 +574,7 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
         else:
             lines.append(f"- `{marker.decode(errors='ignore')}` not found")
 
-    trace_tool = None
-    for candidate in VIO_TRACE_TOOL_CANDIDATES:
-        if candidate and candidate.exists():
-            trace_tool = candidate
-            break
+    trace_tool, trace_tool_error = _resolve_vio_trace_tool()
 
     artifacts = [str(out)]
     if trace_tool is None:
@@ -535,14 +583,15 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
                 "",
                 "## Cross-Stream Timeline",
                 "",
-                "canonical tool unavailable; set `VIO_TRACE_TOOL` or ensure `tools/vio-trace` exists",
+                trace_tool_error
+                or "canonical tool unavailable; set `VIO_TRACE_TOOL` or ensure `tools/vio-trace` exists",
             ]
         )
         out.write_text("\n".join(lines) + "\n")
         return _hook_result(
             "timeline_render",
-            "pass",
-            "timeline markdown rendered (canonical vio-trace tool unavailable)",
+            "fail",
+            "timeline render blocked by canonical vio-trace discovery failure",
             artifacts=artifacts,
         )
 
