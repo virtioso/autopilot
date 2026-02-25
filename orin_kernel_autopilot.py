@@ -71,12 +71,12 @@ PROFILE_ANALYSIS_HOOKS = {
     },
 }
 
-VIO_MERGE_TOOL_CANDIDATES = []
-_env_merge_tool = os.environ.get("VIO_TRACE_MERGE_TOOL", "").strip()
-if _env_merge_tool:
-    VIO_MERGE_TOOL_CANDIDATES.append(Path(_env_merge_tool))
-VIO_MERGE_TOOL_CANDIDATES.append(
-    Path("/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/merge_vio_timeline.py")
+VIO_TRACE_TOOL_CANDIDATES = []
+_env_trace_tool = os.environ.get("VIO_TRACE_TOOL", "").strip()
+if _env_trace_tool:
+    VIO_TRACE_TOOL_CANDIDATES.append(Path(_env_trace_tool))
+VIO_TRACE_TOOL_CANDIDATES.append(
+    Path("/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/vio-trace")
 )
 
 
@@ -496,6 +496,8 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
     tty0 = result_dir / "console" / "tty0.raw"
     out = result_dir / "analysis_hooks" / "timeline.md"
     merged_out = result_dir / "analysis_hooks" / "timeline_merged.jsonl"
+    merged_text_out = result_dir / "analysis_hooks" / "timeline_merged.txt"
+    index_dir = result_dir / "analysis_hooks" / "vio_trace_index"
     out.parent.mkdir(parents=True, exist_ok=True)
     if not tty0.exists():
         out.write_text("# Timeline\n\nconsole log missing\n")
@@ -520,41 +522,48 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
         else:
             lines.append(f"- `{marker.decode(errors='ignore')}` not found")
 
-    merge_tool = None
-    for candidate in VIO_MERGE_TOOL_CANDIDATES:
+    trace_tool = None
+    for candidate in VIO_TRACE_TOOL_CANDIDATES:
         if candidate and candidate.exists():
-            merge_tool = candidate
+            trace_tool = candidate
             break
 
     artifacts = [str(out)]
-    if merge_tool is None:
+    if trace_tool is None:
         lines.extend(
             [
                 "",
-                "## Cross-Stream Merge",
+                "## Cross-Stream Timeline",
                 "",
-                "merge tool unavailable; set `VIO_TRACE_MERGE_TOOL` or ensure canonical tool path exists",
+                "canonical tool unavailable; set `VIO_TRACE_TOOL` or ensure `tools/vio-trace` exists",
             ]
         )
         out.write_text("\n".join(lines) + "\n")
         return _hook_result(
             "timeline_render",
             "pass",
-            "timeline markdown rendered (cross-stream merge tool unavailable)",
+            "timeline markdown rendered (canonical vio-trace tool unavailable)",
             artifacts=artifacts,
         )
 
-    cmd = [sys.executable, str(merge_tool), str(tty0), "--jsonl"]
-    cp = subprocess.run(cmd, capture_output=True, text=True)
-    if cp.returncode != 0:
+    cmd_index = [
+        str(trace_tool),
+        "index",
+        "--run-dir",
+        str(result_dir),
+        "--out",
+        str(index_dir),
+    ]
+    cp_index = subprocess.run(cmd_index, capture_output=True, text=True)
+    if cp_index.returncode != 0:
         lines.extend(
             [
                 "",
-                "## Cross-Stream Merge",
+                "## Cross-Stream Timeline",
                 "",
-                f"merge tool failed (`rc={cp.returncode}`):",
+                f"vio-trace index failed (`rc={cp_index.returncode}`):",
                 "```text",
-                (cp.stderr or cp.stdout or "(no output)").strip(),
+                (cp_index.stderr or cp_index.stdout or "(no output)").strip(),
                 "```",
             ]
         )
@@ -562,30 +571,81 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
         return _hook_result(
             "timeline_render",
             "pass",
-            "timeline markdown rendered (cross-stream merge failed)",
+            "timeline markdown rendered (vio-trace index failed)",
             artifacts=artifacts,
         )
 
-    jsonl = (cp.stdout or "").strip()
-    if not jsonl:
+    cmd_timeline = [
+        str(trace_tool),
+        "timeline",
+        "--index",
+        str(index_dir),
+        "--out-jsonl",
+        str(merged_out),
+        "--out-text",
+        str(merged_text_out),
+    ]
+    cp_timeline = subprocess.run(cmd_timeline, capture_output=True, text=True)
+    if cp_timeline.returncode != 0:
         lines.extend(
             [
                 "",
-                "## Cross-Stream Merge",
+                "## Cross-Stream Timeline",
                 "",
-                "merge produced no records",
+                f"vio-trace timeline failed (`rc={cp_timeline.returncode}`):",
+                "```text",
+                (cp_timeline.stderr or cp_timeline.stdout or "(no output)").strip(),
+                "```",
             ]
         )
         out.write_text("\n".join(lines) + "\n")
         return _hook_result(
             "timeline_render",
             "pass",
-            "timeline markdown rendered (cross-stream merge empty)",
+            "timeline markdown rendered (vio-trace timeline failed)",
             artifacts=artifacts,
         )
 
-    merged_out.write_text(jsonl + "\n")
+    if not merged_out.exists():
+        lines.extend(
+            [
+                "",
+                "## Cross-Stream Timeline",
+                "",
+                "vio-trace timeline did not produce merged jsonl artifact",
+            ]
+        )
+        out.write_text("\n".join(lines) + "\n")
+        return _hook_result(
+            "timeline_render",
+            "pass",
+            "timeline markdown rendered (vio-trace timeline artifact missing)",
+            artifacts=artifacts,
+        )
+
     artifacts.append(str(merged_out))
+    if merged_text_out.exists():
+        artifacts.append(str(merged_text_out))
+    if index_dir.exists():
+        artifacts.append(str(index_dir))
+
+    jsonl = merged_out.read_text(errors="replace").strip()
+    if not jsonl:
+        lines.extend(
+            [
+                "",
+                "## Cross-Stream Timeline",
+                "",
+                "vio-trace timeline produced empty merged jsonl",
+            ]
+        )
+        out.write_text("\n".join(lines) + "\n")
+        return _hook_result(
+            "timeline_render",
+            "pass",
+            "timeline markdown rendered (vio-trace timeline empty)",
+            artifacts=artifacts,
+        )
 
     rows = []
     counts = {}
@@ -595,11 +655,11 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
         except json.JSONDecodeError:
             continue
         rows.append(rec)
-        src = rec.get("source_type", "unknown")
+        src = rec.get("src", "unknown")
         counts[src] = counts.get(src, 0) + 1
 
-    lines.extend(["", "## Cross-Stream Merge", ""])
-    lines.append(f"- tool: `{merge_tool}`")
+    lines.extend(["", "## Cross-Stream Timeline", ""])
+    lines.append(f"- tool: `{trace_tool}`")
     lines.append(f"- merged records: `{len(rows)}`")
     if counts:
         lines.append("- source counts:")
@@ -612,12 +672,36 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
         lines.extend(["", "### Preview (first 20 merged events)", ""])
         lines.append("```text")
         for rec in preview:
-            src = rec.get("source_type", "unknown")
+            src = rec.get("src", "unknown")
             ts = rec.get("ts")
             seq = rec.get("seq")
             idx = rec.get("idx")
-            payload = rec.get("payload", {})
-            lines.append(f"ts={ts} src={src} seq={seq} idx={idx} payload={payload}")
+            source = rec.get("source", "")
+            producer = rec.get("producer", "")
+            event = rec.get("event", "")
+            phase = rec.get("phase", "")
+            direction = rec.get("dir", "")
+            addr = rec.get("addr", "")
+            length = rec.get("len", "")
+            value = rec.get("value", "")
+            lines.append(
+                "src={src} ts={ts} seq={seq} idx={idx} source={source} "
+                "producer={producer} event={event} phase={phase} dir={direction} "
+                "addr={addr} len={length} value={value}".format(
+                    src=src,
+                    ts=ts,
+                    seq=seq,
+                    idx=idx,
+                    source=source,
+                    producer=producer,
+                    event=event,
+                    phase=phase,
+                    direction=direction,
+                    addr=addr,
+                    length=length,
+                    value=value,
+                )
+            )
         lines.append("```")
 
     out.write_text("\n".join(lines) + "\n")
