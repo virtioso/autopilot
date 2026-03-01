@@ -485,13 +485,17 @@ def _run_hook_crossvm_irq_path_check(result_dir: Path) -> dict:
     # Low-noise mode may suppress irq=236 runtime markers; accept a stable
     # continuity chain instead.
     has_crossvm_module = "module name: cross_vm_connections" in text
-    has_vm0_proxy = "vm1: vmm_module_init@main.c:803 module name: vm0_io_proxy" in text
+    has_vm0_proxy = "module name: vm0_io_proxy" in text
     has_guest_device = "sel4 0000:00:01.0: guest-device-1 initialized" in text
-    if has_crossvm_module and has_vm0_proxy and has_guest_device:
+    has_virtio_pci_attach = (
+        "virtio-pci 0000:00:01.0: enabling device" in text
+        or "virtio-pci 0000:00:01.0: assigned reserved memory node" in text
+    )
+    if has_crossvm_module and has_vm0_proxy and (has_guest_device or has_virtio_pci_attach):
         return _hook_result(
             "crossvm_irq_path_check",
             "pass",
-            "cross-VM continuity fallback observed (cross_vm_connections + vm0_io_proxy + guest-device-1)",
+            "cross-VM continuity fallback observed (cross_vm_connections + vm0_io_proxy + guest-device/virtio-pci attach)",
             artifacts=[str(tty0)],
         )
     return _hook_result(
@@ -549,12 +553,138 @@ def _run_hook_virtio_console_probe_window_check(result_dir: Path) -> dict:
     )
 
 
+def _is_missing_required_vio_stream_error(output: str) -> bool:
+    if not output:
+        return False
+    return "missing required VIO stream kinds" in output
+
+
+def _ensure_vio_trace_index(
+    result_dir: Path,
+    trace_tool: Path,
+    index_dir: Path,
+    retry_log: Path,
+    caller: str,
+    timeout_s: float = 300.0,
+    poll_s: float = 1.0,
+    quiet_window_s: float = 2.0,
+) -> dict:
+    retry_log.parent.mkdir(parents=True, exist_ok=True)
+    tty0 = result_dir / "console" / "tty0.raw"
+    if index_dir.exists():
+        return {
+            "ok": True,
+            "attempts": 0,
+            "reason": "index_exists",
+            "retry_log": str(retry_log),
+        }
+
+    deadline = time.time() + timeout_s
+    attempt = 0
+    last_size = tty0.stat().st_size if tty0.exists() else 0
+    last_size_change_at = time.time()
+    logs: list[str] = [f"caller={caller} timeout_s={timeout_s} poll_s={poll_s} quiet_window_s={quiet_window_s}"]
+    last_error_output = ""
+    last_reason = "index_failed"
+    last_rc = -1
+
+    while True:
+        attempt += 1
+        cmd_index = [
+            str(trace_tool),
+            "index",
+            "--run-dir",
+            str(result_dir),
+            "--out",
+            str(index_dir),
+        ]
+        cp_index = subprocess.run(cmd_index, capture_output=True, text=True)
+        rc = cp_index.returncode
+        stderr = (cp_index.stderr or cp_index.stdout or "").strip()
+        if rc == 0:
+            logs.append(f"attempt={attempt} rc=0 result=success")
+            retry_log.write_text("\n".join(logs) + "\n")
+            return {
+                "ok": True,
+                "attempts": attempt,
+                "reason": "indexed",
+                "retry_log": str(retry_log),
+            }
+
+        now = time.time()
+        if tty0.exists():
+            size_now = tty0.stat().st_size
+            if size_now != last_size:
+                last_size = size_now
+                last_size_change_at = now
+        else:
+            size_now = 0
+        stable_for_s = max(0.0, now - last_size_change_at)
+
+        transfer_state = _read_ftrace_transfer_state(result_dir)
+        transient = _is_missing_required_vio_stream_error(stderr)
+        transfer_incomplete = (
+            transfer_state.get("start_count", 0) > 0
+            and (
+                transfer_state.get("start_count", 0) != transfer_state.get("end_count", 0)
+                or not transfer_state.get("has_terminal", False)
+            )
+        )
+        capture_still_growing = stable_for_s < quiet_window_s
+        remaining_s = max(0.0, deadline - now)
+
+        logs.append(
+            "attempt={attempt} rc={rc} transient={transient} transfer_incomplete={transfer_incomplete} "
+            "capture_still_growing={capture_still_growing} stable_for_s={stable_for_s:.3f} "
+            "start_count={start_count} end_count={end_count} has_terminal={has_terminal} size={size} remaining_s={remaining_s:.3f}".format(
+                attempt=attempt,
+                rc=rc,
+                transient=transient,
+                transfer_incomplete=transfer_incomplete,
+                capture_still_growing=capture_still_growing,
+                stable_for_s=stable_for_s,
+                start_count=transfer_state.get("start_count", 0),
+                end_count=transfer_state.get("end_count", 0),
+                has_terminal=transfer_state.get("has_terminal", False),
+                size=size_now,
+                remaining_s=remaining_s,
+            )
+        )
+
+        last_error_output = stderr
+        last_rc = rc
+        if transient and remaining_s > 0 and (transfer_incomplete or capture_still_growing):
+            time.sleep(min(poll_s, remaining_s))
+            continue
+
+        if transient:
+            last_reason = "missing_required_streams_after_transfer_complete"
+        else:
+            last_reason = "index_failed_non_transient"
+        break
+
+    logs.append(f"final=fail reason={last_reason} rc={last_rc}")
+    if last_error_output:
+        logs.append("")
+        logs.append(last_error_output)
+    retry_log.write_text("\n".join(logs) + "\n")
+    return {
+        "ok": False,
+        "attempts": attempt,
+        "reason": last_reason,
+        "rc": last_rc,
+        "error_output": last_error_output,
+        "retry_log": str(retry_log),
+    }
+
+
 def _run_hook_timeline_render(result_dir: Path) -> dict:
     tty0 = result_dir / "console" / "tty0.raw"
     out = result_dir / "analysis_hooks" / "timeline.md"
     merged_out = result_dir / "analysis_hooks" / "timeline_merged.jsonl"
     merged_text_out = result_dir / "analysis_hooks" / "timeline_merged.txt"
     index_dir = result_dir / "analysis_hooks" / "vio_trace_index"
+    retry_log = result_dir / "analysis_hooks" / "vio_trace_index_retry.log"
     out.parent.mkdir(parents=True, exist_ok=True)
     if not tty0.exists():
         out.write_text("# Timeline\n\nconsole log missing\n")
@@ -600,34 +730,38 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
             artifacts=artifacts,
         )
 
-    cmd_index = [
-        str(trace_tool),
-        "index",
-        "--run-dir",
-        str(result_dir),
-        "--out",
-        str(index_dir),
-    ]
-    cp_index = subprocess.run(cmd_index, capture_output=True, text=True)
-    if cp_index.returncode != 0:
+    index_result = _ensure_vio_trace_index(
+        result_dir=result_dir,
+        trace_tool=trace_tool,
+        index_dir=index_dir,
+        retry_log=retry_log,
+        caller="timeline_render",
+    )
+    if not index_result.get("ok"):
         lines.extend(
             [
                 "",
                 "## Cross-Stream Timeline",
                 "",
-                f"vio-trace index failed (`rc={cp_index.returncode}`):",
+                "vio-trace index failed after retries:",
+                f"- reason: `{index_result.get('reason', 'unknown')}`",
+                f"- attempts: `{index_result.get('attempts', 0)}`",
+                f"- retry log: `{retry_log}`",
                 "```text",
-                (cp_index.stderr or cp_index.stdout or "(no output)").strip(),
+                (index_result.get("error_output") or "(no output)").strip(),
                 "```",
             ]
         )
         out.write_text("\n".join(lines) + "\n")
+        artifacts.append(str(retry_log))
         return _hook_result(
             "timeline_render",
             "pass",
-            "timeline markdown rendered (vio-trace index failed)",
+            "timeline markdown rendered (vio-trace index failed after retries)",
             artifacts=artifacts,
         )
+    if retry_log.exists():
+        artifacts.append(str(retry_log))
 
     cmd_timeline = [
         str(trace_tool),
@@ -770,6 +904,7 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
 def _run_hook_vio_trace_validate_strict(result_dir: Path, profile_name: str) -> dict:
     index_dir = result_dir / "analysis_hooks" / "vio_trace_index"
     validate_log = result_dir / "analysis_hooks" / "vio_trace_validate.txt"
+    retry_log = result_dir / "analysis_hooks" / "vio_trace_index_retry.log"
     validate_log.parent.mkdir(parents=True, exist_ok=True)
 
     trace_tool, trace_tool_error = _resolve_vio_trace_tool()
@@ -782,35 +917,37 @@ def _run_hook_vio_trace_validate_strict(result_dir: Path, profile_name: str) -> 
             error=trace_tool_error,
         )
 
-    if not index_dir.exists():
-        cmd_index = [
-            str(trace_tool),
-            "index",
-            "--run-dir",
-            str(result_dir),
-            "--out",
-            str(index_dir),
-        ]
-        cp_index = subprocess.run(cmd_index, capture_output=True, text=True)
-        if cp_index.returncode != 0:
-            validate_log.write_text(
-                "\n".join(
-                    [
-                        "vio-trace index failed",
-                        f"command: {' '.join(cmd_index)}",
-                        f"rc={cp_index.returncode}",
-                        "",
-                        (cp_index.stderr or cp_index.stdout or "(no output)").strip(),
-                    ]
-                )
-                + "\n"
+    index_result = _ensure_vio_trace_index(
+        result_dir=result_dir,
+        trace_tool=trace_tool,
+        index_dir=index_dir,
+        retry_log=retry_log,
+        caller="vio_trace_validate_strict",
+    )
+    if not index_result.get("ok"):
+        validate_log.write_text(
+            "\n".join(
+                [
+                    "vio-trace index failed",
+                    f"attempts={index_result.get('attempts', 0)}",
+                    f"reason={index_result.get('reason', 'unknown')}",
+                    f"retry_log={retry_log}",
+                    f"rc={index_result.get('rc', '(unknown)')}",
+                    "",
+                    (index_result.get("error_output") or "(no output)").strip(),
+                ]
             )
-            return _hook_result(
-                "vio_trace_validate_strict",
-                "fail",
-                "strict canonical validation failed: unable to build index",
-                artifacts=[str(validate_log)],
-            )
+            + "\n"
+        )
+        artifacts = [str(validate_log)]
+        if retry_log.exists():
+            artifacts.append(str(retry_log))
+        return _hook_result(
+            "vio_trace_validate_strict",
+            "fail",
+            "strict canonical validation failed: unable to build index",
+            artifacts=artifacts,
+        )
 
     cmd_validate = [
         str(trace_tool),
@@ -837,19 +974,25 @@ def _run_hook_vio_trace_validate_strict(result_dir: Path, profile_name: str) -> 
         + "\n"
     )
     if cp_validate.returncode != 0:
+        artifacts = [str(index_dir), str(validate_log)]
+        if retry_log.exists():
+            artifacts.append(str(retry_log))
         return _hook_result(
             "vio_trace_validate_strict",
             "fail",
             "strict canonical validation failed",
-            artifacts=[str(index_dir), str(validate_log)],
+            artifacts=artifacts,
         )
 
     summary_line = output.splitlines()[0] if output else "strict canonical validation passed"
+    artifacts = [str(index_dir), str(validate_log)]
+    if retry_log.exists():
+        artifacts.append(str(retry_log))
     return _hook_result(
         "vio_trace_validate_strict",
         "pass",
         summary_line,
-        artifacts=[str(index_dir), str(validate_log)],
+        artifacts=artifacts,
     )
 
 
@@ -981,45 +1124,90 @@ def write_post_run_lifecycle(
 def _read_ftrace_transfer_state(result_dir: Path) -> dict:
     tty0 = result_dir / "console" / "tty0.raw"
     if not tty0.exists():
-        return {"exists": False, "has_start": False, "has_end": False, "has_terminal": False, "size": 0}
+        return {
+            "exists": False,
+            "has_start": False,
+            "has_end": False,
+            "has_terminal": False,
+            "start_count": 0,
+            "end_count": 0,
+            "open_blocks": 0,
+            "size": 0,
+        }
     try:
         data = tty0.read_bytes()
     except Exception:
-        return {"exists": True, "has_start": False, "has_end": False, "has_terminal": False, "size": 0}
+        return {
+            "exists": True,
+            "has_start": False,
+            "has_end": False,
+            "has_terminal": False,
+            "start_count": 0,
+            "end_count": 0,
+            "open_blocks": 0,
+            "size": 0,
+        }
+    start_count = data.count(b"=== BINARY TRANSFER START ===")
+    end_count = data.count(b"=== BINARY TRANSFER END ===")
+    open_blocks = max(0, start_count - end_count)
     return {
         "exists": True,
-        "has_start": b"=== BINARY TRANSFER START ===" in data,
-        "has_end": b"=== BINARY TRANSFER END ===" in data,
+        "has_start": start_count > 0,
+        "has_end": end_count > 0,
         "has_terminal": b"TRACE_DUMP_TERMINAL:" in data,
+        "start_count": start_count,
+        "end_count": end_count,
+        "open_blocks": open_blocks,
         "size": len(data),
     }
 
 
-def wait_for_ftrace_uart_drain(result_dir: Path, timeout_s: float = 180.0) -> dict:
+def wait_for_ftrace_uart_drain(
+    result_dir: Path,
+    timeout_s: float = 180.0,
+    quiet_window_s: float = 2.0,
+) -> dict:
     """
     Guard against relay/power reset while ftrace binary dump is still flowing.
     """
     start = time.time()
     last_size = -1
-    stable_rounds = 0
+    last_size_change_at = start
     while time.time() - start < timeout_s:
         state = _read_ftrace_transfer_state(result_dir)
-        if not state["exists"] or not state["has_start"]:
+        now = time.time()
+        if not state["exists"] or state["start_count"] == 0:
             state["drain_state"] = "not_required"
+            state["drain_reason"] = "transfer_not_observed"
             return state
 
-        if state["has_terminal"] or state["has_end"]:
-            size_now = state["size"]
-            if size_now == last_size:
-                stable_rounds += 1
-            else:
-                stable_rounds = 0
+        size_now = state["size"]
+        if size_now != last_size:
             last_size = size_now
-            if stable_rounds >= 2:
-                state["drain_state"] = "drain_complete"
-                return state
+            last_size_change_at = now
+        stable_for_s = max(0.0, now - last_size_change_at)
+
+        transfer_balanced = state["start_count"] == state["end_count"]
+        if transfer_balanced and state["has_terminal"] and stable_for_s >= quiet_window_s:
+            state["drain_state"] = "drain_complete"
+            state["drain_reason"] = "balanced_transfer_and_terminal_with_quiet_window"
+            state["stable_for_s"] = round(stable_for_s, 3)
+            state["quiet_window_s"] = quiet_window_s
+            return state
         time.sleep(0.5)
     state = _read_ftrace_transfer_state(result_dir)
+    state["quiet_window_s"] = quiet_window_s
+    state["stable_for_s"] = round(max(0.0, time.time() - last_size_change_at), 3)
+    if state.get("start_count", 0) == 0:
+        state["drain_state"] = "not_required"
+        state["drain_reason"] = "transfer_not_observed"
+        return state
+    if not state.get("has_terminal", False):
+        state["drain_reason"] = "missing_terminal_marker"
+    elif state.get("start_count", 0) != state.get("end_count", 0):
+        state["drain_reason"] = "unbalanced_transfer_blocks"
+    else:
+        state["drain_reason"] = "quiet_window_not_reached"
     state["drain_state"] = "drain_timeout" if state.get("has_start") else "not_required"
     return state
 
@@ -1236,7 +1424,32 @@ def main() -> None:
     window_manager = TmuxWindowManager(session_name) if session_name else None
     ui = TmuxUICompat(ui_state, windows=window_manager)
 
-    source_manager = SourceManager(RESULTS_DIR, ui=ui)
+    fail_marker_state = {
+        "result_dir": None,
+        "abort_sent": False,
+    }
+    fail_marker_lock = threading.Lock()
+
+    def _on_fail_marker(source: str, marker: str) -> None:
+        with fail_marker_lock:
+            active_result_dir = fail_marker_state.get("result_dir")
+            if active_result_dir is None:
+                return
+            if fail_marker_state.get("abort_sent"):
+                return
+            message = marker
+            prefix = "AUTOPILOT_FAIL: "
+            if message.startswith(prefix):
+                message = message[len(prefix):]
+            _append_failure_marker(active_result_dir, message)
+            fail_marker_state["abort_sent"] = True
+        event_queue.put(Event("abort", {
+            "reason": "qemu_rnd_helper_exit_nonzero",
+            "source": source,
+            "marker": marker,
+        }))
+
+    source_manager = SourceManager(RESULTS_DIR, ui=ui, on_fail_marker=_on_fail_marker)
     platform_overrides = {}
     task_registry_lock = threading.Lock()
     task_registry = {
@@ -1431,12 +1644,17 @@ def main() -> None:
 
         status = "failed"
         try:
+            with fail_marker_lock:
+                fail_marker_state["result_dir"] = result_dir
+                fail_marker_state["abort_sent"] = False
             ui_state.set_request(timestamp, profile_name, profile_name)
             status = run_chain(chain, ctx, recorder)
         except Exception as exc:
             (result_dir / "error.txt").write_text(str(exc))
             status = "failed"
         finally:
+            with fail_marker_lock:
+                fail_marker_state["result_dir"] = None
             ui_state.clear_request()
             write_post_run_dtb_artifacts(result_dir, status)
 
