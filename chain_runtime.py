@@ -156,6 +156,10 @@ FORBIDDEN_PREPARE_LIFECYCLE_PATTERNS = (
     "task_join tasks contains prepare_next_run",
 )
 
+QEMU_RND_HELPER_FAIL_PATTERN = re.compile(
+    r"(?m)^\s*AUTOPILOT_FAIL: QEMU_RND_HELPER_EXIT_NONZERO rc=[0-9]+\s*$"
+)
+
 
 class SourceBinding:
     def __init__(
@@ -265,14 +269,20 @@ class SourceBinding:
 
 
 class SourceManager:
-    def __init__(self, result_dir: Path, ui=None):
+    def __init__(self, result_dir: Path, ui=None, on_fail_marker=None):
         self.result_dir = result_dir
         self.ui = ui
+        self.on_fail_marker = on_fail_marker
         self.sources: Dict[str, SourceBinding] = {}
         self.tty_to_source: Dict[str, str] = {}
+        self._marker_windows: Dict[str, str] = {}
+        self._reported_fail_markers: set[Tuple[str, str]] = set()
+        self._marker_window_max = 8192
 
     def set_result_dir(self, result_dir: Path) -> None:
         self.result_dir = result_dir
+        self._marker_windows.clear()
+        self._reported_fail_markers.clear()
 
     def map_source(self, source: str, tty: str, log_rel: str, baud: int = 115200) -> None:
         if source in self.sources:
@@ -298,6 +308,27 @@ class SourceManager:
     def _emit(self, source: str, data: bytes) -> None:
         if self.ui:
             self.ui.emit_output(source, data)
+        if not self.on_fail_marker:
+            return
+        text = normalize_tty_text(data.decode("utf-8", errors="ignore"))
+        if not text:
+            return
+        window = self._marker_windows.get(source, "") + text
+        if len(window) > self._marker_window_max:
+            window = window[-self._marker_window_max:]
+        self._marker_windows[source] = window
+        for match in QEMU_RND_HELPER_FAIL_PATTERN.finditer(window):
+            marker = match.group(0).strip()
+            if not marker:
+                continue
+            marker_key = (source, marker)
+            if marker_key in self._reported_fail_markers:
+                continue
+            self._reported_fail_markers.add(marker_key)
+            try:
+                self.on_fail_marker(source, marker)
+            except Exception:
+                continue
 
     def get(self, source: str) -> Optional[SourceBinding]:
         return self.sources.get(source)
