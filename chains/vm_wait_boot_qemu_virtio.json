@@ -156,7 +156,7 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "dump_ftrace"
+          "next": "capture_linux_ftrace_proof"
         }
       ],
       "on_timeout": "fail"
@@ -165,6 +165,19 @@
       "type": "send_cmd",
       "source": "tty0",
       "cmd": "echo 'AUTOPILOT_INFO: FTRACE_DUMP_REASON=HARD_CAP_120S_NO_RPC'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "capture_linux_ftrace_proof"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "capture_linux_ftrace_proof": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "mount -t debugfs debugfs /sys/kernel/debug >/dev/null 2>&1 || true; T=/sys/kernel/debug/tracing; [ -d $T ] || T=/sys/kernel/tracing; echo counter >$T/trace_clock; echo AUTOPILOT_INFO: TRACE_CLOCK_READBACK=$(cat $T/trace_clock); echo 0 >$T/tracing_on; : >$T/trace; echo nop >$T/current_tracer; echo 1 >$T/events/sched/sched_switch/enable; echo VIO_PROOF_TRACE_PRINTK >$T/trace_marker; echo 1 >$T/tracing_on; sleep 1; echo 0 >$T/tracing_on; cat $T/trace",
       "suffix": "\n",
       "outcomes": [
         {
