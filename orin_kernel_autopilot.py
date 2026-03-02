@@ -266,8 +266,20 @@ def _append_failure_marker(result_dir: Path, message: str) -> None:
 
 
 def _has_ftrace_dump_evidence(result_dir: Path) -> bool:
-    marker_bytes = [b"=== BINARY TRANSFER START ===", b"TRACE_DUMP_TERMINAL:"]
-    marker_text = ["=== BINARY TRANSFER START ===", "TRACE_DUMP_TERMINAL:", "FTRACE: Storage full"]
+    marker_bytes = [
+        b"=== BINARY TRANSFER START ===",
+        b"=== BINARY TRANSFER END ===",
+        b"VIO_TRACE_DUMP_BEGIN",
+        b"VIO_TRACE_DUMP_END",
+    ]
+    marker_text = [
+        "=== BINARY TRANSFER START ===",
+        "=== BINARY TRANSFER END ===",
+        "VIO_TRACE_DUMP_BEGIN",
+        "VIO_TRACE_DUMP_END",
+        "FTRACE: Storage full",
+        "TRACE_DUMP_TERMINAL:",
+    ]
     for log_name in ("console/tty0.raw",):
         log_path = result_dir / log_name
         if not log_path.exists():
@@ -305,7 +317,7 @@ def run_post_run_ftrace_pipeline(result_dir: Path) -> dict:
         "overflow_events": None,
         "compress_fail_events": None,
         "total_entries": None,
-        "dump_terminal_seen": _has_ftrace_dump_evidence(result_dir),
+        "dump_terminal_seen": False,
     }
     summary_path = result_dir / "ftrace.summary.json"
     if not required:
@@ -628,7 +640,7 @@ def _ensure_vio_trace_index(
             transfer_state.get("start_count", 0) > 0
             and (
                 transfer_state.get("start_count", 0) != transfer_state.get("end_count", 0)
-                or not transfer_state.get("has_terminal", False)
+                or not transfer_state.get("has_dump_end", False)
             )
         )
         capture_still_growing = stable_for_s < quiet_window_s
@@ -637,7 +649,7 @@ def _ensure_vio_trace_index(
         logs.append(
             "attempt={attempt} rc={rc} transient={transient} transfer_incomplete={transfer_incomplete} "
             "capture_still_growing={capture_still_growing} stable_for_s={stable_for_s:.3f} "
-            "start_count={start_count} end_count={end_count} has_terminal={has_terminal} size={size} remaining_s={remaining_s:.3f}".format(
+            "start_count={start_count} end_count={end_count} has_dump_end={has_dump_end} size={size} remaining_s={remaining_s:.3f}".format(
                 attempt=attempt,
                 rc=rc,
                 transient=transient,
@@ -646,7 +658,7 @@ def _ensure_vio_trace_index(
                 stable_for_s=stable_for_s,
                 start_count=transfer_state.get("start_count", 0),
                 end_count=transfer_state.get("end_count", 0),
-                has_terminal=transfer_state.get("has_terminal", False),
+                has_dump_end=transfer_state.get("has_dump_end", False),
                 size=size_now,
                 remaining_s=remaining_s,
             )
@@ -700,7 +712,8 @@ def _run_hook_timeline_render(result_dir: Path) -> dict:
         b"virtio_console_init",
         b"virtcons_probe",
         b"irq=236",
-        b"TRACE_DUMP_TERMINAL:",
+        b"VIO_TRACE_DUMP_BEGIN",
+        b"VIO_TRACE_DUMP_END",
     ]
     lines = ["# Timeline", ""]
     for marker in markers:
@@ -1122,23 +1135,23 @@ def _run_hook_vio_trace_marker_contract(result_dir: Path, profile_name: str) -> 
                 counts[event] += 1
 
     tty0 = result_dir / "console" / "tty0.raw"
-    terminal_present = False
+    dump_end_present = False
     if tty0.exists():
         try:
-            terminal_present = b"TRACE_DUMP_TERMINAL:" in tty0.read_bytes()
+            dump_end_present = b"VIO_TRACE_DUMP_END" in tty0.read_bytes()
         except Exception:
-            terminal_present = False
+            dump_end_present = False
 
     missing = [event for event, count in counts.items() if count <= 0]
-    if not terminal_present:
-        missing.append("TRACE_DUMP_TERMINAL")
+    if not dump_end_present:
+        missing.append("VIO_TRACE_DUMP_END")
 
     payload = {
         "schema": "vio_trace_marker_contract/v1",
         "profile": profile_name,
         "status": "pass" if not missing else "fail",
         "required_events": counts,
-        "terminal_marker_present": terminal_present,
+        "dump_end_marker_present": dump_end_present,
         "missing": missing,
         "artifacts": {
             "timeline_merged_jsonl": str(merged_out),
@@ -1302,6 +1315,8 @@ def _read_ftrace_transfer_state(result_dir: Path) -> dict:
             "exists": False,
             "has_start": False,
             "has_end": False,
+            "has_dump_begin": False,
+            "has_dump_end": False,
             "has_terminal": False,
             "start_count": 0,
             "end_count": 0,
@@ -1315,6 +1330,8 @@ def _read_ftrace_transfer_state(result_dir: Path) -> dict:
             "exists": True,
             "has_start": False,
             "has_end": False,
+            "has_dump_begin": False,
+            "has_dump_end": False,
             "has_terminal": False,
             "start_count": 0,
             "end_count": 0,
@@ -1328,6 +1345,8 @@ def _read_ftrace_transfer_state(result_dir: Path) -> dict:
         "exists": True,
         "has_start": start_count > 0,
         "has_end": end_count > 0,
+        "has_dump_begin": b"VIO_TRACE_DUMP_BEGIN" in data,
+        "has_dump_end": b"VIO_TRACE_DUMP_END" in data,
         "has_terminal": b"TRACE_DUMP_TERMINAL:" in data,
         "start_count": start_count,
         "end_count": end_count,
@@ -1362,9 +1381,9 @@ def wait_for_ftrace_uart_drain(
         stable_for_s = max(0.0, now - last_size_change_at)
 
         transfer_balanced = state["start_count"] == state["end_count"]
-        if transfer_balanced and state["has_terminal"] and stable_for_s >= quiet_window_s:
+        if transfer_balanced and state["has_dump_end"] and stable_for_s >= quiet_window_s:
             state["drain_state"] = "drain_complete"
-            state["drain_reason"] = "balanced_transfer_and_terminal_with_quiet_window"
+            state["drain_reason"] = "balanced_transfer_and_dump_end_with_quiet_window"
             state["stable_for_s"] = round(stable_for_s, 3)
             state["quiet_window_s"] = quiet_window_s
             return state
@@ -1376,8 +1395,8 @@ def wait_for_ftrace_uart_drain(
         state["drain_state"] = "not_required"
         state["drain_reason"] = "transfer_not_observed"
         return state
-    if not state.get("has_terminal", False):
-        state["drain_reason"] = "missing_terminal_marker"
+    if not state.get("has_dump_end", False):
+        state["drain_reason"] = "missing_dump_end_marker"
     elif state.get("start_count", 0) != state.get("end_count", 0):
         state["drain_reason"] = "unbalanced_transfer_blocks"
     else:
@@ -1388,9 +1407,9 @@ def wait_for_ftrace_uart_drain(
 
 def should_skip_prepare_cycle(result_dir: Path, transfer_state: dict) -> tuple[bool, str]:
     if transfer_state.get("has_start") and not (
-        transfer_state.get("has_terminal") or transfer_state.get("has_end")
+        transfer_state.get("has_dump_end") and transfer_state.get("has_end")
     ):
-        return True, "ftrace transfer started but completion markers missing"
+        return True, "ftrace transfer started but dump completion markers missing"
 
     tty0 = result_dir / "console" / "tty0.raw"
     if tty0.exists():

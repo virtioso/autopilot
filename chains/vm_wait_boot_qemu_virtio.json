@@ -54,12 +54,12 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "wait_trace_dump_terminal"
+          "next": "wait_trace_dump_complete"
         }
       ],
       "on_timeout": "fail"
     },
-    "wait_trace_dump_terminal": {
+    "wait_trace_dump_complete": {
       "type": "wait_pattern",
       "timeout_s": 360,
       "outcomes": [
@@ -70,8 +70,8 @@
           "next": "fail"
         },
         {
-          "label": "trace_dump_terminal",
-          "pattern": "TRACE_DUMP_TERMINAL:|vio_trace_control: dumping traces",
+          "label": "trace_dump_complete",
+          "pattern": "VIO_TRACE_DUMP_END",
           "source": "tty0",
           "next": "pass"
         }
