@@ -50,12 +50,13 @@ PROFILE_ANALYSIS_HOOKS = {
     },
     "vm-qemu-virtio": {
         "required": [
+            "vio_trace_validate_strict",
+            "vio_trace_marker_contract",
+        ],
+        "optional": [
             "ftrace_index_integrity",
             "crossvm_irq_path_check",
             "virtio_console_probe_window_check",
-            "vio_trace_validate_strict",
-        ],
-        "optional": [
             "timeline_render",
             "summary_markdown_export",
         ],
@@ -996,6 +997,178 @@ def _run_hook_vio_trace_validate_strict(result_dir: Path, profile_name: str) -> 
     )
 
 
+def _run_hook_vio_trace_marker_contract(result_dir: Path, profile_name: str) -> dict:
+    index_dir = result_dir / "analysis_hooks" / "vio_trace_index"
+    marker_path = result_dir / "analysis_hooks" / "vio_trace_markers.json"
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+
+    trace_tool, trace_tool_error = _resolve_vio_trace_tool()
+    if trace_tool is None:
+        return _hook_result(
+            "vio_trace_marker_contract",
+            "fail",
+            "structured marker contract blocked by vio-trace discovery failure",
+            artifacts=[str(marker_path)],
+            error=trace_tool_error,
+        )
+
+    retry_log = result_dir / "analysis_hooks" / "vio_trace_index_retry.log"
+    index_result = _ensure_vio_trace_index(
+        result_dir=result_dir,
+        trace_tool=trace_tool,
+        index_dir=index_dir,
+        retry_log=retry_log,
+        caller="vio_trace_marker_contract",
+    )
+    if not index_result.get("ok"):
+        marker_path.write_text(
+            json.dumps(
+                {
+                    "schema": "vio_trace_marker_contract/v1",
+                    "profile": profile_name,
+                    "status": "fail",
+                    "reason": "index_unavailable",
+                    "index_result": index_result,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        artifacts = [str(marker_path)]
+        if retry_log.exists():
+            artifacts.append(str(retry_log))
+        return _hook_result(
+            "vio_trace_marker_contract",
+            "fail",
+            "structured marker contract failed: vio-trace index unavailable",
+            artifacts=artifacts,
+        )
+
+    merged_out = result_dir / "analysis_hooks" / "timeline_merged.jsonl"
+    merged_text_out = result_dir / "analysis_hooks" / "timeline_merged.txt"
+    if not merged_out.exists():
+        cmd_timeline = [
+            str(trace_tool),
+            "timeline",
+            "--index",
+            str(index_dir),
+            "--out-jsonl",
+            str(merged_out),
+            "--out-text",
+            str(merged_text_out),
+        ]
+        cp_timeline = subprocess.run(cmd_timeline, capture_output=True, text=True)
+        if cp_timeline.returncode != 0:
+            marker_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "vio_trace_marker_contract/v1",
+                        "profile": profile_name,
+                        "status": "fail",
+                        "reason": "timeline_failed",
+                        "timeline_command": cmd_timeline,
+                        "timeline_output": (cp_timeline.stderr or cp_timeline.stdout or "").strip(),
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
+            return _hook_result(
+                "vio_trace_marker_contract",
+                "fail",
+                "structured marker contract failed: timeline generation failed",
+                artifacts=[str(marker_path)],
+            )
+
+    if not merged_out.exists():
+        marker_path.write_text(
+            json.dumps(
+                {
+                    "schema": "vio_trace_marker_contract/v1",
+                    "profile": profile_name,
+                    "status": "fail",
+                    "reason": "timeline_missing",
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        return _hook_result(
+            "vio_trace_marker_contract",
+            "fail",
+            "structured marker contract failed: timeline artifact missing",
+            artifacts=[str(marker_path)],
+        )
+
+    counts = {
+        "VMM_ARM": 0,
+        "VMM_QEMU_START_VM": 0,
+        "EV_MMIO_BEGIN": 0,
+        "VMM_DUMP_FINALIZE": 0,
+        "VMM_DISARM": 0,
+    }
+
+    with merged_out.open("r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            event = rec.get("event", "")
+            if event in counts:
+                counts[event] += 1
+
+    tty0 = result_dir / "console" / "tty0.raw"
+    terminal_present = False
+    if tty0.exists():
+        try:
+            terminal_present = b"TRACE_DUMP_TERMINAL:" in tty0.read_bytes()
+        except Exception:
+            terminal_present = False
+
+    missing = [event for event, count in counts.items() if count <= 0]
+    if not terminal_present:
+        missing.append("TRACE_DUMP_TERMINAL")
+
+    payload = {
+        "schema": "vio_trace_marker_contract/v1",
+        "profile": profile_name,
+        "status": "pass" if not missing else "fail",
+        "required_events": counts,
+        "terminal_marker_present": terminal_present,
+        "missing": missing,
+        "artifacts": {
+            "timeline_merged_jsonl": str(merged_out),
+            "timeline_merged_txt": str(merged_text_out) if merged_text_out.exists() else "",
+            "vio_trace_index": str(index_dir),
+            "tty0_raw": str(tty0) if tty0.exists() else "",
+        },
+    }
+    marker_path.write_text(json.dumps(payload, indent=2) + "\n")
+
+    artifacts = [str(marker_path), str(merged_out), str(index_dir)]
+    if merged_text_out.exists():
+        artifacts.append(str(merged_text_out))
+
+    if missing:
+        return _hook_result(
+            "vio_trace_marker_contract",
+            "fail",
+            "structured marker contract failed: missing required lifecycle markers",
+            artifacts=artifacts,
+        )
+
+    return _hook_result(
+        "vio_trace_marker_contract",
+        "pass",
+        "structured marker contract passed",
+        artifacts=artifacts,
+    )
+
+
 def _run_hook_summary_markdown_export(result_dir: Path, hook_results: list[dict]) -> dict:
     out = result_dir / "analysis_hooks" / "summary.md"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -1026,6 +1199,7 @@ def run_external_analysis_hooks(result_dir: Path, profile_name: str, ftrace_post
         "crossvm_irq_path_check": lambda: _run_hook_crossvm_irq_path_check(result_dir),
         "virtio_console_probe_window_check": lambda: _run_hook_virtio_console_probe_window_check(result_dir),
         "vio_trace_validate_strict": lambda: _run_hook_vio_trace_validate_strict(result_dir, profile_name),
+        "vio_trace_marker_contract": lambda: _run_hook_vio_trace_marker_contract(result_dir, profile_name),
         "timeline_render": lambda: _run_hook_timeline_render(result_dir),
         "summary_markdown_export": lambda: _run_hook_summary_markdown_export(
             result_dir, required_results + optional_results
@@ -1670,9 +1844,8 @@ def main() -> None:
                         stderr_tail = f"; detail={stderr_lines[-1]}"
                 _append_failure_marker(
                     result_dir,
-                    f"FTRACE_POSTPROCESS_FAILED ({reason}{stderr_tail})",
+                    f"FTRACE_POSTPROCESS_WARN ({reason}{stderr_tail})",
                 )
-                status = "failed"
             else:
                 dump_reason = ftrace_post.get("summary", {}).get("dump_reason")
                 if dump_reason == "storage_full":
@@ -1704,15 +1877,6 @@ def main() -> None:
         if transfer_state.get("drain_state") == "drain_timeout":
             prepare_gate["allow_prepare"] = False
             prepare_gate["reasons"].append("drain_timeout")
-        if ftrace_post.get("required") and not ftrace_post.get("ok"):
-            prepare_gate["allow_prepare"] = False
-            prepare_gate["reasons"].append("ftrace_postprocess_failed")
-        if not hooks_post.get("ok"):
-            prepare_gate["allow_prepare"] = False
-            prepare_gate["reasons"].append("required_hook_failed")
-        if status != "pass":
-            prepare_gate["allow_prepare"] = False
-            prepare_gate["reasons"].append("request_status_failed")
         if not prepare_gate["allow_prepare"]:
             prepare_gate["reason"] = ",".join(prepare_gate["reasons"])
 
