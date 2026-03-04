@@ -266,17 +266,16 @@ def _append_failure_marker(result_dir: Path, message: str) -> None:
 
 
 def _has_ftrace_dump_evidence(result_dir: Path) -> bool:
+    # Keep this probe scoped to legacy seL4 ftrace only.
+    # VIO_TRACE_STREAM uses the same transfer envelope markers and must not
+    # trigger the legacy ftrace extraction path.
     marker_bytes = [
-        b"=== BINARY TRANSFER START ===",
-        b"=== BINARY TRANSFER END ===",
-        b"VIO_TRACE_DUMP_BEGIN",
-        b"VIO_TRACE_DUMP_END",
+        b"TYPE: FTRACE_STREAM",
+        b"FTRACE: Storage full",
+        b"TRACE_DUMP_TERMINAL:",
     ]
     marker_text = [
-        "=== BINARY TRANSFER START ===",
-        "=== BINARY TRANSFER END ===",
-        "VIO_TRACE_DUMP_BEGIN",
-        "VIO_TRACE_DUMP_END",
+        "TYPE: FTRACE_STREAM",
         "FTRACE: Storage full",
         "TRACE_DUMP_TERMINAL:",
     ]
