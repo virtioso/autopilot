@@ -35,17 +35,27 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
     """
     log_content = log_path.read_bytes().decode('utf-8', errors='ignore')
 
-    # Find binary transfer section
-    start_marker = "=== BINARY TRANSFER START ==="
-    end_marker = "=== BINARY TRANSFER END ==="
+    # Find legacy seL4 ftrace transfer block.
+    # Newer VIO_TRACE streams also use BINARY TRANSFER markers but have
+    # TYPE=VIO_TRACE_STREAM and a different payload schema.
+    transfer_section = None
+    block_re = re.compile(
+        r"=== BINARY TRANSFER START ===\n(.*?)\n=== BINARY TRANSFER END ===",
+        re.DOTALL,
+    )
+    for m in block_re.finditer(log_content):
+        block_body = m.group(1)
+        if re.search(r"^TYPE:\s*FTRACE_STREAM\s*$", block_body, re.MULTILINE):
+            transfer_section = (
+                "=== BINARY TRANSFER START ===\n"
+                + block_body
+                + "\n=== BINARY TRANSFER END ==="
+            )
+            break
 
-    start_idx = log_content.find(start_marker)
-    end_idx = log_content.find(end_marker)
+    if transfer_section is None:
+        return False  # No legacy seL4 ftrace transfer in this log.
 
-    if start_idx == -1 or end_idx == -1:
-        return False  # No binary transfer
-
-    transfer_section = log_content[start_idx:end_idx + len(end_marker)]
     lines = transfer_section.split('\n')
 
     # Parse header, dictionary, and data
