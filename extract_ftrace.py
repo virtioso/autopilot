@@ -159,10 +159,12 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
                 except ValueError:
                     pass
 
-    # Strict schema enforcement for new dump format.
-    if 'DUMP_REASON' not in header or 'DUMP_REASON_CODE' not in header:
-        print("Error: Unsupported legacy ftrace dump format (missing DUMP_REASON fields)", file=sys.stderr)
-        return False
+    # Backward compatibility: older dumps may not carry explicit reason fields.
+    # Synthesize deterministic defaults so post-processing can continue.
+    if 'DUMP_REASON' not in header:
+        header['DUMP_REASON'] = 'UNKNOWN_LEGACY'
+    if 'DUMP_REASON_CODE' not in header:
+        header['DUMP_REASON_CODE'] = -1
 
     # Determine format and decompress
     is_stream = header.get('TYPE') == 'FTRACE_STREAM' or header.get('VERSION', 0) >= 3
