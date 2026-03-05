@@ -54,6 +54,19 @@
       "outcomes": [
         {
           "label": "ok",
+          "next": "emit_qemu_bootstrap_diag"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "emit_qemu_bootstrap_diag": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "echo 'AUTOPILOT_INFO: QEMU_BOOTSTRAP_DIAG_BEGIN'; if pgrep -x qemu-rnd-helper >/dev/null 2>&1; then echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_RUNNING_AFTER_LAUNCH'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING_AFTER_LAUNCH'; fi; if [ -f /tmp/qemu-rnd-helper.rc ]; then echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_EARLY=$(cat /tmp/qemu-rnd-helper.rc)\"; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 60 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_BOOTSTRAP: /'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_LOG_MISSING_AFTER_LAUNCH'; fi; echo 'AUTOPILOT_INFO: QEMU_BOOTSTRAP_DIAG_END'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
           "next": "wait_first_mmio_rpc_activity"
         }
       ],
@@ -87,7 +100,7 @@
     "emit_no_mmio_rpc_activity_fail": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_FAIL: VIO_TRACE_NO_MMIO_RPC_ACTIVITY_BEFORE_DUMP_WINDOW'; if [ -f /tmp/qemu-rnd-helper.rc ]; then rc=$(cat /tmp/qemu-rnd-helper.rc); echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE rc=$rc\"; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE missing'; fi; if pgrep -x qemu-rnd-helper >/dev/null 2>&1; then echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_STILL_RUNNING'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING'; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 80 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_LOG: /'; fi",
+      "cmd": "echo 'AUTOPILOT_FAIL: VIO_TRACE_NO_MMIO_RPC_ACTIVITY_BEFORE_DUMP_WINDOW'; echo 'AUTOPILOT_INFO: NO_ACTIVITY_DIAG_BEGIN'; if [ -f /tmp/qemu-rnd-helper.rc ]; then rc=$(cat /tmp/qemu-rnd-helper.rc); echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE rc=$rc\"; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE missing'; fi; if pgrep -x qemu-rnd-helper >/dev/null 2>&1; then echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_STILL_RUNNING'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING'; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 80 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_LOG: /'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_INFO: NO_ACTIVITY_DIAG_END'",
       "suffix": "\n",
       "outcomes": [
         {
