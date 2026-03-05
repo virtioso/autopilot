@@ -54,14 +54,52 @@
       "outcomes": [
         {
           "label": "ok",
+          "next": "wait_first_mmio_rpc_activity"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_first_mmio_rpc_activity": {
+      "type": "wait_pattern",
+      "timeout_s": 120,
+      "outcomes": [
+        {
+          "label": "qemu_exit_nonzero",
+          "pattern": "AUTOPILOT_FAIL: QEMU_RND_HELPER_EXIT_NONZERO rc=[0-9]+",
+          "source": "tty0",
+          "next": "fail"
+        },
+        {
+          "label": "mmio_or_rpc_activity_seen",
+          "pattern": "EV_MMIO_BEGIN|rpc_run summary:|rpcdbg: resp\\[|rpcdbg: event\\[|first_mmio_rpc_activity",
+          "source": "tty0",
           "next": "wait_trace_dump_complete"
+        },
+        {
+          "label": "trace_dump_complete",
+          "pattern": "VIO_TRACE_DUMP_END",
+          "source": "tty0",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "emit_no_mmio_rpc_activity_fail"
+    },
+    "emit_no_mmio_rpc_activity_fail": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "echo 'AUTOPILOT_FAIL: VIO_TRACE_NO_MMIO_RPC_ACTIVITY_BEFORE_DUMP_WINDOW'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fail"
         }
       ],
       "on_timeout": "fail"
     },
     "wait_trace_dump_complete": {
       "type": "wait_pattern",
-      "timeout_s": 360,
+      "timeout_s": 240,
       "outcomes": [
         {
           "label": "qemu_exit_nonzero",
@@ -74,6 +112,19 @@
           "pattern": "VIO_TRACE_DUMP_END",
           "source": "tty0",
           "next": "pass"
+        }
+      ],
+      "on_timeout": "emit_dump_not_completed_fail"
+    },
+    "emit_dump_not_completed_fail": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "echo 'AUTOPILOT_FAIL: VIO_TRACE_DUMP_NOT_COMPLETED_AFTER_ACTIVITY'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fail"
         }
       ],
       "on_timeout": "fail"
