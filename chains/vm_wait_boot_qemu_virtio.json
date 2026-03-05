@@ -87,7 +87,7 @@
     "emit_no_mmio_rpc_activity_fail": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_FAIL: VIO_TRACE_NO_MMIO_RPC_ACTIVITY_BEFORE_DUMP_WINDOW'",
+      "cmd": "echo 'AUTOPILOT_FAIL: VIO_TRACE_NO_MMIO_RPC_ACTIVITY_BEFORE_DUMP_WINDOW'; if [ -f /tmp/qemu-rnd-helper.rc ]; then rc=$(cat /tmp/qemu-rnd-helper.rc); echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE rc=$rc\"; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE missing'; fi; if pgrep -x qemu-rnd-helper >/dev/null 2>&1; then echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_STILL_RUNNING'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING'; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 80 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_LOG: /'; fi",
       "suffix": "\n",
       "outcomes": [
         {
