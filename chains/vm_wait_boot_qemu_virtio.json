@@ -84,7 +84,7 @@
         },
         {
           "label": "mmio_or_rpc_activity_seen",
-          "pattern": "EV_MMIO_BEGIN|rpc_run summary:|rpcdbg: resp\\[|rpcdbg: event\\[|first_mmio_rpc_activity",
+          "pattern": "MMIO_BEGIN|rpc_run summary:|rpcdbg: resp\\[|rpcdbg: event\\[|first_mmio_rpc_activity",
           "source": "tty0",
           "next": "wait_trace_dump_complete"
         },
