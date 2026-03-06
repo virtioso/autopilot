@@ -1068,7 +1068,6 @@ def _run_hook_vio_trace_marker_contract(result_dir: Path, profile_name: str) -> 
             str(merged_out),
             "--out-text",
             str(merged_text_out),
-            "--show-all",
         ]
         cp_timeline = subprocess.run(cmd_timeline, capture_output=True, text=True)
         if cp_timeline.returncode != 0:
@@ -1114,8 +1113,6 @@ def _run_hook_vio_trace_marker_contract(result_dir: Path, profile_name: str) -> 
         )
 
     counts = {
-        "VMM_ARM": 0,
-        "VMM_QEMU_START_VM": 0,
         "MMIO_BEGIN": 0,
         "VMM_DUMP_FINALIZE": 0,
         "VMM_DISARM": 0,
