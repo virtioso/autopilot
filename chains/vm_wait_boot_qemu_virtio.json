@@ -49,7 +49,7 @@
     "run_qemu_rnd_helper": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "QH_LOG=/tmp/qemu-rnd-helper.log; QH_RC=/tmp/qemu-rnd-helper.rc; rm -f \"$QH_RC\"; echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_START\"; ( qemu-rnd-helper >\"$QH_LOG\" 2>&1; rc=$?; echo \"$rc\" > \"$QH_RC\"; echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_EXIT_RC=$rc\"; if [ \"$rc\" -ne 0 ]; then echo \"AUTOPILOT_FAIL: QEMU_RND_HELPER_EXIT_NONZERO rc=$rc\"; tail -n 80 \"$QH_LOG\" | sed 's/^/AUTOPILOT_QEMU_ERR: /'; fi ) & qh_pid=$!; echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_LAUNCHED pid=$qh_pid log=$QH_LOG rc_file=$QH_RC\"; sleep 1; if ! kill -0 \"$qh_pid\" 2>/dev/null; then if [ -f \"$QH_RC\" ]; then rc=$(cat \"$QH_RC\"); echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_EARLY_EXIT rc=$rc\"; fi; fi",
+      "cmd": "QH_LOG=/tmp/qemu-rnd-helper.log; QH_RC=/tmp/qemu-rnd-helper.rc; rm -f \"$QH_RC\"; echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_START\"; ( SEL4_DIRECT_DELEGATION=1 qemu-rnd-helper >\"$QH_LOG\" 2>&1; rc=$?; echo \"$rc\" > \"$QH_RC\"; echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_EXIT_RC=$rc\"; if [ \"$rc\" -ne 0 ]; then echo \"AUTOPILOT_FAIL: QEMU_RND_HELPER_EXIT_NONZERO rc=$rc\"; tail -n 80 \"$QH_LOG\" | sed 's/^/AUTOPILOT_QEMU_ERR: /'; fi ) & qh_pid=$!; echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_LAUNCHED pid=$qh_pid log=$QH_LOG rc_file=$QH_RC\"; sleep 1; if ! kill -0 \"$qh_pid\" 2>/dev/null; then if [ -f \"$QH_RC\" ]; then rc=$(cat \"$QH_RC\"); echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_EARLY_EXIT rc=$rc\"; fi; fi",
       "suffix": "\n",
       "outcomes": [
         {
