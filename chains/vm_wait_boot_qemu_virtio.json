@@ -62,7 +62,7 @@
     "emit_qemu_bootstrap_diag": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: QEMU_BOOTSTRAP_DIAG_BEGIN'; if pgrep -x qemu-rnd-helper >/dev/null 2>&1; then echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_RUNNING_AFTER_LAUNCH'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING_AFTER_LAUNCH'; fi; if [ -f /tmp/qemu-rnd-helper.rc ]; then echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_EARLY=$(cat /tmp/qemu-rnd-helper.rc)\"; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 60 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_BOOTSTRAP: /'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_LOG_MISSING_AFTER_LAUNCH'; fi; echo 'AUTOPILOT_INFO: QEMU_BOOTSTRAP_DIAG_END'",
+      "cmd": "echo 'AUTOPILOT_INFO: QEMU_BOOTSTRAP_DIAG_BEGIN'; qh_pid=''; for _ in $(seq 1 20); do qh_pid=$(pidof qemu-rnd-helper 2>/dev/null | awk '{print $1}'); if [ -n \"$qh_pid\" ]; then break; fi; sleep 1; done; if [ -n \"$qh_pid\" ]; then echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RUNNING_AFTER_LAUNCH pid=$qh_pid\"; if [ -r \"/proc/$qh_pid/comm\" ]; then printf 'AUTOPILOT_QEMU_PROC: pid=%s comm=%s\\n' \"$qh_pid\" \"$(cat \"/proc/$qh_pid/comm\")\"; fi; if [ -r \"/proc/$qh_pid/cmdline\" ]; then tr '\\000' ' ' < \"/proc/$qh_pid/cmdline\" | sed \"s/^/AUTOPILOT_QEMU_PROC: pid=$qh_pid cmdline=/\"; fi; if [ -r \"/proc/$qh_pid/maps\" ]; then sed \"s/^/AUTOPILOT_QEMU_MAP: pid=$qh_pid /\" \"/proc/$qh_pid/maps\"; else echo \"AUTOPILOT_QEMU_PROC: pid=$qh_pid maps_unreadable\"; fi; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING_AFTER_LAUNCH'; echo 'AUTOPILOT_INFO: VM0_PROC_DIAG_BEGIN'; for p in /proc/[0-9]*; do [ -d \"$p\" ] || continue; pid=${p#/proc/}; comm=$(cat \"$p/comm\" 2>/dev/null || true); printf 'AUTOPILOT_VM0_PROC: pid=%s comm=%s\\n' \"$pid\" \"$comm\"; if [ -r \"$p/maps\" ]; then sed \"s/^/AUTOPILOT_VM0_MAP: pid=$pid /\" \"$p/maps\"; fi; done; echo 'AUTOPILOT_INFO: VM0_PROC_DIAG_END'; fi; if [ -f /tmp/qemu-rnd-helper.rc ]; then echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_EARLY=$(cat /tmp/qemu-rnd-helper.rc)\"; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 60 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_BOOTSTRAP: /'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_LOG_MISSING_AFTER_LAUNCH'; fi; echo 'AUTOPILOT_INFO: VM0_MODULE_DIAG_BEGIN'; if [ -r /proc/modules ]; then sed 's/^/AUTOPILOT_VM0_MODULE: /' /proc/modules; else echo 'AUTOPILOT_VM0_MODULE: /proc/modules unreadable'; fi; for d in /sys/module/*; do if [ -d \"$d\" ]; then mod=${d##*/}; if [ -r \"$d/sections/.text\" ]; then printf 'AUTOPILOT_VM0_MODULE_TEXT: %s .text=%s\\n' \"$mod\" \"$(cat \"$d/sections/.text\")\"; fi; if [ -r \"$d/sections/.init.text\" ]; then printf 'AUTOPILOT_VM0_MODULE_TEXT: %s .init.text=%s\\n' \"$mod\" \"$(cat \"$d/sections/.init.text\")\"; fi; fi; done; echo 'AUTOPILOT_INFO: VM0_MODULE_DIAG_END'; echo 'AUTOPILOT_INFO: QEMU_BOOTSTRAP_DIAG_END'",
       "suffix": "\n",
       "outcomes": [
         {
@@ -84,7 +84,7 @@
         },
         {
           "label": "mmio_or_rpc_activity_seen",
-          "pattern": "MMIO_BEGIN|rpc_run summary:|rpcdbg: resp\\[|rpcdbg: event\\[|first_mmio_rpc_activity",
+          "pattern": "MMIO_BEGIN|rpc_run summary:|rpcdbg: resp\\[|rpcdbg: event\\[|first[-_]mmio[-_]rpc[-_]activity",
           "source": "tty0",
           "next": "wait_trace_dump_complete"
         },
