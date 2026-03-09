@@ -1473,35 +1473,17 @@ class ChainRunner:
         if method == "scp":
             if not target_ip:
                 raise ValueError("upload step requires target_ip for method=scp")
-            subprocess.run([
-                "scp", "-o", "StrictHostKeyChecking=no",
-                str(local_path),
-                f"{target_user}@{target_ip}:{target_path}"
-            ], check=True)
-            sync_proc = self._ssh_run_capture(str(target_user), str(target_ip), "sync && sync")
-            if sync_proc.returncode != 0:
-                stderr = (sync_proc.stderr or "").strip()
-                raise RuntimeError(
-                    f"remote sync failed after upload to {target_path}: {stderr or 'unknown error'}"
-                )
-
-            local_md5 = self._md5_file(Path(str(local_path)))
-            verify_copy = self.ctx["result_dir"] / f".upload-verify-{os.getpid()}-{int(time.time() * 1000)}.bin"
-            try:
-                subprocess.run([
-                    "scp", "-o", "StrictHostKeyChecking=no",
-                    f"{target_user}@{target_ip}:{target_path}",
-                    str(verify_copy),
-                ], check=True)
-                roundtrip_md5 = self._md5_file(verify_copy)
-            finally:
-                verify_copy.unlink(missing_ok=True)
-
-            if roundtrip_md5 != local_md5:
-                raise RuntimeError(
-                    f"upload round-trip md5 mismatch for {target_path}: "
-                    f"expected {local_md5} got {roundtrip_md5}"
-                )
+            local_sha = self._sha256_file(Path(str(local_path)))
+            self._scp_upload_with_verification(
+                local_path=Path(str(local_path)),
+                target_user=str(target_user),
+                target_ip=str(target_ip),
+                target_path=str(target_path),
+                local_sha=local_sha,
+                skip_if_same=True,
+                atomic_replace=False,
+                error_prefix=f"{kind} upload",
+            )
         elif method == "local_copy":
             target_file = Path(target_path)
             target_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1514,13 +1496,6 @@ class ChainRunner:
 
     def _sha256_file(self, path: Path) -> str:
         digest = hashlib.sha256()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
-
-    def _md5_file(self, path: Path) -> str:
-        digest = hashlib.md5()
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
                 digest.update(chunk)
@@ -1553,6 +1528,75 @@ class ChainRunner:
         if not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
             raise RuntimeError(f"invalid remote sha256 output for {target_path}: {digest}")
         return digest.lower()
+
+    def _remote_sync(self, target_user: str, target_ip: str, target_path: str, error_prefix: str) -> None:
+        sync_proc = self._ssh_run_capture(target_user, target_ip, "sync && sync")
+        if sync_proc.returncode != 0:
+            stderr = (sync_proc.stderr or "").strip()
+            raise RuntimeError(
+                f"{error_prefix} remote sync failed for {target_path}: {stderr or 'unknown error'}"
+            )
+
+    def _scp_upload_with_verification(
+        self,
+        *,
+        local_path: Path,
+        target_user: str,
+        target_ip: str,
+        target_path: str,
+        local_sha: str,
+        skip_if_same: bool,
+        atomic_replace: bool,
+        error_prefix: str,
+    ) -> None:
+        if skip_if_same:
+            remote_sha = self._remote_sha256(target_user, target_ip, target_path)
+            if remote_sha == local_sha:
+                return
+
+        upload_path = target_path
+        if atomic_replace:
+            upload_path = f"{target_path}.autopilot-tmp-{os.getpid()}"
+
+        subprocess.run(
+            [
+                "scp",
+                "-o",
+                "StrictHostKeyChecking=no",
+                str(local_path),
+                f"{target_user}@{target_ip}:{upload_path}",
+            ],
+            check=True,
+        )
+
+        self._remote_sync(target_user, target_ip, upload_path, error_prefix)
+
+        uploaded_sha = self._remote_sha256(target_user, target_ip, upload_path)
+        if uploaded_sha != local_sha:
+            if atomic_replace:
+                cleanup_cmd = f"rm -f {shlex.quote(upload_path)}"
+                self._ssh_run_capture(target_user, target_ip, cleanup_cmd)
+            raise RuntimeError(
+                f"{error_prefix} remote hash mismatch for {upload_path}: "
+                f"expected {local_sha} got {uploaded_sha}"
+            )
+
+        if atomic_replace:
+            move_cmd = f"mv -f {shlex.quote(upload_path)} {shlex.quote(target_path)}"
+            proc = self._ssh_run_capture(target_user, target_ip, move_cmd)
+            if proc.returncode != 0:
+                stderr = (proc.stderr or "").strip()
+                raise RuntimeError(f"{error_prefix} atomic move failed: {stderr or 'unknown error'}")
+
+            self._remote_sync(target_user, target_ip, target_path, f"{error_prefix} after move")
+
+        verify_path = target_path if atomic_replace else upload_path
+        verify_sha = self._remote_sha256(target_user, target_ip, verify_path)
+        if verify_sha != local_sha:
+            raise RuntimeError(
+                f"{error_prefix} final remote hash mismatch for {verify_path}: "
+                f"expected {local_sha} got {verify_sha}"
+            )
 
     def _step_upload_file(self, step: dict) -> Tuple[str, OutcomeMatch]:
         self._check_cancel()
@@ -1603,80 +1647,22 @@ class ChainRunner:
             raise ValueError("upload_file requires target_ip for method=scp")
 
         if skip_if_same == "sha256":
-            remote_sha = self._remote_sha256(target_user, str(target_ip), str(target_path))
-            if remote_sha == local_sha:
-                return self._simple_outcome(step)
+            skip_remote_match = True
         elif skip_if_same not in (None, ""):
             raise ValueError(f"upload_file unknown skip_if_same mode: {skip_if_same}")
+        else:
+            skip_remote_match = False
 
-        upload_path = str(target_path)
-        if atomic_replace:
-            upload_path = f"{target_path}.autopilot-tmp-{os.getpid()}"
-
-        subprocess.run(
-            [
-                "scp",
-                "-o",
-                "StrictHostKeyChecking=no",
-                str(local_path),
-                f"{target_user}@{target_ip}:{upload_path}",
-            ],
-            check=True,
+        self._scp_upload_with_verification(
+            local_path=local_path,
+            target_user=str(target_user),
+            target_ip=str(target_ip),
+            target_path=str(target_path),
+            local_sha=local_sha,
+            skip_if_same=skip_remote_match,
+            atomic_replace=atomic_replace,
+            error_prefix="upload_file",
         )
-
-        uploaded_sha = self._remote_sha256(target_user, str(target_ip), upload_path)
-        if uploaded_sha != local_sha:
-            if atomic_replace:
-                cleanup_cmd = f"rm -f {shlex.quote(upload_path)}"
-                self._ssh_run_capture(target_user, str(target_ip), cleanup_cmd)
-            raise RuntimeError(
-                f"upload_file remote hash mismatch for {upload_path}: expected {local_sha} got {uploaded_sha}"
-            )
-
-        sync_proc = self._ssh_run_capture(target_user, str(target_ip), "sync && sync")
-        if sync_proc.returncode != 0:
-            stderr = (sync_proc.stderr or "").strip()
-            raise RuntimeError(
-                f"upload_file remote sync failed for {upload_path}: {stderr or 'unknown error'}"
-            )
-
-        if atomic_replace:
-            move_cmd = f"mv -f {shlex.quote(upload_path)} {shlex.quote(str(target_path))}"
-            proc = self._ssh_run_capture(target_user, str(target_ip), move_cmd)
-            if proc.returncode != 0:
-                stderr = (proc.stderr or "").strip()
-                raise RuntimeError(f"upload_file atomic move failed: {stderr or 'unknown error'}")
-
-            sync_proc = self._ssh_run_capture(target_user, str(target_ip), "sync && sync")
-            if sync_proc.returncode != 0:
-                stderr = (sync_proc.stderr or "").strip()
-                raise RuntimeError(
-                    f"upload_file remote sync failed after move to {target_path}: {stderr or 'unknown error'}"
-                )
-
-        verify_path = str(target_path) if atomic_replace else upload_path
-        verify_copy = self.ctx["result_dir"] / f".upload-file-verify-{os.getpid()}-{int(time.time() * 1000)}.bin"
-        local_md5 = self._md5_file(local_path)
-        try:
-            subprocess.run(
-                [
-                    "scp",
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    f"{target_user}@{target_ip}:{verify_path}",
-                    str(verify_copy),
-                ],
-                check=True,
-            )
-            roundtrip_md5 = self._md5_file(verify_copy)
-        finally:
-            verify_copy.unlink(missing_ok=True)
-
-        if roundtrip_md5 != local_md5:
-            raise RuntimeError(
-                f"upload_file round-trip md5 mismatch for {verify_path}: "
-                f"expected {local_md5} got {roundtrip_md5}"
-            )
         return self._simple_outcome(step)
 
     def _step_reboot(self, step: dict) -> Tuple[str, OutcomeMatch]:

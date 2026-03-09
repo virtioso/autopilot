@@ -95,7 +95,6 @@ Defaults (AUTOPILOT_DIR/TTYs and queue names) are defined in `config.py` (SSOT).
 │       ├── upload.log    # Upload phase log (if defined by profile)
 │       └── recovery.log  # Recovery phase log (if defined by profile)
 ├── binaries/             # Staging area for EFI binaries
-├── seL4BootHarness.py    # seL4 boot harness classes
 ├── filter_sel4_start.py  # Log filter script
 └── sel4_client.py        # Client library
 ```

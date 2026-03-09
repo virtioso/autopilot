@@ -52,9 +52,9 @@ operator interaction.
 
 ### 3) Legacy Harness Modules
 
-`BootHarness.py` and `seL4BootHarness.py` remain in-tree as legacy utilities.
-Authoritative orchestration for active test flows is the chain runtime in
-`chain_runtime.py` plus `chains/*.json`.
+`BootHarness.py` remains in-tree as a legacy utility. Authoritative
+orchestration for active test flows is the chain runtime in `chain_runtime.py`
+plus `chains/*.json`.
 
 ### 4) Board Control
 

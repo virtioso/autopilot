@@ -349,6 +349,10 @@ This allows housekeeping/preparation flows to continue after verdict is known.
 
 `local_copy` is useful for host-local deployment targets such as TFTP roots.
 
+For `method: "scp"`, Autopilot computes local SHA-256, uploads only when needed,
+runs `sync && sync` on the target, and verifies SHA-256 on the target over SSH.
+It does not download the uploaded file back for verification.
+
 `upload_file` fields:
 
 - required: `local_path`, `target_user`, `target_ip`, `target_path`
@@ -358,7 +362,7 @@ This allows housekeeping/preparation flows to continue after verdict is known.
 1. Computes local SHA-256.
 2. Probes remote SHA-256 when target exists.
 3. Skips transfer when hashes match.
-4. Otherwise uploads and verifies SHA-256 on remote copy.
+4. Otherwise uploads, runs `sync && sync`, and verifies SHA-256 on the target over SSH.
 5. If `atomic_replace=true`, uploads to a temp path and atomically `mv -f` to target.
 
 ## Example: ssh_wait_ready
