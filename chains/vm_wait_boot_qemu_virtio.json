@@ -9,7 +9,7 @@
           "label": "driver_vm_shell",
           "pattern": "root@driver-vm:~#|root@.*:~#",
           "source": "tty0",
-          "next": "arm_ftrace_early"
+          "next": "run_qemu_rnd_helper"
         },
         {
           "label": "driver_vm_login",
@@ -41,19 +41,6 @@
           "label": "driver_vm_shell",
           "pattern": "root@driver-vm:~#|root@.*:~#",
           "source": "tty0",
-          "next": "arm_ftrace_early"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "arm_ftrace_early": {
-      "type": "send_cmd",
-      "source": "tty0",
-      "cmd": "/usr/bin/hyp-ftrace-ctl arm",
-      "suffix": "\n",
-      "outcomes": [
-        {
-          "label": "ok",
           "next": "run_qemu_rnd_helper"
         }
       ],
@@ -80,14 +67,14 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "wait_first_mmio_rpc_activity"
+          "next": "wait_trace_dump_complete"
         }
       ],
       "on_timeout": "fail"
     },
-    "wait_first_mmio_rpc_activity": {
+    "wait_trace_dump_complete": {
       "type": "wait_pattern",
-      "timeout_s": 120,
+      "timeout_s": 300,
       "outcomes": [
         {
           "label": "qemu_exit_nonzero",
@@ -96,107 +83,18 @@
           "next": "fail"
         },
         {
-          "label": "mmio_or_rpc_activity_seen",
-          "pattern": "MMIO_BEGIN|rpc_run summary:|rpcdbg: resp\\[|rpcdbg: event\\[|first[-_]mmio[-_]rpc[-_]activity",
-          "source": "tty0",
-          "next": "emit_dump_reason_rpc_activity"
-        },
-        {
           "label": "trace_dump_complete",
           "pattern": "VIO_TRACE_DUMP_END",
           "source": "tty0",
           "next": "pass"
         }
       ],
-      "on_timeout": "emit_dump_reason_hard_cap"
+      "on_timeout": "emit_dump_timeout_diag"
     },
-    "emit_dump_reason_rpc_activity": {
+    "emit_dump_timeout_diag": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: FTRACE_DUMP_REASON=RPC_ACTIVITY_SEEN'",
-      "suffix": "\n",
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "dump_ftrace"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "emit_dump_reason_hard_cap": {
-      "type": "send_cmd",
-      "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: FTRACE_DUMP_REASON=HARD_CAP_120S_NO_RPC'; echo 'AUTOPILOT_INFO: NO_ACTIVITY_DIAG_BEGIN'; if [ -f /tmp/qemu-rnd-helper.rc ]; then rc=$(cat /tmp/qemu-rnd-helper.rc); echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE rc=$rc\"; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE missing'; fi; if pgrep -x qemu-rnd-helper >/dev/null 2>&1; then echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_STILL_RUNNING'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING'; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 80 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_LOG: /'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_INFO: NO_ACTIVITY_DIAG_END'",
-      "suffix": "\n",
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "dump_ftrace"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "dump_ftrace": {
-      "type": "send_cmd",
-      "source": "tty0",
-      "cmd": "/usr/bin/hyp-ftrace-ctl dump",
-      "suffix": "\n",
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "wait_dump_ftrace_result"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "wait_dump_ftrace_result": {
-      "type": "wait_pattern",
-      "timeout_s": 240,
-      "outcomes": [
-        {
-          "label": "qemu_exit_nonzero",
-          "pattern": "AUTOPILOT_FAIL: QEMU_RND_HELPER_EXIT_NONZERO rc=[0-9]+",
-          "source": "tty0",
-          "next": "fail"
-        },
-        {
-          "label": "dump_transfer_start",
-          "pattern": "=== BINARY TRANSFER START ===",
-          "source": "tty0",
-          "next": "wait_dump_transfer_completion"
-        },
-        {
-          "label": "trace_dump_complete",
-          "pattern": "VIO_TRACE_DUMP_END",
-          "source": "tty0",
-          "next": "pass"
-        },
-        {
-          "label": "dump_failed",
-          "pattern": "AUTOPILOT_FAIL: HYP_FTRACE_DUMP_CMD_FAILED|AUTOPILOT_FAIL: HYP_FTRACE_DUMP_",
-          "source": "tty0",
-          "next": "fail"
-        }
-      ],
-      "on_timeout": "emit_dump_not_completed_fail"
-    },
-    "wait_dump_transfer_completion": {
-      "type": "wait_pattern",
-      "timeout_s": 360,
-      "outcomes": [
-        {
-          "label": "dump_transfer_complete",
-          "pattern": "=== BINARY TRANSFER END ===|VIO_TRACE_DUMP_END",
-          "source": "tty0",
-          "next": "pass"
-        }
-      ],
-      "on_timeout": "emit_dump_not_completed_fail"
-    },
-    "emit_dump_not_completed_fail": {
-      "type": "send_cmd",
-      "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_FAIL: VIO_TRACE_DUMP_NOT_COMPLETED_AFTER_ACTIVITY'",
+      "cmd": "echo 'AUTOPILOT_INFO: NO_TRACE_DUMP_DIAG_BEGIN'; if [ -f /tmp/qemu-rnd-helper.rc ]; then rc=$(cat /tmp/qemu-rnd-helper.rc); echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE rc=$rc\"; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE missing'; fi; if pgrep -x qemu-rnd-helper >/dev/null 2>&1; then echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_STILL_RUNNING'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING'; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 80 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_LOG: /'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_FAIL: VIO_TRACE_DUMP_NOT_COMPLETED_AFTER_TIMEOUT'; echo 'AUTOPILOT_INFO: NO_TRACE_DUMP_DIAG_END'",
       "suffix": "\n",
       "outcomes": [
         {
