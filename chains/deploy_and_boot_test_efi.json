@@ -29,16 +29,6 @@
       "target_ip": "{target_ip}",
       "target_path": "/efiboot/{target_binary_name}",
       "outcomes": [
-        { "label": "ok", "next": "reboot_efi" }
-      ],
-      "on_timeout": "fail"
-    },
-    "reboot_efi": {
-      "type": "reboot",
-      "method": "ssh",
-      "target_user": "root",
-      "target_ip": "{target_ip}",
-      "outcomes": [
         { "label": "ok", "next": "boot_efi" }
       ],
       "on_timeout": "fail"
