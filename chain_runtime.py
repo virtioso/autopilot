@@ -883,11 +883,13 @@ class ChainRunner:
 
     def _step_wait_pattern(self, step: dict) -> Tuple[str, OutcomeMatch]:
         timeout_s = int(step.get("timeout_s", 30))
+        idle_timeout_s = step.get("idle_timeout_s")  # None = disabled
         outcomes = step.get("outcomes", [])
         start_from = str(step.get("start_from", "head")).strip().lower()
         if start_from not in ("head", "tail"):
             raise ValueError("wait_pattern start_from must be head|tail")
         start = time.time()
+        last_data_time = start
         cursors: Dict[str, int] = {}
         buffers: Dict[str, bytes] = {}
         buffer_starts: Dict[str, int] = {}
@@ -914,6 +916,7 @@ class ChainRunner:
                 cursors[source] = new_cursor
 
                 if data:
+                    last_data_time = time.time()
                     existing = buffers.get(source, b"")
                     existing_start = buffer_starts.get(source, chunk_start)
                     combined, combined_start = self._append_capped_buffer(
@@ -952,6 +955,8 @@ class ChainRunner:
                             log_path=log_path,
                             log_offset=offset,
                         )
+            if idle_timeout_s is not None and time.time() - last_data_time > idle_timeout_s:
+                break
             time.sleep(0.1)
         next_step = step.get("on_timeout", "fail")
         return next_step, OutcomeMatch(
@@ -1012,37 +1017,38 @@ class ChainRunner:
                     chunk_start=chunk_start,
                     max_buffer=max_buffer,
                 )
-                normalized, norm_map = normalize_tty_bytes(buffer)
-                if not normalized:
-                    time.sleep(0.1)
+            normalized, norm_map = normalize_tty_bytes(buffer)
+            if not normalized:
+                time.sleep(0.1)
+                continue
+
+            for label, pattern, next_step, compiled_pattern in compiled:
+                match = compiled_pattern.match(normalized)
+                if not match:
                     continue
+                if next_step == "self":
+                    if match.end() <= match.start():
+                        raise ValueError(
+                            f"case clause '{label}' matched empty span with next=self; "
+                            f"pattern={pattern}"
+                        )
+                    consumed_norm = match.end()
+                    consumed_raw = norm_map[consumed_norm - 1] + 1
+                    buffer = buffer[consumed_raw:]
+                    buffer_start += consumed_raw
+                    break
 
-                for label, pattern, next_step, compiled_pattern in compiled:
-                    match = compiled_pattern.match(normalized)
-                    if not match:
-                        continue
-                    if next_step == "self":
-                        if match.end() <= match.start():
-                            raise ValueError(
-                                f"case clause '{label}' matched empty span with next=self; "
-                                f"pattern={pattern}"
-                            )
-                        consumed_norm = match.end()
-                        consumed_raw = norm_map[consumed_norm - 1] + 1
-                        buffer = buffer[consumed_raw:]
-                        buffer_start += consumed_raw
-                        break
-
-                    offset = to_raw_offset(match.start(), norm_map, buffer_start)
-                    return next_step, OutcomeMatch(
-                        label=label,
-                        next_step=next_step,
-                        pattern=pattern,
-                        source=source,
-                        log_path=str(binding.log_path),
-                        log_offset=offset,
-                    )
-            time.sleep(0.1)
+                offset = to_raw_offset(match.start(), norm_map, buffer_start)
+                return next_step, OutcomeMatch(
+                    label=label,
+                    next_step=next_step,
+                    pattern=pattern,
+                    source=source,
+                    log_path=str(binding.log_path),
+                    log_offset=offset,
+                )
+            else:
+                time.sleep(0.1)
 
         next_step = step.get("on_timeout", "fail")
         return next_step, OutcomeMatch(

@@ -39,17 +39,18 @@
     },
     "wait_sel4": {
       "type": "wait_pattern",
-      "timeout_s": 180,
+      "timeout_s": 420,
+      "idle_timeout_s": 10,
       "outcomes": [
         {
           "label": "ok",
-          "pattern": "seL4|ELF-loader",
+          "pattern": "All is well in the universe",
           "source": "tty0",
           "next": "filter_sel4_log_pass"
         },
         {
           "label": "panic",
-          "pattern": "Kernel panic|panic",
+          "pattern": "\\*\\*\\* FAILURES DETECTED \\*\\*\\*|Halting on fatal assertion\\.\\.\\.|Halting on first test failure|\\*\\*\\* ALL tests not run \\*\\*\\*|Kernel panic|panic",
           "source": "tty0",
           "next": "filter_sel4_log_fail"
         }
@@ -147,6 +148,21 @@
     "run_bootefi": {
       "type": "call_chain",
       "chain": "deploy_and_boot_test_efi",
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "wait_for_elfloader"
+        },
+        {
+          "label": "fail",
+          "next": "set_verdict_fail"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_for_elfloader": {
+      "type": "call_chain",
+      "chain": "wait_for_elfloader",
       "outcomes": [
         {
           "label": "pass",

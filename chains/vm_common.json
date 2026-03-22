@@ -68,53 +68,19 @@
       "on_timeout": "fail"
     },
     "wait_for_elfloader": {
-      "type": "case",
-      "source": "tty0",
-      "start_from": "tail",
-      "timeout_s": 300,
-      "clauses": [
+      "type": "call_chain",
+      "chain": "wait_for_elfloader",
+      "outcomes": [
         {
-          "label": "skip_whitespace",
-          "pattern": "^\\s+",
-          "next": "self"
-        },
-        {
-          "label": "skip_efi_command_echo",
-          "pattern": "^\\s*fs2:\\\\efiboot\\\\\\S*",
-          "next": "self"
-        },
-        {
-          "label": "elfloader",
-          "pattern": "^ELF-loader started on CPU",
+          "label": "pass",
           "next": "parallel_vm_boot_split"
         },
         {
-          "label": "binary_not_uploaded",
-          "pattern": "^.*is not recognized as an internal or external command",
-          "next": "emit_binary_not_uploaded_fail"
-        },
-        {
-          "label": "ignore_other_non_whitespace",
-          "pattern": "^\\S+",
-          "next": "self"
+          "label": "fail",
+          "next": "filter_logs_fail"
         }
       ],
       "on_timeout": "filter_logs_fail"
-    },
-    "emit_binary_not_uploaded_fail": {
-      "type": "analyze_logs",
-      "command": [
-        "bash",
-        "-lc",
-        "printf \"\\nAUTOPILOT_FAIL: BINARY_NOT_UPLOADED (UEFI shell reported command not recognized)\\n\" >> \"{result_dir}/console/autopilot.fail.log\""
-      ],
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "set_verdict_fail"
-        }
-      ],
-      "on_timeout": "set_verdict_fail"
     },
     "parallel_vm_boot_split": {
       "type": "split",
