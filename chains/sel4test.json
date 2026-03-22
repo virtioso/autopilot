@@ -38,20 +38,20 @@
       "on_timeout": "fail"
     },
     "wait_sel4": {
-      "type": "wait_pattern",
+      "type": "case",
+      "source": "tty0",
+      "scan": true,
       "timeout_s": 420,
       "idle_timeout_s": 10,
-      "outcomes": [
+      "clauses": [
         {
           "label": "ok",
           "pattern": "All is well in the universe",
-          "source": "tty0",
           "next": "filter_sel4_log_pass"
         },
         {
           "label": "panic",
           "pattern": "\\*\\*\\* FAILURES DETECTED \\*\\*\\*|Halting on fatal assertion\\.\\.\\.|Halting on first test failure|\\*\\*\\* ALL tests not run \\*\\*\\*|Kernel panic|panic",
-          "source": "tty0",
           "next": "filter_sel4_log_fail"
         }
       ],

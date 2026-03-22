@@ -970,6 +970,8 @@ class ChainRunner:
 
     def _step_case(self, step: dict) -> Tuple[str, OutcomeMatch]:
         timeout_s = int(step.get("timeout_s", 30))
+        idle_timeout_s = step.get("idle_timeout_s")  # None = disabled
+        scan = bool(step.get("scan", False))
         source = str(step.get("source", "")).strip()
         if not source:
             raise ValueError("case requires source")
@@ -1004,12 +1006,14 @@ class ChainRunner:
         buffer = b""
         buffer_start = cursor
         start = time.time()
+        last_data_time = start
         while time.time() - start < timeout_s:
             self._poll_runtime_events()
             data, new_cursor = binding.read_since(cursor)
             chunk_start = max(cursor, binding._base_offset)
             cursor = new_cursor
             if data:
+                last_data_time = time.time()
                 buffer, buffer_start = self._append_capped_buffer(
                     existing=buffer,
                     existing_start=buffer_start,
@@ -1019,36 +1023,59 @@ class ChainRunner:
                 )
             normalized, norm_map = normalize_tty_bytes(buffer)
             if not normalized:
+                if idle_timeout_s is not None and time.time() - last_data_time > idle_timeout_s:
+                    break
                 time.sleep(0.1)
                 continue
 
-            for label, pattern, next_step, compiled_pattern in compiled:
-                match = compiled_pattern.match(normalized)
-                if not match:
-                    continue
-                if next_step == "self":
-                    if match.end() <= match.start():
-                        raise ValueError(
-                            f"case clause '{label}' matched empty span with next=self; "
-                            f"pattern={pattern}"
-                        )
-                    consumed_norm = match.end()
-                    consumed_raw = norm_map[consumed_norm - 1] + 1
-                    buffer = buffer[consumed_raw:]
-                    buffer_start += consumed_raw
-                    break
-
-                offset = to_raw_offset(match.start(), norm_map, buffer_start)
-                return next_step, OutcomeMatch(
-                    label=label,
-                    next_step=next_step,
-                    pattern=pattern,
-                    source=source,
-                    log_path=str(binding.log_path),
-                    log_offset=offset,
-                )
+            if scan:
+                for label, pattern, next_step, compiled_pattern in compiled:
+                    match = compiled_pattern.search(normalized)
+                    if not match:
+                        continue
+                    offset = to_raw_offset(match.start(), norm_map, buffer_start)
+                    return next_step, OutcomeMatch(
+                        label=label,
+                        next_step=next_step,
+                        pattern=pattern,
+                        source=source,
+                        log_path=str(binding.log_path),
+                        log_offset=offset,
+                    )
             else:
-                time.sleep(0.1)
+                for label, pattern, next_step, compiled_pattern in compiled:
+                    match = compiled_pattern.match(normalized)
+                    if not match:
+                        continue
+                    if next_step == "self":
+                        if match.end() <= match.start():
+                            raise ValueError(
+                                f"case clause '{label}' matched empty span with next=self; "
+                                f"pattern={pattern}"
+                            )
+                        consumed_norm = match.end()
+                        consumed_raw = norm_map[consumed_norm - 1] + 1
+                        buffer = buffer[consumed_raw:]
+                        buffer_start += consumed_raw
+                        break
+
+                    offset = to_raw_offset(match.start(), norm_map, buffer_start)
+                    return next_step, OutcomeMatch(
+                        label=label,
+                        next_step=next_step,
+                        pattern=pattern,
+                        source=source,
+                        log_path=str(binding.log_path),
+                        log_offset=offset,
+                    )
+                else:
+                    if idle_timeout_s is not None and time.time() - last_data_time > idle_timeout_s:
+                        break
+                    time.sleep(0.1)
+                    continue
+            if idle_timeout_s is not None and time.time() - last_data_time > idle_timeout_s:
+                break
+            time.sleep(0.1)
 
         next_step = step.get("on_timeout", "fail")
         return next_step, OutcomeMatch(

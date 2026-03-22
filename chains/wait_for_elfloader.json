@@ -4,33 +4,19 @@
     "wait_for_elfloader": {
       "type": "case",
       "source": "tty0",
-      "start_from": "tail",
+      "scan": true,
       "timeout_s": 300,
+      "idle_timeout_s": 10,
       "clauses": [
         {
-          "label": "skip_whitespace",
-          "pattern": "^\\s+",
-          "next": "self"
-        },
-        {
-          "label": "skip_efi_command_echo",
-          "pattern": "^\\s*fs2:\\\\efiboot\\\\\\S*",
-          "next": "self"
-        },
-        {
           "label": "elfloader",
-          "pattern": "^ELF-loader started on CPU",
+          "pattern": "ELF-loader started on CPU",
           "next": "pass"
         },
         {
           "label": "binary_not_uploaded",
-          "pattern": "^.*is not recognized as an internal or external command",
+          "pattern": "is not recognized as an internal or external command",
           "next": "emit_binary_not_uploaded_fail"
-        },
-        {
-          "label": "ignore_other_non_whitespace",
-          "pattern": "^\\S+",
-          "next": "self"
         }
       ],
       "on_timeout": "fail"
