@@ -373,6 +373,7 @@ Console login/prompt profiles remain in `<code_root>/profiles` (for example
 Example step types:
 - `relay`
 - `boot_menu`
+- `map_command_source`
 - `wait_pattern`
 - `case`
 - `upload_kernel`
@@ -387,6 +388,9 @@ Example step types:
 - `split`, `join`
 - `set_overrides`
 - `pass`, `fail`
+
+For QEMU-backed profiles, prefer `map_command_source` to launch the manual
+workspace runner and capture its stdout/stderr as a chain source.
 
 ## Troubleshooting
 

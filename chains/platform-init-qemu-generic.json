@@ -1,0 +1,27 @@
+{
+  "entry": "set_prepare_noop",
+  "steps": {
+    "set_prepare_noop": {
+      "type": "set_overrides",
+      "overrides": {
+        "lifecycle": {
+          "prepare": {
+            "probe_chain": "post_test_fallback_noop",
+            "run_chain": "post_test_fallback_noop",
+            "degraded_holds_queue": false
+          }
+        }
+      },
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "pass"
+    },
+    "pass": {
+      "type": "pass"
+    }
+  }
+}

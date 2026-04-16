@@ -135,6 +135,24 @@ def _require_ttys(arguments: dict) -> tuple[str, str] | None:
     return str(tty0), str(tty1)
 
 
+def _profile_runtime_mode(profile: str) -> dict:
+    qemu_profiles = {
+        "qemuarm64-defconfig",
+        "qemu-pc99-defconfig",
+    }
+    if profile in qemu_profiles:
+        return {
+            "requires_ttys": False,
+            "platform": "qemu-generic",
+            "build_platform": profile.replace("-defconfig", "").replace("-", "_"),
+        }
+    return {
+        "requires_ttys": True,
+        "platform": apm.DEFAULT_PLATFORM if (apm := _get_autopilot_manager()) else "orin-agx-uefi-netboot",
+        "build_platform": "orinagx",
+    }
+
+
 # MCP Protocol implementation
 # Codex CLI MCP transport uses newline-delimited JSON-RPC over stdio.
 
@@ -599,6 +617,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         profile = arguments.get("profile", "sel4test")
         description = arguments.get("description", "")
         chain_path = SCRIPT_DIR / "chains" / f"{profile}.json"
+        runtime_mode = _profile_runtime_mode(profile)
 
         if not chain_path.exists():
             available_chains = sorted(
@@ -617,14 +636,17 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             }
 
         # Ensure Autopilot daemon is running
-        default_tty0, default_tty1 = get_default_ttys()
         daemon_status = apm.status_autopilot(autopilot_dir=str(paths["autopilot"]))
         if not daemon_status.get("running", False):
-            start_result = apm.start_autopilot(
-                autopilot_dir=str(paths["autopilot"]),
-                tty0=default_tty0,
-                tty1=default_tty1,
-            )
+            start_kwargs = {
+                "autopilot_dir": str(paths["autopilot"]),
+                "platform": runtime_mode["platform"],
+            }
+            if runtime_mode["requires_ttys"]:
+                default_tty0, default_tty1 = get_default_ttys()
+                start_kwargs["tty0"] = default_tty0
+                start_kwargs["tty1"] = default_tty1
+            start_result = apm.start_autopilot(**start_kwargs)
             if start_result.get("status") == "error":
                 return {
                     "content": [{"type": "text", "text": json.dumps(start_result, indent=2)}],
@@ -635,19 +657,29 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             running_tty0 = (daemon_status.get("tty0") or "").strip()
             running_tty1 = (daemon_status.get("tty1") or "").strip()
             running_platform = (daemon_status.get("platform") or "").strip()
-            expected_platform = (os.environ.get("AUTOPILOT_PLATFORM") or "").strip() or apm.DEFAULT_PLATFORM
-            if (
-                not running_tty0
-                or not running_tty1
-                or running_tty0 != default_tty0
-                or running_tty1 != default_tty1
-                or running_platform != expected_platform
-            ):
+            expected_platform = runtime_mode["platform"]
+            needs_restart = running_platform != expected_platform
+            restart_kwargs = {
+                "autopilot_dir": str(paths["autopilot"]),
+                "use_tmux": True,
+                "platform": expected_platform,
+            }
+            if runtime_mode["requires_ttys"]:
+                default_tty0, default_tty1 = get_default_ttys()
+                restart_kwargs["tty0"] = default_tty0
+                restart_kwargs["tty1"] = default_tty1
+                if (
+                    not running_tty0
+                    or not running_tty1
+                    or running_tty0 != default_tty0
+                    or running_tty1 != default_tty1
+                ):
+                    needs_restart = True
+            elif running_tty0 or running_tty1:
+                needs_restart = True
+            if needs_restart:
                 restart_result = apm.restart_autopilot(
-                    autopilot_dir=str(paths["autopilot"]),
-                    use_tmux=True,
-                    tty0=default_tty0,
-                    tty1=default_tty1,
+                    **restart_kwargs,
                 )
                 if restart_result.get("status") == "error":
                     return {
@@ -676,7 +708,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                 binary_path=binary_path,
                 binary_name=binary_name,
                 description=description,
-                build_config={'arm_hyp': arm_hyp, 'platform': 'orinagx'},
+                build_config={'arm_hyp': arm_hyp, 'platform': runtime_mode["build_platform"]},
                 profile=profile,
                 autopilot_dir=autopilot_dir
             )

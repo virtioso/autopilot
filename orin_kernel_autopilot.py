@@ -1907,6 +1907,8 @@ def main() -> None:
             prepare_gate=prepare_gate,
         )
 
+        source_manager.stop_all()
+
         print(f"=== {timestamp} completed: {status} ===", flush=True)
         if not prepare_gate["allow_prepare"]:
             blocked_reason = (

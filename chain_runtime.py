@@ -3,6 +3,7 @@ import os
 import queue
 import re
 import shlex
+import signal
 import subprocess
 import threading
 import time
@@ -165,15 +166,21 @@ class SourceBinding:
     def __init__(
         self,
         source: str,
-        tty: str,
+        tty: Optional[str],
         log_path: Path,
         analysis_log_path: Optional[Path] = None,
         live_log_path: Optional[Path] = None,
         baud: int = 115200,
+        command: Optional[List[str]] = None,
+        cwd: Optional[Path] = None,
+        env: Optional[Dict[str, str]] = None,
         emit=None,
     ):
         self.source = source
         self.tty = tty
+        self.command = list(command) if command else None
+        self.cwd = cwd
+        self.env = dict(env) if env else None
         self.log_path = log_path
         self.analysis_log_path = analysis_log_path
         self.live_log_path = live_log_path
@@ -186,10 +193,30 @@ class SourceBinding:
         self._total_bytes = 0
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._analysis_sanitizer = AnsiCsiStripper()
-        self._serial = serial.Serial(self.tty, baudrate=self.baud, timeout=0.1)
-        # Always start from an empty UART state for deterministic pattern matching.
-        self._serial.reset_input_buffer()
-        self._serial.reset_output_buffer()
+        self._serial = None
+        self._proc = None
+        self._proc_stdin = None
+        self._proc_stdout = None
+        if self.tty:
+            self._serial = serial.Serial(self.tty, baudrate=self.baud, timeout=0.1)
+            # Always start from an empty UART state for deterministic pattern matching.
+            self._serial.reset_input_buffer()
+            self._serial.reset_output_buffer()
+        elif self.command:
+            self._proc = subprocess.Popen(
+                self.command,
+                cwd=str(self.cwd) if self.cwd else None,
+                env=self.env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=0,
+                start_new_session=True,
+            )
+            self._proc_stdin = self._proc.stdin
+            self._proc_stdout = self._proc.stdout
+        else:
+            raise ValueError("source binding requires tty or command")
         self._thread.start()
 
     def _run(self) -> None:
@@ -203,11 +230,18 @@ class SourceBinding:
         with open(self.log_path, "ab", buffering=0) as f, analysis_ctx as analysis_file, live_ctx as live_file:
             while not self._stop.is_set():
                 try:
-                    data = self._serial.read(1024)
+                    if self._serial is not None:
+                        data = self._serial.read(1024)
+                    else:
+                        if self._proc_stdout is None:
+                            break
+                        data = self._proc_stdout.read(1024)
                 except Exception:
                     time.sleep(0.1)
                     continue
                 if not data:
+                    if self._proc is not None and self._proc.poll() is not None:
+                        break
                     continue
                 if self.emit:
                     self.emit(self.source, data)
@@ -224,13 +258,38 @@ class SourceBinding:
                         trim = len(self._buffer) - max_buf
                         del self._buffer[:trim]
                         self._base_offset += trim
+            if self._proc is not None:
+                rc = self._proc.poll()
+                if rc is None:
+                    try:
+                        rc = self._proc.wait(timeout=1.0)
+                    except Exception:
+                        rc = None
+                if rc not in (None, 0) and not self._stop.is_set():
+                    marker = f"\nAUTOPILOT_FAIL: PROCESS_EXIT_NONZERO rc={rc}\n".encode("utf-8")
+                    if self.emit:
+                        self.emit(self.source, marker)
+                    f.write(marker)
+                    if analysis_file:
+                        analysis_file.write(self._analysis_sanitizer.sanitize(marker))
+                    if live_file:
+                        live_file.write(marker)
+                    with self._lock:
+                        self._buffer.extend(marker)
+                        self._total_bytes += len(marker)
 
     def write(self, text: str) -> None:
         self.write_bytes(text.encode("utf-8", errors="ignore"))
 
     def write_bytes(self, payload: bytes) -> None:
         with self._lock:
-            self._serial.write(payload)
+            if self._serial is not None:
+                self._serial.write(payload)
+                return
+            if self._proc_stdin is None:
+                raise RuntimeError("process stdin not available")
+            self._proc_stdin.write(payload)
+            self._proc_stdin.flush()
 
     def read_since(self, offset: int) -> Tuple[bytes, int]:
         with self._lock:
@@ -255,14 +314,37 @@ class SourceBinding:
             except Exception:
                 pass
         try:
-            self._serial.close()
+            if self._serial is not None:
+                self._serial.close()
         except Exception:
             pass
+        if self._proc is not None:
+            try:
+                if self._proc_stdin:
+                    self._proc_stdin.close()
+            except Exception:
+                pass
+            try:
+                if self._proc.poll() is None:
+                    os.killpg(self._proc.pid, signal.SIGTERM)
+                    self._proc.wait(timeout=3.0)
+            except Exception:
+                try:
+                    if self._proc.poll() is None:
+                        os.killpg(self._proc.pid, signal.SIGKILL)
+                except Exception:
+                    pass
+            try:
+                if self._proc_stdout:
+                    self._proc_stdout.close()
+            except Exception:
+                pass
 
     def purge(self) -> None:
         with self._lock:
-            self._serial.reset_input_buffer()
-            self._serial.reset_output_buffer()
+            if self._serial is not None:
+                self._serial.reset_input_buffer()
+                self._serial.reset_output_buffer()
             self._buffer = bytearray()
             self._base_offset = 0
             self._total_bytes = 0
@@ -304,6 +386,35 @@ class SourceManager:
         )
         self.sources[source] = binding
         self.tty_to_source[tty] = source
+
+    def map_command_source(
+        self,
+        source: str,
+        command: List[str],
+        log_rel: str,
+        cwd: Optional[Path] = None,
+        env: Optional[Dict[str, str]] = None,
+    ) -> None:
+        if source in self.sources:
+            self.sources[source].stop()
+            del self.sources[source]
+        log_path = self.result_dir / log_rel
+        analysis_log_path = log_path.with_suffix(".ansi.log")
+        live_log_path = None
+        if self.ui and hasattr(self.ui, "state"):
+            live_log_path = self.ui.state.live_path_for_source(source)
+        binding = SourceBinding(
+            source,
+            None,
+            log_path,
+            analysis_log_path=analysis_log_path,
+            live_log_path=live_log_path,
+            command=command,
+            cwd=cwd,
+            env=env,
+            emit=self._emit,
+        )
+        self.sources[source] = binding
 
     def _emit(self, source: str, data: bytes) -> None:
         if self.ui:
@@ -516,6 +627,10 @@ def validate_chain(chain: dict) -> None:
                 raise ChainValidationError(
                     f"step {name} set_test_verdict requires verdict=pass|fail"
                 )
+        if step.get("type") == "map_command_source":
+            command = step.get("command")
+            if not isinstance(command, list) or not command:
+                raise ChainValidationError(f"step {name} map_command_source requires non-empty command list")
     for name, step in steps.items():
         if step.get("type") != "join":
             continue
@@ -672,6 +787,8 @@ class ChainRunner:
                 return self._simple_outcome(step)
             if step_type == "map_source":
                 return self._step_map_source(step)
+            if step_type == "map_command_source":
+                return self._step_map_command_source(step)
             if step_type == "purge_sources":
                 return self._step_purge_sources(step)
             if step_type == "map_window":
@@ -760,6 +877,27 @@ class ChainRunner:
         ui = self.ctx.get("ui")
         if ui and hasattr(ui, "state"):
             ui.state.map_source(source, tty, str(self.ctx["result_dir"] / log_rel))
+        return self._simple_outcome(step)
+
+    def _step_map_command_source(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        source = step["source"]
+        command = step.get("command")
+        if not isinstance(command, list) or not command:
+            raise ValueError("map_command_source requires non-empty command list")
+        resolved_command = [str(self._resolve_value(item)) for item in command]
+        log_rel = step.get("log", f"console/{source}.raw")
+        cwd_value = step.get("cwd")
+        cwd = Path(self._resolve_value(cwd_value)) if cwd_value else None
+        env_updates = step.get("env", {}) or {}
+        if not isinstance(env_updates, dict):
+            raise ValueError("map_command_source env must be a dictionary")
+        env = os.environ.copy()
+        for key, value in env_updates.items():
+            env[str(key)] = str(self._resolve_value(value))
+        self.ctx["sources"].map_command_source(source, resolved_command, log_rel, cwd=cwd, env=env)
+        ui = self.ctx.get("ui")
+        if ui and hasattr(ui, "state"):
+            ui.state.map_source(source, shlex.join(resolved_command), str(self.ctx["result_dir"] / log_rel))
         return self._simple_outcome(step)
 
     def _step_map_window(self, step: dict) -> Tuple[str, OutcomeMatch]:

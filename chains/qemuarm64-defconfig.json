@@ -1,0 +1,74 @@
+{
+  "entry": "launch_runner",
+  "steps": {
+    "launch_runner": {
+      "type": "map_command_source",
+      "source": "tty0",
+      "log": "console/tty0.raw",
+      "command": [
+        "python3",
+        "/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/qemu_runner.py",
+        "run-local",
+        "--target",
+        "qemuarm64_defconfig",
+        "--binary",
+        "{original_binary}"
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_sel4"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_sel4": {
+      "type": "case",
+      "source": "tty0",
+      "scan": true,
+      "timeout_s": 420,
+      "idle_timeout_s": 10,
+      "clauses": [
+        {
+          "label": "ok",
+          "pattern": "All is well in the universe",
+          "next": "set_verdict_pass"
+        },
+        {
+          "label": "panic",
+          "pattern": "\\*\\*\\* FAILURES DETECTED \\*\\*\\*|Halting on fatal assertion\\.\\.\\.|Halting on first test failure|\\*\\*\\* ALL tests not run \\*\\*\\*|Kernel panic|panic|QEMU_RUNNER_ERROR:|AUTOPILOT_FAIL: PROCESS_EXIT_NONZERO",
+          "next": "set_verdict_fail"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "set_verdict_pass": {
+      "type": "set_test_verdict",
+      "verdict": "pass",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "pass"
+    },
+    "set_verdict_fail": {
+      "type": "set_test_verdict",
+      "verdict": "fail",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    }
+  }
+}

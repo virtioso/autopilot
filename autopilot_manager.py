@@ -244,6 +244,7 @@ def start_autopilot(
     tmux_session: Optional[str] = None,
     tty0: Optional[str] = None,
     tty1: Optional[str] = None,
+    platform: Optional[str] = None,
 ) -> dict:
     base = Path(autopilot_dir)
     runtime = _runtime_dir(base)
@@ -270,13 +271,21 @@ def start_autopilot(
 
     env = os.environ.copy()
     default_tty0, default_tty1 = get_default_ttys()
-    resolved_tty0 = _require_non_empty_tty("tty0", tty0, default_tty0)
-    resolved_tty1 = _require_non_empty_tty("tty1", tty1, default_tty1)
     env["AUTOPILOT_DIR"] = str(base)
-    # Orin AGX-specific defaults. Replace for other platforms.
-    env["AUTOPILOT_TTY0"] = resolved_tty0
-    env["AUTOPILOT_TTY1"] = resolved_tty1
-    env.setdefault("AUTOPILOT_PLATFORM", DEFAULT_PLATFORM)
+    if tty0 is None and tty1 is None:
+        resolved_tty0 = None
+        resolved_tty1 = None
+        env.pop("AUTOPILOT_TTY0", None)
+        env.pop("AUTOPILOT_TTY1", None)
+    else:
+        resolved_tty0 = _require_non_empty_tty("tty0", tty0, default_tty0)
+        resolved_tty1 = _require_non_empty_tty("tty1", tty1, default_tty1)
+        env["AUTOPILOT_TTY0"] = resolved_tty0
+        env["AUTOPILOT_TTY1"] = resolved_tty1
+    if platform is not None:
+        env["AUTOPILOT_PLATFORM"] = platform.strip()
+    else:
+        env.setdefault("AUTOPILOT_PLATFORM", DEFAULT_PLATFORM)
 
     if use_tmux:
         if _tmux_has_session(session):
@@ -290,16 +299,22 @@ def start_autopilot(
         # command with explicit env assignments so the existing shell receives
         # the variables even when tmux server state is stale.
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_DIR", str(base)], check=False)
-        subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY0", env["AUTOPILOT_TTY0"]], check=False)
-        subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY1", env["AUTOPILOT_TTY1"]], check=False)
+        if resolved_tty0 is not None:
+            subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY0", env["AUTOPILOT_TTY0"]], check=False)
+        else:
+            subprocess.run(["tmux", "set-environment", "-t", session, "-u", "AUTOPILOT_TTY0"], check=False)
+        if resolved_tty1 is not None:
+            subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY1", env["AUTOPILOT_TTY1"]], check=False)
+        else:
+            subprocess.run(["tmux", "set-environment", "-t", session, "-u", "AUTOPILOT_TTY1"], check=False)
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_PLATFORM", env["AUTOPILOT_PLATFORM"]], check=False)
         _configure_tmux_ui(session, base)
-        env_prefix_parts = [
-            f"AUTOPILOT_DIR={shlex.quote(str(base))}",
-            f"AUTOPILOT_TTY0={shlex.quote(env['AUTOPILOT_TTY0'])}",
-            f"AUTOPILOT_TTY1={shlex.quote(env['AUTOPILOT_TTY1'])}",
-            f"AUTOPILOT_PLATFORM={shlex.quote(env['AUTOPILOT_PLATFORM'])}",
-        ]
+        env_prefix_parts = [f"AUTOPILOT_DIR={shlex.quote(str(base))}"]
+        if resolved_tty0 is not None:
+            env_prefix_parts.append(f"AUTOPILOT_TTY0={shlex.quote(env['AUTOPILOT_TTY0'])}")
+        if resolved_tty1 is not None:
+            env_prefix_parts.append(f"AUTOPILOT_TTY1={shlex.quote(env['AUTOPILOT_TTY1'])}")
+        env_prefix_parts.append(f"AUTOPILOT_PLATFORM={shlex.quote(env['AUTOPILOT_PLATFORM'])}")
         command_str = " ".join(
             env_prefix_parts + [shlex.join(shlex.split(effective_command))]
         )
@@ -340,8 +355,8 @@ def start_autopilot(
         "tmux_session": session,
         "use_tmux": use_tmux,
         "platform": env.get("AUTOPILOT_PLATFORM"),
-        "tty0": env.get("AUTOPILOT_TTY0"),
-        "tty1": env.get("AUTOPILOT_TTY1"),
+        "tty0": resolved_tty0,
+        "tty1": resolved_tty1,
         "pid": pid,
         "start_time": datetime.utcnow().isoformat() + "Z",
         "log_path": str(log_path),
@@ -354,8 +369,8 @@ def start_autopilot(
         "tmux_session": session if use_tmux else None,
         "attach_hint": f"tmux attach -t {session}" if use_tmux else "",
         "log_path": str(log_path),
-        "tty0": env.get("AUTOPILOT_TTY0"),
-        "tty1": env.get("AUTOPILOT_TTY1"),
+        "tty0": resolved_tty0,
+        "tty1": resolved_tty1,
     }
 
 
@@ -427,6 +442,7 @@ def restart_autopilot(
     force: bool = False,
     tty0: Optional[str] = None,
     tty1: Optional[str] = None,
+    platform: Optional[str] = None,
 ) -> dict:
     stop_autopilot(
         autopilot_dir=autopilot_dir,
@@ -441,6 +457,7 @@ def restart_autopilot(
         tmux_session=tmux_session,
         tty0=tty0,
         tty1=tty1,
+        platform=platform,
     )
 
 
