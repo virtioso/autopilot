@@ -12,11 +12,11 @@ Manual runner SSOT:
 - `orinagx`
   - hardware UART-backed sources
   - stock-Linux prepare-next-run lifecycle
-- `qemuarm64-defconfig`
+- `qemu_arm64_defconfig`
   - local subprocess-backed source
   - launches the manual runner with `run-local`
   - no relay/UART recovery path
-- `qemu-pc99-defconfig`
+- `qemu_x86_64_defconfig`
   - SSH subprocess-backed source
   - launches the manual runner with `run-remote`
   - no relay/UART recovery path

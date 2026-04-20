@@ -137,14 +137,14 @@ def _require_ttys(arguments: dict) -> tuple[str, str] | None:
 
 def _profile_runtime_mode(profile: str) -> dict:
     qemu_profiles = {
-        "qemuarm64-defconfig",
-        "qemu-pc99-defconfig",
+        "qemu_arm64_defconfig": "qemu_arm64",
+        "qemu_x86_64_defconfig": "qemu_x86_64",
     }
     if profile in qemu_profiles:
         return {
             "requires_ttys": False,
             "platform": "qemu-generic",
-            "build_platform": profile.replace("-defconfig", "").replace("-", "_"),
+            "build_platform": qemu_profiles[profile],
         }
     return {
         "requires_ttys": True,

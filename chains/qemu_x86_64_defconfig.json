@@ -11,7 +11,7 @@
         "/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/qemu_runner.py",
         "run-remote",
         "--target",
-        "qemu_pc99_defconfig",
+        "qemu_x86_64_defconfig",
         "--binary",
         "{original_binary}"
       ],
