@@ -153,6 +153,48 @@ def _profile_runtime_mode(profile: str) -> dict:
     }
 
 
+def _derive_build_config(binary_path: str, runtime_mode: dict) -> dict:
+    build_platform = runtime_mode["build_platform"]
+    build_config = {"platform": build_platform}
+
+    # arm_hyp is only meaningful for arm64/seL4 hypervisor builds.
+    if build_platform not in {"orinagx", "qemu_arm64"}:
+        return build_config
+
+    binary = Path(binary_path).resolve()
+    config_candidates = []
+
+    for parent in binary.parents:
+        candidate = parent / ".config"
+        if candidate not in config_candidates:
+            config_candidates.append(candidate)
+        if parent.name == "images":
+            sibling = parent.parent / ".config"
+            if sibling not in config_candidates:
+                config_candidates.append(sibling)
+
+    arm_hyp = True
+    for candidate in config_candidates:
+        if not candidate.exists():
+            continue
+        config_text = candidate.read_text()
+        if (
+            "CONFIG_ARM_HYPERVISOR_SUPPORT=y" in config_text
+            or "KernelArmHypervisorSupport=ON" in config_text
+        ):
+            arm_hyp = True
+            break
+        if (
+            "CONFIG_ARM_HYPERVISOR_SUPPORT=n" in config_text
+            or "KernelArmHypervisorSupport=OFF" in config_text
+        ):
+            arm_hyp = False
+            break
+
+    build_config["arm_hyp"] = arm_hyp
+    return build_config
+
+
 # MCP Protocol implementation
 # Codex CLI MCP transport uses newline-delimited JSON-RPC over stdio.
 
@@ -693,22 +735,13 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         if not binary_name:
             binary_name = "sel4test.efi"
 
-        # Determine arm_hyp from build config
-        # Check orinagx_sel4test/.config if it exists
-        build_config_path = Path("/home/hlyytine/tii-sel4/orinagx_sel4test/.config")
-        arm_hyp = True  # Default to hypervisor mode
-        if build_config_path.exists():
-            config_text = build_config_path.read_text()
-            if "KernelArmHypervisorSupport=OFF" in config_text:
-                arm_hyp = False
-
         # Submit the test
         try:
             request_id = submit_sel4_efi_test(
                 binary_path=binary_path,
                 binary_name=binary_name,
                 description=description,
-                build_config={'arm_hyp': arm_hyp, 'platform': runtime_mode["build_platform"]},
+                build_config=_derive_build_config(binary_path, runtime_mode),
                 profile=profile,
                 autopilot_dir=autopilot_dir
             )
