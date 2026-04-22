@@ -18,6 +18,7 @@ seL4 EFI test flow (chain-defined):
 6. Recover to stock Linux (if defined in profile)
 
 All logs live under `results/<timestamp>/console/` and are defined by chain steps.
+`WORKSPACE` must be set before running Autopilot or the helper tools.
 
 ## Quick Start
 

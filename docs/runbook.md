@@ -23,6 +23,7 @@ behavior, and tmux-native operator controls.
 3. USB relay accessible for power/reset control (`usbrelay_py`).
 4. Python dependencies installed: `pexpect`, `pyserial`, `usbrelay_py`.
 5. Autopilot working directory exists (requests/results/runtime).
+6. `WORKSPACE` is set to the workspace root.
 
 ## Directory Layout
 
@@ -34,11 +35,13 @@ behavior, and tmux-native operator controls.
 - Profiles: `<code_root>/profiles` (code repo, single source of truth)
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
+`WORKSPACE` is mandatory; Autopilot fails fast if it is unset.
 
 ## Start the Autopilot Daemon
 
 ```bash
 cd <code_root>
+export WORKSPACE=<workspace>
 AUTOPILOT_PLATFORM=orin-agx-uefi-netboot \
 AUTOPILOT_DIR="${WORKSPACE}/autopilot" \
 python3 orin_kernel_autopilot.py
@@ -111,6 +114,8 @@ These defaults are injected into the tmux session environment.
 When calling from Codex, use the fully qualified MCP tool names:
 
 ```python
+import os
+
 mcp__sel4-autopilot__autopilot_start(
     autopilot_dir=f"{os.environ['WORKSPACE']}/autopilot",
     tty0="/dev/ttyACM0",

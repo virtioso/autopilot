@@ -20,7 +20,7 @@ path. Executable chains live in the code repo at
 `<code_root>/chains`. Console login/prompt profiles live at
 `<code_root>/profiles`. The code can live anywhere (for example
 `~/autopilot`), while each project uses its own `AUTOPILOT_DIR`, typically
-`$WORKSPACE/autopilot`.
+`$WORKSPACE/autopilot`. `WORKSPACE` must be set.
 
 ## Orin AGX Default Workflow (Mandatory)
 

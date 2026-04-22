@@ -24,6 +24,7 @@ Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (
 For Orin AGX EFI workflows, set
 `AUTOPILOT_PLATFORM=orin-agx-uefi-netboot` so Autopilot runs
 `chains/platform-init-<platform>.json` at daemon startup to set overrides.
+`WORKSPACE` must be set before running Autopilot.
 
 ## Quick Start
 
@@ -31,6 +32,7 @@ For Orin AGX EFI workflows, set
 
 ```bash
 cd <code_root>
+export WORKSPACE=<workspace>
 AUTOPILOT_PLATFORM=orin-agx-uefi-netboot \
 AUTOPILOT_DIR="${WORKSPACE}/autopilot" \
 python3 orin_kernel_autopilot.py

@@ -23,7 +23,8 @@ If MCP is unavailable, fall back to the request/result queues in `AUTOPILOT_DIR`
 
 ## Mandatory: Set AUTOPILOT_DIR
 
-Always set `AUTOPILOT_DIR` in your environment before using the client or MCP tools.
+Always set `WORKSPACE` before using the client or MCP tools. `AUTOPILOT_DIR`
+defaults to `${WORKSPACE}/autopilot` unless explicitly overridden.
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
 This points to the **working directory** that contains the request/result queues,
@@ -32,6 +33,7 @@ not the code location.
 Example:
 
 ```bash
+export WORKSPACE=<workspace>
 export AUTOPILOT_DIR="${WORKSPACE}/autopilot"
 ```
 

@@ -10,6 +10,7 @@ project-specific state (queues, results, runtime) inside each project repo.
 - Make it easy for AI tools (Codex/Claude Code) to use Autopilot in any repo.
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
+`WORKSPACE` is required.
 
 ## Recommended Layout
 

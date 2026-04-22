@@ -19,47 +19,31 @@ def get_code_root() -> Path:
     return Path(__file__).resolve().parent
 
 
-def get_home_dir() -> Path:
-    return Path.home()
-
-
-def _get_explicit_workspace() -> Path | None:
-    override = (os.environ.get("AUTOPILOT_WORKSPACE") or "").strip()
-    if override:
-        return Path(override).expanduser()
+def get_workspace() -> Path:
     env_workspace = (os.environ.get("WORKSPACE") or "").strip()
     if env_workspace:
         return Path(env_workspace).expanduser()
-    return None
+    raise RuntimeError("WORKSPACE must be set")
 
 
 def get_default_workspace() -> Path:
-    workspace = _get_explicit_workspace()
-    if workspace is not None:
-        return workspace
-    env_dir = (os.environ.get("AUTOPILOT_DIR") or "").strip()
-    if env_dir:
-        return Path(env_dir).expanduser().parent
-    return get_home_dir()
+    return get_workspace()
 
 
 def get_autopilot_dir(override: str | None = None) -> Path:
+    workspace = get_workspace()
     if override:
         return Path(override)
     env_dir = os.environ.get("AUTOPILOT_DIR")
     if env_dir:
         return Path(env_dir)
-    workspace = _get_explicit_workspace()
-    if workspace is not None:
-        return workspace / DEFAULT_AUTOPILOT_DIRNAME
-    return get_home_dir() / DEFAULT_AUTOPILOT_DIRNAME
+    return workspace / DEFAULT_AUTOPILOT_DIRNAME
 
 
 def get_workspace_roots() -> list[Path]:
     roots: list[Path] = []
     candidates = [
-        os.environ.get("AUTOPILOT_WORKSPACE", "").strip(),
-        os.environ.get("WORKSPACE", "").strip(),
+        str(get_workspace()),
         str(get_autopilot_dir().parent),
     ]
     for raw in candidates:
