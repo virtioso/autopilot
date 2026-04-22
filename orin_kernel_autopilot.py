@@ -14,7 +14,14 @@ from pathlib import Path
 import BoardControl
 from chain_runtime import ChainRecorder, ChainRunner, ChainValidationError, Event, SourceManager, validate_chain
 from console_sessions import ConsoleManager
-from config import get_autopilot_dir, get_default_ttys, get_paths, get_target_ip
+from config import (
+    get_autopilot_dir,
+    get_default_ttys,
+    get_default_workspace,
+    get_paths,
+    get_target_ip,
+    get_workspace_roots,
+)
 from extract_guest_dtb import extract_guest_dtbs
 from tmux_ui import TmuxControlServer, TmuxUICompat, TmuxUIState, TmuxWindowManager, detect_tmux_session
 
@@ -22,7 +29,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 AUTOPILOT_DIR = get_autopilot_dir()
 CHAINS_DIR = SCRIPT_DIR / "chains"
 
-WORKSPACE = Path(os.environ.get("WORKSPACE", "/home/hlyytine/pkvm"))
+WORKSPACE = get_default_workspace()
 KERNEL_DIR = WORKSPACE / "Linux_for_Tegra/source/kernel/linux"
 KERNEL_IMAGE = KERNEL_DIR / "arch/arm64/boot/Image"
 KERNEL_RELEASE_FILE = KERNEL_DIR / "include/config/kernel.release"
@@ -67,25 +74,7 @@ VIO_TRACE_TOOL_LOGICAL_REL = Path("projects/virtioso-camkes-vm/tools/vio-trace")
 
 
 def _workspace_roots_for_trace_tool() -> list[Path]:
-    roots: list[Path] = []
-    candidates = [
-        os.environ.get("WORKSPACE", "").strip(),
-        os.environ.get("TII_SEL4_WORKSPACE", "").strip(),
-        str(AUTOPILOT_DIR.parent),
-        "/home/hlyytine/tii-sel4",
-        "/home/hlyytine/pkvm",
-    ]
-    for raw in candidates:
-        if not raw:
-            continue
-        path = Path(raw).expanduser()
-        try:
-            path = path.resolve()
-        except OSError:
-            pass
-        if path not in roots:
-            roots.append(path)
-    return roots
+    return get_workspace_roots()
 
 
 def _resolve_vio_trace_tool() -> tuple[Path | None, str | None]:
@@ -223,6 +212,7 @@ def run_bootstrap_chain(
         "code_root": str(SCRIPT_DIR),
         "chains_dir": str(CHAINS_DIR),
         "profiles_dir": str(SCRIPT_DIR / "profiles"),
+        "workspace": str(WORKSPACE),
     }
     recorder = ChainRecorder(bootstrap_dir)
     try:
@@ -1829,6 +1819,7 @@ def main() -> None:
             "code_root": str(SCRIPT_DIR),
             "chains_dir": str(CHAINS_DIR),
             "profiles_dir": str(SCRIPT_DIR / "profiles"),
+            "workspace": str(WORKSPACE),
         }
         recorder = ChainRecorder(result_dir)
 

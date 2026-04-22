@@ -2,7 +2,8 @@
 import sys
 import re
 import subprocess
-import os
+
+from config import get_default_workspace
 
 if len(sys.argv) != 2:
     print(f"Usage: {sys.argv[0]} <panic-log>", file=sys.stderr)
@@ -51,10 +52,10 @@ if symbol is None:
 print(f"# Found offending symbol: {symbol}", file=sys.stderr)
 #print(f"# Disassembling (after prefix strip): {objdump_symbol}", file=sys.stderr)
 
-# Run objdump; use WORKSPACE env var or fall back to default
-workspace = os.environ.get('WORKSPACE', '/home/hlyytine/pkvm')
-kvm_nvhe_path = f"{workspace}/Linux_for_Tegra/source/kernel/linux/arch/arm64/kvm/hyp/nvhe/kvm_nvhe.o"
+# Run objdump; use shared workspace resolution.
+workspace = get_default_workspace()
+kvm_nvhe_path = workspace / "Linux_for_Tegra/source/kernel/linux/arch/arm64/kvm/hyp/nvhe/kvm_nvhe.o"
 subprocess.run(
-    ["aarch64-linux-gnu-objdump", "-S", kvm_nvhe_path, f"--disassemble={symbol}"],
+    ["aarch64-linux-gnu-objdump", "-S", str(kvm_nvhe_path), f"--disassemble={symbol}"],
     check=False,
 )

@@ -5,7 +5,7 @@ runner instead of embedding separate QEMU launch knowledge.
 
 Manual runner SSOT:
 
-- `/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/qemu_runner.py`
+- `<workspace>/projects/virtioso-camkes-vm/tools/qemu_runner.py`
 
 ## Backend Model
 

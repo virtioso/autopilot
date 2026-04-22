@@ -12,7 +12,7 @@ Speed up Autopilot deploys by replacing the current upload verification flow wit
 6. Runs `sync && sync` at the required points.
 7. Fails on any checksum, SSH, SCP, move, or sync error.
 
-This applies to both EFI deployment and Driver-VM rootfs deployment. The plan also removes invalid code artifacts from `/home/hlyytine/tii-sel4/autopilot` and deletes the legacy EFI harness from the Autopilot code repo.
+This applies to both EFI deployment and Driver-VM rootfs deployment. The plan also removes invalid code artifacts from `<workspace>/autopilot` and deletes the legacy EFI harness from the Autopilot code repo.
 
 ## Key Changes
 
@@ -40,7 +40,7 @@ This applies to both EFI deployment and Driver-VM rootfs deployment. The plan al
   - keep `sha256`
   - do not add MD5 support
 - Delete legacy EFI upload code `seL4BootHarness.py`
-- Remove invalid code artifacts from `/home/hlyytine/tii-sel4/autopilot` that violate the "runtime dir only" rule:
+- Remove invalid code artifacts from `<workspace>/autopilot` that violate the "runtime dir only" rule:
   - delete `chain_runtime.py`
   - delete stale `diagrams/`
   - leave runtime-owned queues/results/runtime state intact
@@ -74,11 +74,11 @@ This applies to both EFI deployment and Driver-VM rootfs deployment. The plan al
 - Validation/docs checks:
   - `docs/chain-spec.md` matches runtime behavior
   - stale progress text that claims rootfs uses download-back or different checksum policy is updated where it is still presented as current behavior
-  - any generated chain-diagram mirrors in `~/tii-sel4` are regenerated only if the chain shape changes
+  - any generated chain-diagram mirrors in `<workspace>` are regenerated only if the chain shape changes
 
 ## Assumptions
 
-- `/home/hlyytine/autopilot` is the only authoritative code repo.
-- `/home/hlyytine/tii-sel4/autopilot` is runtime state only; deleting code-like files there is correct and required.
+- `<code_root>` is the only authoritative code repo.
+- `<workspace>/autopilot` is runtime state only; deleting code-like files there is correct and required.
 - Deleting the legacy EFI harness is acceptable because it is non-authoritative and not part of the supported workflow.
-- Scope does not include changing request/result history under `/home/hlyytine/tii-sel4/autopilot/requests` or `/home/hlyytine/tii-sel4/autopilot/results`.
+- Scope does not include changing request/result history under `<workspace>/autopilot/requests` or `<workspace>/autopilot/results`.

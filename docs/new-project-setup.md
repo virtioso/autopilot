@@ -6,7 +6,7 @@ project-specific state (queues, results, runtime) inside each project repo.
 ## Goal
 
 - Keep Autopilot **code** in a dedicated location (example: `~/autopilot`).
-- Keep Autopilot **working state** per project (example: `~/tii-sel4/autopilot`).
+- Keep Autopilot **working state** per project (example: `<workspace>/autopilot`).
 - Make it easy for AI tools (Codex/Claude Code) to use Autopilot in any repo.
 
 Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (SSOT).
@@ -18,16 +18,16 @@ Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (
 
 Example:
 - Code: `~/autopilot` (clone of this repo)
-- Project: `~/tii-sel4`
-- Working dir: `~/tii-sel4/autopilot`
+- Project: `<workspace>`
+- Working dir: `<workspace>/autopilot`
 
 ## Step 1: Create a Project Working Directory
 
 Create queues and results directories:
 
 ```bash
-mkdir -p ~/tii-sel4/autopilot/{requests,results}
-mkdir -p ~/tii-sel4/autopilot/requests/{pending,processing,completed,failed}
+mkdir -p <workspace>/autopilot/{requests,results}
+mkdir -p <workspace>/autopilot/requests/{pending,processing,completed,failed}
 ```
 
 ### Optional: One-command initializer
@@ -35,7 +35,7 @@ mkdir -p ~/tii-sel4/autopilot/requests/{pending,processing,completed,failed}
 You can use the helper script to create the working directory and `.mcp.json`:
 
 ```bash
-~/autopilot/scripts/new-project-init.sh ~/tii-sel4
+~/autopilot/scripts/new-project-init.sh <workspace>
 ```
 
 ## Step 2: Set Environment Variables
@@ -43,7 +43,8 @@ You can use the helper script to create the working directory and `.mcp.json`:
 At minimum:
 
 ```bash
-export AUTOPILOT_DIR=~/tii-sel4/autopilot
+export WORKSPACE=<workspace>
+export AUTOPILOT_DIR="$WORKSPACE/autopilot"
 export AUTOPILOT_TTY0=/dev/ttyACM0
 export AUTOPILOT_TTY1=/dev/ttyACM1
 ```
@@ -67,7 +68,8 @@ Create `<project>/.mcp.json`:
       "command": "python3",
       "args": ["~/autopilot/sel4_mcp_server.py"],
       "env": {
-        "AUTOPILOT_DIR": "${AUTOPILOT_DIR:-~/tii-sel4/autopilot}"
+        "WORKSPACE": "${WORKSPACE}",
+        "AUTOPILOT_DIR": "${AUTOPILOT_DIR:-${WORKSPACE}/autopilot}"
       }
     }
   }
@@ -94,7 +96,7 @@ Use a prompt like this when starting a session:
 
 ```
 You are working in <project>. Autopilot is installed at ~/autopilot, and
-AUTOPILOT_DIR is ~/tii-sel4/autopilot. Prefer MCP tools if available; otherwise
+AUTOPILOT_DIR is <workspace>/autopilot. Prefer MCP tools if available; otherwise
 use the request/result queues under AUTOPILOT_DIR. Read the Autopilot docs in
 ~/autopilot/docs before making changes.
 ```

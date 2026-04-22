@@ -2,7 +2,7 @@
 
 Date: 2026-02-13
 Status: Implemented (Phases 1-6, post-cutover)
-Scope: `/home/hlyytine/autopilot`
+Scope: `<code_root>`
 Classification: Archived historical planning document
 
 Note:
@@ -277,7 +277,7 @@ resolved in-step or dispositioned by explicit human instruction.
 
 1. Confirm target trees and owners:
 - `~/autopilot` (`chain_runtime.py`, `chains/*.json`, `docs/*`, MCP server code)
-- `~/tii-sel4/projects/virtioso-camkes-vm` (`AGENTS.md`, `docs/agents/*`, tooling)
+- `<workspace>/projects/virtioso-camkes-vm` (`AGENTS.md`, `docs/agents/*`, tooling)
 2. Capture baseline evidence from current behavior:
 - one normal pass run,
 - one fail-fast monitor-triggered run,
@@ -390,11 +390,11 @@ Acceptance criteria:
 - remove coordinated-monitor guidance based on `fork`,
 - during migration, reference `parallel_split`/`parallel_join` semantics;
 - after final rename cutover, update docs to canonical `split`/`join`.
-3. Update `~/tii-sel4/projects/virtioso-camkes-vm/AGENTS.md`:
+3. Update `<workspace>/projects/virtioso-camkes-vm/AGENTS.md`:
 - explicit policy: use `parallel_split`/`parallel_join` for coordinated parallel control during migration;
 - after final rename cutover, use `split`/`join`,
 - `fork` only for non-blocking side tasks.
-4. Update `~/tii-sel4/projects/virtioso-camkes-vm/docs/agents/*` runbooks:
+4. Update `<workspace>/projects/virtioso-camkes-vm/docs/agents/*` runbooks:
 - examples, expected outcomes, and troubleshooting aligned to winner metadata.
 
 Acceptance criteria:
@@ -404,7 +404,7 @@ Acceptance criteria:
 - no contradictory guidance remains for coordinated `fork` usage.
 - affected repos are clean at step start and clean at step end after commits.
 
-### Phase 5: `~/tii-sel4` Side Tooling
+### Phase 5: `<workspace>` Side Tooling
 
 1. Update visualization/parsing tools to consume `parallel_groups` metadata.
 2. Model coordinated parallel topology correctly in diagrams:

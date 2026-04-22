@@ -11,4 +11,4 @@ Rules:
 3. Do not duplicate finding text across multiple trackers.
 
 Context link (cross-EL trace platform plan):
-- `/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/docs/plans/vio-trace-timeline-accuracy-plan.md` (P8)
+- `<workspace>/projects/virtioso-camkes-vm/docs/plans/vio-trace-timeline-accuracy-plan.md` (P8)

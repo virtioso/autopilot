@@ -27,7 +27,7 @@ behavior, and tmux-native operator controls.
 ## Directory Layout
 
 - Code: `<code_root>`
-- Working dir: `${AUTOPILOT_DIR:-/home/hlyytine/tii-sel4/autopilot}`
+- Working dir: `${AUTOPILOT_DIR:-$WORKSPACE/autopilot}`
 - Requests: `${AUTOPILOT_DIR}/requests`
 - Results: `${AUTOPILOT_DIR}/results`
 - Runtime state: `${AUTOPILOT_DIR}/runtime`
@@ -40,7 +40,7 @@ Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (
 ```bash
 cd <code_root>
 AUTOPILOT_PLATFORM=orin-agx-uefi-netboot \
-AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot \
+AUTOPILOT_DIR="${WORKSPACE}/autopilot" \
 python3 orin_kernel_autopilot.py
 ```
 
@@ -59,7 +59,7 @@ Use the MCP tools to start Autopilot in a detached tmux session:
 ```json
 {
   "tool": "autopilot_start",
-  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot",
+  "autopilot_dir": "${WORKSPACE}/autopilot",
   "tty0": "/dev/ttyACM0",
   "tty1": "/dev/ttyACM1"
 }
@@ -91,7 +91,7 @@ These defaults are injected into the tmux session environment.
 ```json
 {
   "tool": "autopilot_stop",
-  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot"
+  "autopilot_dir": "${WORKSPACE}/autopilot"
 }
 ```
 
@@ -100,7 +100,7 @@ These defaults are injected into the tmux session environment.
 ```json
 {
   "tool": "autopilot_restart",
-  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot",
+  "autopilot_dir": "${WORKSPACE}/autopilot",
   "tty0": "/dev/ttyACM0",
   "tty1": "/dev/ttyACM1"
 }
@@ -112,23 +112,23 @@ When calling from Codex, use the fully qualified MCP tool names:
 
 ```python
 mcp__sel4-autopilot__autopilot_start(
-    autopilot_dir="/home/hlyytine/tii-sel4/autopilot",
+    autopilot_dir=f"{os.environ['WORKSPACE']}/autopilot",
     tty0="/dev/ttyACM0",
     tty1="/dev/ttyACM1"
 )
 
 mcp__sel4-autopilot__autopilot_restart(
-    autopilot_dir="/home/hlyytine/tii-sel4/autopilot",
+    autopilot_dir=f"{os.environ['WORKSPACE']}/autopilot",
     tty0="/dev/ttyACM0",
     tty1="/dev/ttyACM1"
 )
 
 mcp__sel4-autopilot__autopilot_status(
-    autopilot_dir="/home/hlyytine/tii-sel4/autopilot"
+    autopilot_dir=f"{os.environ['WORKSPACE']}/autopilot"
 )
 
 mcp__sel4-autopilot__autopilot_stop(
-    autopilot_dir="/home/hlyytine/tii-sel4/autopilot"
+    autopilot_dir=f"{os.environ['WORKSPACE']}/autopilot"
 )
 ```
 
@@ -312,7 +312,7 @@ is present, it adds `match_snippet` using a context window around that offset.
 Requests reference a profile that contains a chain definition.
 
 ```bash
-cd /home/hlyytine/tii-sel4/autopilot
+cd "${WORKSPACE}/autopilot"
 TS=$(date +%Y%m%d-%H%M%S)
 cat > requests/pending/${TS}.request <<'EOF'
 {

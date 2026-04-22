@@ -2,7 +2,7 @@
 
 Date started: 2026-02-14
 Status: Archived historical record (frozen)
-Scope: `/home/hlyytine/autopilot` and `/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm`
+Scope: `<code_root>` and `<workspace>/projects/virtioso-camkes-vm`
 
 Note:
 - This file is a chronological implementation log and intentionally preserves
@@ -23,7 +23,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Obvious-bug escalation:
 - Issue: deadlock risk due non-reentrant lock acquisition in `parallel_join`.
@@ -51,7 +51,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Validation rejects `parallel_join` with `chain` field.
@@ -75,7 +75,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added explicit per-branch nodes for `parallel_split`.
@@ -101,7 +101,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added `cancel_reason` to recorded branch metadata.
@@ -125,7 +125,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added `parallel_groups` trace subgraph rendering.
@@ -149,7 +149,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added `parallel_groups`/`cancel_reason` metadata definitions and runbook notes.
@@ -172,7 +172,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Reject `parallel_join` steps that define `chain`.
@@ -196,7 +196,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added `cancel_reason` field to recorded parallel branch state.
@@ -220,7 +220,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added dedicated trace subgraph for parallel groups.
@@ -244,7 +244,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Created `docs/parallel-chains-inventory.md` with:
@@ -272,7 +272,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added reducer semantics for `parallel_join` (`any_pass`, `all_pass`).
@@ -299,7 +299,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - `parallel_join` now requires:
@@ -313,7 +313,7 @@ Implementation:
   - `reduce: \"any_pass\"`
 
 Verification:
-- `python3 -m py_compile /home/hlyytine/autopilot/chain_runtime.py`
+- `python3 -m py_compile <code_root>/chain_runtime.py`
 - `validate_chain(vm_common)` returns `ok`.
 
 Post-step DRY/SSOT gate:
@@ -334,7 +334,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Recorder now persists:
@@ -367,7 +367,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added `set_verdict_pass` and `set_verdict_fail` using `set_test_verdict`.
@@ -394,7 +394,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added chain ops:
@@ -428,7 +428,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added verbose label fields for:
@@ -459,7 +459,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Added `chains/prepare_next_run_task.json`:
@@ -506,7 +506,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Removed legacy `fork_recovery_pass` / `fork_recovery_fail` flow from target chains.
@@ -554,7 +554,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - `chain_runtime.py` now records:
@@ -585,7 +585,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Trace rendering now maps step names to rendered trace nodes.
@@ -604,7 +604,7 @@ Post-step DRY/SSOT gate:
 - Trace visualization now reflects actual parallel topology and reducer context instead of only chronological adjacency.
 
 Post-step commit gate:
-- `~/tii-sel4/projects/virtioso-camkes-vm` commit: `fe55f56`
+- `<workspace>/projects/virtioso-camkes-vm` commit: `fe55f56`
 - Message: `tools: render parallel split/join fanout in trace diagrams`
 
 ## Step 2026-02-14-21
@@ -618,7 +618,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - Updated `~/autopilot/docs` wording to current task/signal model:
@@ -628,10 +628,10 @@ Implementation:
   - `architecture.md`
   - `parallel-chains-inventory.md` (fork/join chain usage now zero; blockers adjusted)
 - Regenerated chain diagrams from live chain JSON using:
-  - `python3 tools/autopilot_chain_viz.py --all --docs --profiles-dir /home/hlyytine/autopilot/chains`
+  - `python3 tools/autopilot_chain_viz.py --all --docs --profiles-dir <code_root>/chains`
 - Kept generated `~/autopilot/diagrams/*.mmd` by explicit human direction.
 - Updated generated reference page:
-  - `~/tii-sel4/projects/virtioso-camkes-vm/docs/reference/autopilot-chain-diagrams.md`
+  - `<workspace>/projects/virtioso-camkes-vm/docs/reference/autopilot-chain-diagrams.md`
 
 Verification:
 - `rg "fork_recovery|type=fork|fork: recovery_boot" docs/reference/autopilot-chain-diagrams.md` -> no matches.
@@ -643,7 +643,7 @@ Post-step DRY/SSOT gate:
 Post-step commit gate:
 - `~/autopilot` commit: `dd895f6`
 - Message: `docs: sync runtime semantics and regenerate chain diagrams`
-- `~/tii-sel4/projects/virtioso-camkes-vm` commit: `24dbc81`
+- `<workspace>/projects/virtioso-camkes-vm` commit: `24dbc81`
 - Message: `docs: refresh autopilot chain reference diagrams`
 
 ## Step 2026-02-14-22
@@ -657,7 +657,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - `chain_runtime.py`:
@@ -688,7 +688,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean before edits.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean before edits.
+- `<workspace>/projects/virtioso-camkes-vm`: clean before edits.
 
 Implementation:
 - `tools/autopilot_chain_viz.py`:
@@ -697,7 +697,7 @@ Implementation:
 
 Verification:
 - `python3 -m py_compile tools/autopilot_chain_viz.py`
-- `python3 tools/autopilot_chain_viz.py --all --docs --profiles-dir /home/hlyytine/autopilot/chains`
+- `python3 tools/autopilot_chain_viz.py --all --docs --profiles-dir <code_root>/chains`
 
 Post-step DRY/SSOT gate:
 - Visualization now tracks only active chain semantics and artifacts.
@@ -713,7 +713,7 @@ Pre-step DRY/SSOT gate:
 
 Pre-step repo hygiene gate:
 - `~/autopilot`: clean.
-- `~/tii-sel4/projects/virtioso-camkes-vm`: clean.
+- `<workspace>/projects/virtioso-camkes-vm`: clean.
 
 Implementation:
 - `chain_runtime.py`:
@@ -742,7 +742,7 @@ Summary:
 Implementation:
 - Updated active docs (`README`, `overview`, `architecture`, `runbook`, `chain-spec`,
   `parallel-chains-inventory`, `dry-ssot-tracking`) to canonical naming where applicable.
-- Regenerated reference chain diagrams in `tii-sel4` docs.
+- Regenerated reference chain diagrams in `workspace` docs.
 
 Post-step DRY/SSOT gate:
 - Active operator/developer docs now describe canonical `split`/`join` semantics.

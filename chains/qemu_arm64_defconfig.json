@@ -7,7 +7,7 @@
       "log": "console/tty0.raw",
       "command": [
         "python3",
-        "/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/qemu_runner.py",
+        "{workspace}/projects/virtioso-camkes-vm/tools/qemu_runner.py",
         "run-local",
         "--target",
         "qemu_arm64_defconfig",

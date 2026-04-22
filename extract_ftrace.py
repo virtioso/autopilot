@@ -26,6 +26,8 @@ from pathlib import Path
 # Use system python3-lz4 package
 import lz4.block
 
+from config import find_first_existing_path, get_workspace_roots
+
 
 def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
     """
@@ -279,16 +281,13 @@ def extract_ftrace(log_path: Path, output_dir: Path) -> bool:
 
     # Convert to indexed format using Rust tool (if available)
     idx_path = output_dir / 'ftrace.idx'
-    indexer_paths = [
-        Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace-index-rs'),
-        Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace-index/target/release/ftrace-index'),
-    ]
-
-    indexer = None
-    for p in indexer_paths:
-        if p.exists():
-            indexer = p
-            break
+    indexer_candidates: list[Path] = []
+    for root in get_workspace_roots():
+        indexer_candidates.extend([
+            root / 'kernel/tools/ftrace-index-rs',
+            root / 'kernel/tools/ftrace-index/target/release/ftrace-index',
+        ])
+    indexer = find_first_existing_path(indexer_candidates)
 
     if indexer:
         import subprocess

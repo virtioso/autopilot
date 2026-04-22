@@ -32,7 +32,7 @@ For Orin AGX EFI workflows, set
 ```bash
 cd <code_root>
 AUTOPILOT_PLATFORM=orin-agx-uefi-netboot \
-AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot \
+AUTOPILOT_DIR="${WORKSPACE}/autopilot" \
 python3 orin_kernel_autopilot.py
 ```
 
@@ -44,7 +44,7 @@ MCP in a tmux session:
 ```json
 {
   "tool": "autopilot_start",
-  "autopilot_dir": "/home/hlyytine/tii-sel4/autopilot"
+  "autopilot_dir": "${WORKSPACE}/autopilot"
 }
 ```
 
@@ -63,7 +63,7 @@ be replaced for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*`).
 Requests are JSON files that specify a root chain by name in `profile`:
 
 ```bash
-cd /home/hlyytine/tii-sel4/autopilot
+cd "${WORKSPACE}/autopilot"
 TS=$(date +%Y%m%d-%H%M%S)
 cat > requests/pending/${TS}.request <<'EOF_REQ'
 {

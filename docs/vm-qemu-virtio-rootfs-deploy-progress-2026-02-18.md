@@ -31,9 +31,9 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 
 ### S0 Preflight checkpoints
 - Commit current dirty state in:
-  - `/home/hlyytine/autopilot`
-  - `/home/hlyytine/tii-sel4/vm-images/virtioso-yocto-layers`
-  - `/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm` (if touched in this effort)
+  - `<code_root>`
+  - `<workspace>/vm-images/virtioso-yocto-layers`
+  - `<workspace>/projects/virtioso-camkes-vm` (if touched in this effort)
 - Initialize progress tracking in this file.
 
 ### S1 First functional change: remove VM1 `initcall_debug`
@@ -45,9 +45,9 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 
 ### S2 Runtime support: generic file deploy with checksum gate
 - Edit:
-  - `/home/hlyytine/autopilot/chain_runtime.py`
-  - `/home/hlyytine/autopilot/docs/chain-spec.md`
-  - `/home/hlyytine/autopilot/docs/runbook.md`
+  - `<code_root>/chain_runtime.py`
+  - `<code_root>/docs/chain-spec.md`
+  - `<code_root>/docs/runbook.md`
 - Add new step type: `upload_file`
 - Required fields: `local_path`, `target_user`, `target_ip`, `target_path`
 - Optional behavior:
@@ -63,11 +63,11 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 
 ### S3 Chain integration: deploy rootfs before reboot
 - Edit:
-  - `/home/hlyytine/autopilot/chains/deploy_and_boot_test_efi.json`
+  - `<code_root>/chains/deploy_and_boot_test_efi.json`
 - Insert before existing `upload_efi`:
   1. `ssh_cmd`: `mkdir -p /var/lib/virtioso-vm-images`
   2. `upload_file`:
-     - `local_path`: `/home/hlyytine/tii-sel4/vm-images/build/tmp/deploy/images/vm-jetson-agx-orin/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4`
+     - `local_path`: `<workspace>/vm-images/build/tmp/deploy/images/vm-jetson-agx-orin/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4`
      - `target_path`: `/var/lib/virtioso-vm-images/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4`
      - `skip_if_same`: `sha256`
 - Any deploy failure routes to `fail`.
@@ -81,7 +81,7 @@ This plan enforces a deterministic `vm-qemu-virtio` workflow where the latest Dr
 
 ### S5 Validation
 - Run:
-  - `python3 /home/hlyytine/autopilot/scripts/preflight_autopilot.py`
+  - `python3 <code_root>/scripts/preflight_autopilot.py`
 - Record output and pass/fail in this file.
 
 Result (2026-02-18):

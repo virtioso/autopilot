@@ -8,7 +8,7 @@
       "command": [
         "python3",
         "-u",
-        "/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/qemu_runner.py",
+        "{workspace}/projects/virtioso-camkes-vm/tools/qemu_runner.py",
         "run-remote",
         "--target",
         "qemu_x86_64_defconfig",

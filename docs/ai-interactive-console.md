@@ -8,7 +8,7 @@ single or multiple UART consoles (e.g., VM0/VM1).
 
 ## MCP Server Availability
 
-The `sel4-autopilot` MCP server is defined in `~/tii-sel4/.mcp.json`.
+The `sel4-autopilot` MCP server is typically defined in `<workspace>/.mcp.json`.
 Some clients auto-load MCP servers from `.mcp.json`; some do not.
 If MCP is unavailable, fall back to the request/result queues in `AUTOPILOT_DIR`.
 
@@ -32,7 +32,7 @@ not the code location.
 Example:
 
 ```bash
-export AUTOPILOT_DIR=/home/hlyytine/tii-sel4/autopilot
+export AUTOPILOT_DIR="${WORKSPACE}/autopilot"
 ```
 
 If you need to reference the client library explicitly, use the code location:

@@ -13,7 +13,7 @@
     },
     "upload_driver_vm_rootfs": {
       "type": "upload_file",
-      "local_path": "/home/hlyytine/tii-sel4/vm-images/build/tmp/deploy/images/vm-jetson-agx-orin/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4",
+      "local_path": "{workspace}/vm-images/build/tmp/deploy/images/vm-jetson-agx-orin/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4",
       "target_user": "root",
       "target_ip": "{target_ip}",
       "target_path": "/var/lib/virtioso-vm-images/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4",

@@ -6,7 +6,7 @@ Extends the pKVM autopilot framework to support seL4 EFI binary testing on NVIDI
 
 The `orin_kernel_autopilot.py` daemon executes tests based on the `profile` value
 specified in each request, where `profile` is the root chain name. Chains are
-loaded from `/home/hlyytine/autopilot/chains/<profile>.json`. There is no
+loaded from `<code_root>/chains/<profile>.json`. There is no
 request `type` routing.
 
 seL4 EFI test flow (chain-defined):
@@ -24,11 +24,13 @@ All logs live under `results/<timestamp>/console/` and are defined by chain step
 ### Using the Client Library (Python)
 
 ```python
+import os
+
 from sel4_client import submit_sel4_efi_test, wait_for_result, get_logs
 
 # Submit a test
 timestamp = submit_sel4_efi_test(
-    binary_path='/home/hlyytine/tii-sel4/orinagx_sel4test/images/sel4test-driver-image-arm-orinagx',
+    binary_path=os.path.join(os.environ["WORKSPACE"], "orinagx_sel4test/images/sel4test-driver-image-arm-orinagx"),
     binary_name='sel4test.efi',
     description='sel4test with MMU debug markers',
     profile='sel4test'
@@ -83,7 +85,7 @@ Defaults (AUTOPILOT_DIR/TTYs and queue names) are defined in `config.py` (SSOT).
 ## Directory Structure
 
 ```
-~/tii-sel4/autopilot/
+<workspace>/autopilot/
 ├── requests/
 │   ├── pending/          # New requests go here
 │   ├── processing/       # Currently running test

@@ -39,7 +39,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config import DEFAULT_TTY0, DEFAULT_TTY1, get_default_ttys
+from config import (
+    DEFAULT_TTY0,
+    DEFAULT_TTY1,
+    find_first_existing_path,
+    get_default_ttys,
+    get_workspace_roots,
+)
 
 # Autopilot process management (hot-reloaded to pick up local fixes without
 # restarting the MCP server process).
@@ -222,8 +228,32 @@ def send_notification(method: str, params: Any = None):
 # Common autopilot_dir property for all tools
 AUTOPILOT_DIR_PROP = {
     "type": "string",
-    "description": "Override autopilot working directory (default: $AUTOPILOT_DIR or /home/hlyytine/tii-sel4/autopilot)"
+    "description": "Override autopilot working directory (default: $AUTOPILOT_DIR or $WORKSPACE/autopilot)"
 }
+
+
+def _find_ftrace_indexer() -> Path | None:
+    candidates: list[Path] = []
+    for root in get_workspace_roots():
+        candidates.extend([
+            root / "kernel/tools/ftrace-index-rs",
+            root / "kernel/tools/ftrace-index/target/release/ftrace-index",
+        ])
+    return find_first_existing_path(candidates)
+
+
+def _find_extract_indexed_ftrace_script() -> Path | None:
+    candidates: list[Path] = []
+    for root in get_workspace_roots():
+        candidates.append(root / "projects/virtioso-camkes-vm/tools/extract_indexed_ftrace.sh")
+    return find_first_existing_path(candidates)
+
+
+def _find_ftrace_query_tool() -> Path | None:
+    candidates: list[Path] = []
+    for root in get_workspace_roots():
+        candidates.append(root / "kernel/tools/ftrace_indexed.py")
+    return find_first_existing_path(candidates)
 
 # Tool definitions
 TOOLS = [
@@ -241,7 +271,7 @@ Console output is captured according to the selected profile chain.""",
             "properties": {
                 "binary_path": {
                     "type": "string",
-                    "description": "Absolute path to the seL4 EFI binary (e.g., /home/hlyytine/tii-sel4/orinagx_sel4test/images/sel4test-driver-image-arm-orinagx)"
+                    "description": "Absolute path to the seL4 EFI binary (for example, <workspace>/orinagx_sel4test/images/sel4test-driver-image-arm-orinagx)"
                 },
                 "profile": {
                     "type": "string",
@@ -940,13 +970,8 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             repaired = False
             # One-shot repair path 1: index existing ftrace.bin + ftrace.meta.
             if bin_path.exists() and meta_path.exists():
-                indexer_candidates = [
-                    Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace-index-rs'),
-                    Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace-index/target/release/ftrace-index'),
-                ]
-                for indexer in indexer_candidates:
-                    if not indexer.exists():
-                        continue
+                indexer = _find_ftrace_indexer()
+                if indexer is not None:
                     proc = subprocess.run(
                         [
                             str(indexer),
@@ -961,14 +986,13 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
                     )
                     if proc.returncode == 0 and idx_path.exists():
                         repaired = True
-                        break
 
             # One-shot repair path 2: derive artifacts from raw UART capture.
             if not repaired and tty0_raw.exists():
                 raw_content = tty0_raw.read_text(errors='ignore')
                 if "=== BINARY TRANSFER START ===" in raw_content:
-                    extract_script = Path('/home/hlyytine/tii-sel4/projects/virtioso-camkes-vm/tools/extract_indexed_ftrace.sh')
-                    if extract_script.exists():
+                    extract_script = _find_extract_indexed_ftrace_script()
+                    if extract_script is not None:
                         proc = subprocess.run(
                             [str(extract_script), request_id, str(autopilot_dir)],
                             capture_output=True,
@@ -1008,13 +1032,13 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             return {
                 "content": [{"type": "text", "text": f"UNSUPPORTED_LEGACY_FORMAT: invalid metadata ({exc})"}],
                 "isError": True
-            }
+                }
 
         # Build query command
-        query_tool = Path('/home/hlyytine/tii-sel4/kernel/tools/ftrace_indexed.py')
-        if not query_tool.exists():
+        query_tool = _find_ftrace_query_tool()
+        if query_tool is None:
             return {
-                "content": [{"type": "text", "text": f"Query tool not found: {query_tool}"}],
+                "content": [{"type": "text", "text": "Query tool not found via workspace discovery"}],
                 "isError": True
             }
 

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Dict
 
-DEFAULT_AUTOPILOT_DIR = Path("/home/hlyytine/tii-sel4/autopilot")
+DEFAULT_AUTOPILOT_DIRNAME = "autopilot"
 DEFAULT_TTY0 = "/dev/ttyACM0"
 DEFAULT_TTY1 = "/dev/ttyACM1"
 DEFAULT_TARGET_IP = "192.168.101.112"
@@ -19,13 +19,72 @@ def get_code_root() -> Path:
     return Path(__file__).resolve().parent
 
 
+def get_home_dir() -> Path:
+    return Path.home()
+
+
+def _get_explicit_workspace() -> Path | None:
+    override = (os.environ.get("AUTOPILOT_WORKSPACE") or "").strip()
+    if override:
+        return Path(override).expanduser()
+    env_workspace = (os.environ.get("WORKSPACE") or "").strip()
+    if env_workspace:
+        return Path(env_workspace).expanduser()
+    return None
+
+
+def get_default_workspace() -> Path:
+    workspace = _get_explicit_workspace()
+    if workspace is not None:
+        return workspace
+    env_dir = (os.environ.get("AUTOPILOT_DIR") or "").strip()
+    if env_dir:
+        return Path(env_dir).expanduser().parent
+    return get_home_dir()
+
+
 def get_autopilot_dir(override: str | None = None) -> Path:
     if override:
         return Path(override)
     env_dir = os.environ.get("AUTOPILOT_DIR")
     if env_dir:
         return Path(env_dir)
-    return DEFAULT_AUTOPILOT_DIR
+    workspace = _get_explicit_workspace()
+    if workspace is not None:
+        return workspace / DEFAULT_AUTOPILOT_DIRNAME
+    return get_home_dir() / DEFAULT_AUTOPILOT_DIRNAME
+
+
+def get_workspace_roots() -> list[Path]:
+    roots: list[Path] = []
+    candidates = [
+        os.environ.get("AUTOPILOT_WORKSPACE", "").strip(),
+        os.environ.get("WORKSPACE", "").strip(),
+        str(get_autopilot_dir().parent),
+    ]
+    for raw in candidates:
+        if not raw:
+            continue
+        path = Path(raw).expanduser()
+        try:
+            path = path.resolve()
+        except OSError:
+            pass
+        if path not in roots:
+            roots.append(path)
+    return roots
+
+
+def find_first_existing_path(candidates: list[Path]) -> Path | None:
+    for candidate in candidates:
+        expanded = candidate.expanduser()
+        try:
+            expanded = expanded.resolve()
+        except OSError:
+            pass
+        if expanded.exists():
+            return expanded
+    return None
 
 
 def get_default_ttys() -> tuple[str, str]:

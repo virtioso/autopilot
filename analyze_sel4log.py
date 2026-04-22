@@ -16,20 +16,34 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-# Default binary paths for symbolization
-DEFAULT_KERNEL = "/home/hlyytine/tii-sel4/orinagx_sel4test/kernel/kernel.elf"
-DEFAULT_APP = "/home/hlyytine/tii-sel4/orinagx_sel4test/apps/sel4test-driver/sel4test-driver"
+from config import get_workspace_roots
+
+
+def _default_symbol_paths() -> tuple[str | None, str | None]:
+    for root in get_workspace_roots():
+        kernel = root / "orinagx_sel4test" / "kernel" / "kernel.elf"
+        app = root / "orinagx_sel4test" / "apps" / "sel4test-driver" / "sel4test-driver"
+        if kernel.exists() or app.exists():
+            return str(kernel), str(app)
+    return None, None
 
 
 def parse_args():
+    default_kernel, default_app = _default_symbol_paths()
     parser = argparse.ArgumentParser(
         description="Analyze seL4 log files for RAS errors and test statistics"
     )
     parser.add_argument("logfile", help="Path to the log file to analyze")
-    parser.add_argument("--kernel", default=DEFAULT_KERNEL,
-                        help=f"Path to kernel.elf (default: {DEFAULT_KERNEL})")
-    parser.add_argument("--app", default=DEFAULT_APP,
-                        help=f"Path to sel4test-driver binary (default: {DEFAULT_APP})")
+    parser.add_argument(
+        "--kernel",
+        default=default_kernel,
+        help="Path to kernel.elf (default: auto-discover under workspace roots)",
+    )
+    parser.add_argument(
+        "--app",
+        default=default_app,
+        help="Path to sel4test-driver binary (default: auto-discover under workspace roots)",
+    )
     parser.add_argument("--json-only", action="store_true",
                         help="Output JSON only, no text summary")
     parser.add_argument("--no-symbolize", action="store_true",
@@ -61,6 +75,9 @@ def symbolize_address(addr, el, kernel_elf, app_elf):
         elf = kernel_elf
     else:  # EL=0 userspace
         elf = app_elf
+
+    if not elf:
+        return {'function': '??', 'location': '(no binary configured)'}
 
     if not Path(elf).exists():
         return {'function': '??', 'location': f'(no {Path(elf).name})'}
