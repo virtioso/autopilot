@@ -210,6 +210,9 @@ class TmuxWindowManager:
 
 
 def detect_tmux_session() -> Optional[str]:
+    explicit_session = os.environ.get("AUTOPILOT_TMUX_SESSION", "").strip()
+    if explicit_session:
+        return explicit_session
     tmux_env = os.environ.get("TMUX", "")
     if not tmux_env:
         return None

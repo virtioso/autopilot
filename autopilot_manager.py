@@ -272,6 +272,7 @@ def start_autopilot(
     env = os.environ.copy()
     default_tty0, default_tty1 = get_default_ttys()
     env["AUTOPILOT_DIR"] = str(base)
+    env["AUTOPILOT_TMUX_SESSION"] = session
     if tty0 is None and tty1 is None:
         resolved_tty0 = None
         resolved_tty1 = None
@@ -299,6 +300,7 @@ def start_autopilot(
         # command with explicit env assignments so the existing shell receives
         # the variables even when tmux server state is stale.
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_DIR", str(base)], check=False)
+        subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TMUX_SESSION", session], check=False)
         if resolved_tty0 is not None:
             subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_TTY0", env["AUTOPILOT_TTY0"]], check=False)
         else:
@@ -309,7 +311,10 @@ def start_autopilot(
             subprocess.run(["tmux", "set-environment", "-t", session, "-u", "AUTOPILOT_TTY1"], check=False)
         subprocess.run(["tmux", "set-environment", "-t", session, "AUTOPILOT_PLATFORM", env["AUTOPILOT_PLATFORM"]], check=False)
         _configure_tmux_ui(session, base)
-        env_prefix_parts = [f"AUTOPILOT_DIR={shlex.quote(str(base))}"]
+        env_prefix_parts = [
+            f"AUTOPILOT_DIR={shlex.quote(str(base))}",
+            f"AUTOPILOT_TMUX_SESSION={shlex.quote(session)}",
+        ]
         if resolved_tty0 is not None:
             env_prefix_parts.append(f"AUTOPILOT_TTY0={shlex.quote(env['AUTOPILOT_TTY0'])}")
         if resolved_tty1 is not None:
