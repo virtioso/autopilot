@@ -35,7 +35,7 @@
       "outcomes": [
         {
           "label": "runner_failed",
-          "pattern": "QEMU_RUNNER_ERROR:",
+          "pattern": "QEMU_RUNNER_ERROR:|AUTOPILOT_FAIL: PROCESS_EXIT_NONZERO rc=[0-9]+",
           "source": "tty0",
           "next": "set_verdict_fail"
         },
