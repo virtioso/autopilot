@@ -478,8 +478,12 @@ class SourceManager:
         if cached is not None:
             return cached
         sessions = self._load_router_sessions()
-        self._router_session_cache = sessions
-        return sessions.get(source)
+        if sessions:
+            self._router_session_cache = sessions
+            cached = sessions.get(source)
+            if cached is not None:
+                return cached
+        return self._router_session_cache.get(source)
 
     def _resolve_router_write_tty(self, source: str) -> Optional[str]:
         sess = self.router_session_for_source(source)
