@@ -13,7 +13,9 @@
         "--target",
         "qemu_x86_64_defconfig",
         "--binary",
-        "{original_binary}"
+        "{original_binary}",
+        "--console-runtime-dir",
+        "{result_dir}/console"
       ],
       "outcomes": [
         {
