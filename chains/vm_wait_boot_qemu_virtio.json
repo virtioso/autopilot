@@ -49,7 +49,7 @@
     "run_qemu_rnd_helper": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "QH_LOG=/tmp/qemu-rnd-helper.log; QH_RC=/tmp/qemu-rnd-helper.rc; rm -f \"$QH_RC\"; echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_START\"; ( QEMU_CHARDEV_MODE=stdio_console qemu-rnd-helper >\"$QH_LOG\" 2>&1; rc=$?; echo \"$rc\" > \"$QH_RC\"; echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_EXIT_RC=$rc\"; if [ \"$rc\" -ne 0 ]; then echo \"AUTOPILOT_FAIL: QEMU_RND_HELPER_EXIT_NONZERO rc=$rc\"; tail -n 80 \"$QH_LOG\" | sed 's/^/AUTOPILOT_QEMU_ERR: /'; fi ) & qh_pid=$!; echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_LAUNCHED pid=$qh_pid log=$QH_LOG rc_file=$QH_RC\"; sleep 1; if ! kill -0 \"$qh_pid\" 2>/dev/null; then if [ -f \"$QH_RC\" ]; then rc=$(cat \"$QH_RC\"); echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_EARLY_EXIT rc=$rc\"; fi; fi",
+      "cmd": "echo \"AUTOPILOT_INFO: USERVMCTL_START\"; uservmctl stop >/dev/null 2>&1 || true; if uservmctl start; then echo \"AUTOPILOT_INFO: USERVMCTL_START_OK\"; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=$rc\"; fi; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'",
       "suffix": "\n",
       "outcomes": [
         {
@@ -59,23 +59,16 @@
       ],
       "on_timeout": "fail"
     },
-    "emit_qemu_bootstrap_diag": {
-      "type": "send_cmd",
-      "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: QEMU_BOOTSTRAP_DIAG_BEGIN'; qh_pid=''; for _ in $(seq 1 20); do qh_pid=$(pidof qemu-rnd-helper 2>/dev/null | awk '{print $1}'); if [ -n \"$qh_pid\" ]; then break; fi; sleep 1; done; if [ -n \"$qh_pid\" ]; then echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RUNNING_AFTER_LAUNCH pid=$qh_pid\"; if [ -r \"/proc/$qh_pid/comm\" ]; then printf 'AUTOPILOT_QEMU_PROC: pid=%s comm=%s\\n' \"$qh_pid\" \"$(cat \"/proc/$qh_pid/comm\")\"; fi; if [ -r \"/proc/$qh_pid/cmdline\" ]; then tr '\\000' ' ' < \"/proc/$qh_pid/cmdline\" | sed \"s/^/AUTOPILOT_QEMU_PROC: pid=$qh_pid cmdline=/\"; fi; if [ -r \"/proc/$qh_pid/maps\" ]; then sed \"s/^/AUTOPILOT_QEMU_MAP: pid=$qh_pid /\" \"/proc/$qh_pid/maps\"; else echo \"AUTOPILOT_QEMU_PROC: pid=$qh_pid maps_unreadable\"; fi; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING_AFTER_LAUNCH'; echo 'AUTOPILOT_INFO: VM0_PROC_DIAG_BEGIN'; for p in /proc/[0-9]*; do [ -d \"$p\" ] || continue; pid=${p#/proc/}; comm=$(cat \"$p/comm\" 2>/dev/null || true); printf 'AUTOPILOT_VM0_PROC: pid=%s comm=%s\\n' \"$pid\" \"$comm\"; if [ -r \"$p/maps\" ]; then sed \"s/^/AUTOPILOT_VM0_MAP: pid=$pid /\" \"$p/maps\"; fi; done; echo 'AUTOPILOT_INFO: VM0_PROC_DIAG_END'; fi; if [ -f /tmp/qemu-rnd-helper.rc ]; then echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_EARLY=$(cat /tmp/qemu-rnd-helper.rc)\"; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 60 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_BOOTSTRAP: /'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_LOG_MISSING_AFTER_LAUNCH'; fi; echo 'AUTOPILOT_INFO: VM0_MODULE_DIAG_BEGIN'; if [ -r /proc/modules ]; then sed 's/^/AUTOPILOT_VM0_MODULE: /' /proc/modules; else echo 'AUTOPILOT_VM0_MODULE: /proc/modules unreadable'; fi; for d in /sys/module/*; do if [ -d \"$d\" ]; then mod=${d##*/}; if [ -r \"$d/sections/.text\" ]; then printf 'AUTOPILOT_VM0_MODULE_TEXT: %s .text=%s\\n' \"$mod\" \"$(cat \"$d/sections/.text\")\"; fi; if [ -r \"$d/sections/.init.text\" ]; then printf 'AUTOPILOT_VM0_MODULE_TEXT: %s .init.text=%s\\n' \"$mod\" \"$(cat \"$d/sections/.init.text\")\"; fi; fi; done; echo 'AUTOPILOT_INFO: VM0_MODULE_DIAG_END'; echo 'AUTOPILOT_INFO: QEMU_BOOTSTRAP_DIAG_END'",
-      "suffix": "\n",
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "wait_trace_dump_complete"
-        }
-      ],
-      "on_timeout": "fail"
-    },
     "wait_trace_dump_complete": {
       "type": "wait_pattern",
       "timeout_s": 300,
       "outcomes": [
+        {
+          "label": "uservm_start_failed",
+          "pattern": "AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=[0-9]+",
+          "source": "tty0",
+          "next": "fail"
+        },
         {
           "label": "qemu_exit_nonzero",
           "pattern": "AUTOPILOT_FAIL: QEMU_RND_HELPER_EXIT_NONZERO rc=[0-9]+",
@@ -94,7 +87,7 @@
     "emit_dump_timeout_diag": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: NO_TRACE_DUMP_DIAG_BEGIN'; if [ -f /tmp/qemu-rnd-helper.rc ]; then rc=$(cat /tmp/qemu-rnd-helper.rc); echo \"AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE rc=$rc\"; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_RC_FILE missing'; fi; if pgrep -x qemu-rnd-helper >/dev/null 2>&1; then echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_STILL_RUNNING'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_NOT_RUNNING'; fi; if [ -f /tmp/qemu-rnd-helper.log ]; then tail -n 80 /tmp/qemu-rnd-helper.log | sed 's/^/AUTOPILOT_QEMU_LOG: /'; else echo 'AUTOPILOT_INFO: QEMU_RND_HELPER_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_FAIL: VIO_TRACE_DUMP_NOT_COMPLETED_AFTER_TIMEOUT'; echo 'AUTOPILOT_INFO: NO_TRACE_DUMP_DIAG_END'",
+      "cmd": "echo 'AUTOPILOT_INFO: NO_TRACE_DUMP_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 80 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_FAIL: VIO_TRACE_DUMP_NOT_COMPLETED_AFTER_TIMEOUT'; echo 'AUTOPILOT_INFO: NO_TRACE_DUMP_DIAG_END'",
       "suffix": "\n",
       "outcomes": [
         {
@@ -109,6 +102,19 @@
     },
     "fail": {
       "type": "fail"
+    },
+    "emit_qemu_bootstrap_diag": {
+      "type": "send_cmd",
+      "source": "tty0",
+      "cmd": "echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /run/uservm/vm1-supervisor.pid ]; then upid=$(cat /run/uservm/vm1-supervisor.pid); echo \"AUTOPILOT_INFO: USERVMCTL_RUNNING pid=$upid\"; if [ -r /proc/$upid/comm ]; then printf 'AUTOPILOT_USERVM_PROC: pid=%s comm=%s\\n' \"$upid\" \"$(cat /proc/$upid/comm)\"; fi; if [ -r /proc/$upid/cmdline ]; then tr '\\000' ' ' < /proc/$upid/cmdline | sed \"s/^/AUTOPILOT_USERVM_PROC: pid=$upid cmdline=/\"; fi; else echo 'AUTOPILOT_INFO: USERVMCTL_NOT_RUNNING_AFTER_LAUNCH'; fi; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 60 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_AFTER_LAUNCH'; fi; echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_END'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_trace_dump_complete"
+        }
+      ],
+      "on_timeout": "fail"
     }
   }
 }
