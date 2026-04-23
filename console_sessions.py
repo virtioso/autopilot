@@ -237,6 +237,7 @@ class ConsoleManager:
             "session_id": session_id,
             "name": name,
             "port": port,
+            "pty_path": port if str(port).startswith("/dev/pts/") else None,
             "profile": profile_name,
             "log_path": str(session.log_path),
             "events_path": str(session.events_path)

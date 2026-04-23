@@ -615,7 +615,11 @@ def open_console_session(timestamp: str, session_name: str, autopilot_dir: str =
             return {
                 'session_id': sess['session_id'],
                 'offset': offset,
-                'log_path': sess['log_path']
+                'log_path': sess['log_path'],
+                'events_path': sess.get('events_path'),
+                'pty_path': sess.get('pty_path'),
+                'interactive': sess.get('interactive'),
+                'kind': sess.get('kind'),
             }
     raise ValueError(f"Session '{session_name}' not found")
 
