@@ -27,23 +27,31 @@ def get_workspace() -> Path:
 
 
 def get_default_workspace() -> Path:
+    env_workspace = (os.environ.get("WORKSPACE") or "").strip()
+    if env_workspace:
+        return Path(env_workspace).expanduser()
+
+    env_dir = (os.environ.get("AUTOPILOT_DIR") or "").strip()
+    if env_dir:
+        return Path(env_dir).expanduser().parent
+
     return get_workspace()
 
 
 def get_autopilot_dir(override: str | None = None) -> Path:
-    workspace = get_workspace()
     if override:
         return Path(override)
     env_dir = os.environ.get("AUTOPILOT_DIR")
     if env_dir:
         return Path(env_dir)
+    workspace = get_workspace()
     return workspace / DEFAULT_AUTOPILOT_DIRNAME
 
 
 def get_workspace_roots() -> list[Path]:
     roots: list[Path] = []
     candidates = [
-        str(get_workspace()),
+        str(get_default_workspace()),
         str(get_autopilot_dir().parent),
     ]
     for raw in candidates:
