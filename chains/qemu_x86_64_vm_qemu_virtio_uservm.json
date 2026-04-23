@@ -33,6 +33,12 @@
       "timeout_s": 420,
       "outcomes": [
         {
+          "label": "runner_failed",
+          "pattern": "QEMU_RUNNER_ERROR:",
+          "source": "tty0",
+          "next": "set_verdict_fail"
+        },
+        {
           "label": "driver_vm_shell",
           "pattern": "root@driver-vm:~#|root@.*:~#",
           "source": "driver_vm_console",
