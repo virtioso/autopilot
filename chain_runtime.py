@@ -388,11 +388,13 @@ class SourceManager:
         self._marker_windows: Dict[str, str] = {}
         self._reported_fail_markers: set[Tuple[str, str]] = set()
         self._marker_window_max = 8192
+        self._router_session_cache: Dict[str, dict] = {}
 
     def set_result_dir(self, result_dir: Path) -> None:
         self.result_dir = result_dir
         self._marker_windows.clear()
         self._reported_fail_markers.clear()
+        self._router_session_cache.clear()
 
     def map_source(self, source: str, tty: str, log_rel: str, baud: int = 115200) -> None:
         if source in self.sources:
@@ -445,43 +447,62 @@ class SourceManager:
         binding.set_write_path_resolver(lambda source_name=source: self._resolve_router_write_tty(source_name))
         self.sources[source] = binding
 
-    def _resolve_router_write_tty(self, source: str) -> Optional[str]:
+    def _load_router_sessions(self) -> Dict[str, dict]:
         console_dir = self.result_dir / "console"
         manifest_path = console_dir / "console-manifest.json"
-        if not manifest_path.exists():
-            return None
+        sessions_path = console_dir / "console-runtime" / "sessions.json"
+        if not manifest_path.exists() or not sessions_path.exists():
+            return {}
         try:
             manifest = json.loads(manifest_path.read_text())
+            sessions = json.loads(sessions_path.read_text())
         except Exception:
-            return None
+            return {}
 
-        channel_name = None
+        by_name = {sess.get("name"): sess for sess in sessions.get("sessions", [])}
+        resolved: Dict[str, dict] = {}
         for channel in manifest.get("channels", []):
-            name = channel.get("name")
-            if source == name or source in channel.get("legacy_aliases", []):
-                channel_name = name
-                break
-        if not channel_name:
-            return None
+            channel_name = channel.get("name")
+            if not channel_name:
+                continue
+            sess = by_name.get(channel_name)
+            if not sess:
+                continue
+            names = [channel_name, *channel.get("legacy_aliases", [])]
+            for name in names:
+                resolved[str(name)] = sess
+        return resolved
 
-        session_candidates = [
-            console_dir / "console-runtime" / "sessions.json",
-            console_dir / "sessions.json",
-        ]
-        for sessions_path in session_candidates:
-            if not sessions_path.exists():
-                continue
-            try:
-                sessions = json.loads(sessions_path.read_text())
-            except Exception:
-                continue
-            for sess in sessions.get("sessions", []):
-                if sess.get("name") != channel_name:
-                    continue
-                pty_path = sess.get("pty_path")
-                if pty_path and os.path.exists(str(pty_path)):
-                    return str(pty_path)
+    def router_session_for_source(self, source: str) -> Optional[dict]:
+        cached = self._router_session_cache.get(source)
+        if cached is not None:
+            return cached
+        sessions = self._load_router_sessions()
+        self._router_session_cache = sessions
+        return sessions.get(source)
+
+    def _resolve_router_write_tty(self, source: str) -> Optional[str]:
+        sess = self.router_session_for_source(source)
+        if not sess:
+            return None
+        pty_path = sess.get("pty_path")
+        if pty_path and os.path.exists(str(pty_path)):
+            return str(pty_path)
         return None
+
+    def read_router_since(self, source: str, offset: int) -> Tuple[bytes, int, Optional[str]]:
+        sess = self.router_session_for_source(source)
+        if not sess:
+            return b"", offset, None
+        log_path = Path(str(sess.get("log_path", "")))
+        if not log_path.exists():
+            return b"", offset, str(log_path)
+        size = log_path.stat().st_size
+        read_offset = min(offset, size)
+        with open(log_path, "rb") as f:
+            f.seek(read_offset)
+            data = f.read()
+        return data, read_offset + len(data), str(log_path)
 
     def _emit(self, source: str, data: bytes) -> None:
         if self.ui:
@@ -990,10 +1011,19 @@ class ChainRunner:
         source = step["source"]
         cmd = step["cmd"]
         binding = self.ctx["sources"].get(source)
-        if not binding:
-            raise ValueError(f"unknown source {source}")
         suffix = step.get("suffix", "\n")
-        binding.write(cmd + suffix)
+        payload = cmd + suffix
+        if binding:
+            binding.write(payload)
+            return self._simple_outcome(step)
+        router_tty = self.ctx["sources"]._resolve_router_write_tty(source)
+        if not router_tty:
+            raise ValueError(f"unknown source {source}")
+        fd = os.open(router_tty, os.O_RDWR | os.O_NOCTTY)
+        try:
+            os.write(fd, payload.encode("utf-8", errors="ignore"))
+        finally:
+            os.close(fd)
         return self._simple_outcome(step)
 
     def _step_boot_menu(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -1111,14 +1141,28 @@ class ChainRunner:
 
             for source, source_outcomes in outcomes_by_source.items():
                 binding = self.ctx["sources"].get(source)
-                if not binding:
-                    continue
-                if source not in cursors:
-                    cursors[source] = self._initial_cursor(binding, start_from)
-                cursor = cursors.get(source, 0)
-                data, new_cursor = binding.read_since(cursor)
-                chunk_start = max(cursor, binding._base_offset)
-                cursors[source] = new_cursor
+                if binding:
+                    if source not in cursors:
+                        cursors[source] = self._initial_cursor(binding, start_from)
+                    cursor = cursors.get(source, 0)
+                    data, new_cursor = binding.read_since(cursor)
+                    chunk_start = max(cursor, binding._base_offset)
+                    cursors[source] = new_cursor
+                    log_path = str(binding.log_path)
+                else:
+                    router_session = self.ctx["sources"].router_session_for_source(source)
+                    if not router_session:
+                        continue
+                    if source not in cursors:
+                        log_path_obj = Path(str(router_session.get("log_path", "")))
+                        if start_from == "tail" and log_path_obj.exists():
+                            cursors[source] = log_path_obj.stat().st_size
+                        else:
+                            cursors[source] = 0
+                    cursor = cursors.get(source, 0)
+                    data, new_cursor, log_path = self.ctx["sources"].read_router_since(source, cursor)
+                    chunk_start = cursor
+                    cursors[source] = new_cursor
 
                 if data:
                     last_data_time = time.time()
@@ -1150,7 +1194,6 @@ class ChainRunner:
                     match = re.search(pattern_bytes, normalized, re.MULTILINE)
                     if match:
                         offset = to_raw_offset(match.start(), norm_map, combined_start)
-                        log_path = str(binding.log_path)
                         next_step = outcome.get("next", step.get("on_timeout", "fail"))
                         return next_step, OutcomeMatch(
                             label=outcome.get("label", "match"),

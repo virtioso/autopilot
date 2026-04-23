@@ -1,0 +1,175 @@
+{
+  "entry": "launch_runner",
+  "steps": {
+    "launch_runner": {
+      "type": "map_command_source",
+      "source": "tty0",
+      "log": "console/tty0.raw",
+      "env": {
+        "VIRTIOSO_CONSOLE_ROUTER_USE_VM_PREFIX_DEMUX": "1"
+      },
+      "command": [
+        "python3",
+        "-u",
+        "{workspace}/projects/virtioso-camkes-vm/tools/qemu_runner.py",
+        "run-remote",
+        "--target",
+        "qemu_x86_64_defconfig",
+        "--binary",
+        "{original_binary}",
+        "--console-runtime-dir",
+        "{result_dir}/console"
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_vm0_login_or_shell"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_vm0_login_or_shell": {
+      "type": "wait_pattern",
+      "timeout_s": 420,
+      "outcomes": [
+        {
+          "label": "driver_vm_shell",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
+          "source": "driver_vm_console",
+          "next": "run_uservmctl"
+        },
+        {
+          "label": "driver_vm_login",
+          "pattern": "driver-vm login:|login:",
+          "source": "driver_vm_console",
+          "next": "send_root_login"
+        }
+      ],
+      "on_timeout": "emit_timeout_diag"
+    },
+    "send_root_login": {
+      "type": "send_cmd",
+      "source": "driver_vm_console",
+      "cmd": "root",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_vm0_shell"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_vm0_shell": {
+      "type": "wait_pattern",
+      "timeout_s": 120,
+      "outcomes": [
+        {
+          "label": "driver_vm_shell",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
+          "source": "driver_vm_console",
+          "next": "run_uservmctl"
+        }
+      ],
+      "on_timeout": "emit_timeout_diag"
+    },
+    "run_uservmctl": {
+      "type": "send_cmd",
+      "source": "driver_vm_console",
+      "cmd": "echo \"AUTOPILOT_INFO: USERVMCTL_X86_BEGIN\"; uservmctl stop >/dev/null 2>&1 || true; if uservmctl start; then echo \"AUTOPILOT_INFO: USERVMCTL_START_OK\"; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=$rc\"; fi; if uservmctl wait-ready 180; then echo \"AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK\"; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED rc=$rc\"; fi; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; echo \"AUTOPILOT_INFO: USERVMCTL_X86_END\"",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_uservm_result"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_uservm_result": {
+      "type": "wait_pattern",
+      "timeout_s": 300,
+      "outcomes": [
+        {
+          "label": "uservm_start_failed",
+          "pattern": "AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=[0-9]+",
+          "source": "driver_vm_console",
+          "next": "emit_failure_diag"
+        },
+        {
+          "label": "uservm_wait_failed",
+          "pattern": "AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED rc=[0-9]+",
+          "source": "driver_vm_console",
+          "next": "emit_failure_diag"
+        },
+        {
+          "label": "process_exit_nonzero",
+          "pattern": "AUTOPILOT_FAIL: PROCESS_EXIT_NONZERO|QEMU_RUNNER_ERROR:",
+          "source": "driver_vm_console",
+          "next": "set_verdict_fail"
+        },
+        {
+          "label": "ready",
+          "pattern": "AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK",
+          "source": "driver_vm_console",
+          "next": "set_verdict_pass"
+        }
+      ],
+      "on_timeout": "emit_timeout_diag"
+    },
+    "emit_failure_diag": {
+      "type": "send_cmd",
+      "source": "driver_vm_console",
+      "cmd": "echo 'AUTOPILOT_INFO: USERVM_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 120 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING'; fi; echo 'AUTOPILOT_INFO: USERVM_DIAG_END'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "set_verdict_fail"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "emit_timeout_diag": {
+      "type": "send_cmd",
+      "source": "driver_vm_console",
+      "cmd": "echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 120 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_FAIL: USERVM_READY_TIMEOUT'; echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_END'",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "set_verdict_fail"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "set_verdict_pass": {
+      "type": "set_test_verdict",
+      "verdict": "pass",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "pass"
+    },
+    "set_verdict_fail": {
+      "type": "set_test_verdict",
+      "verdict": "fail",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    }
+  }
+}
