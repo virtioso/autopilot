@@ -3,7 +3,7 @@
 seL4 Autopilot MCP Server
 
 An MCP (Model Context Protocol) server that provides tools for testing and
-observing seL4 EFI binaries on NVIDIA Orin AGX hardware.
+observing seL4 EFI binaries across bench-backed and QEMU-backed targets.
 
 Tools:
 - test_sel4_efi: Submit a binary, wait for completion, return results
@@ -40,8 +40,6 @@ from pathlib import Path
 from typing import Any
 
 from config import (
-    DEFAULT_TTY0,
-    DEFAULT_TTY1,
     find_first_existing_path,
     get_default_ttys,
     get_workspace_roots,
@@ -76,6 +74,17 @@ from sel4_client import (
 )
 
 _AUTOPILOT_MANAGER_MTIME_NS = None
+SUPPORTED_PROTOCOL_VERSIONS = ("2024-11-05",)
+MCP_DEBUG_LOG = Path(os.environ.get("SEL4_MCP_LOG", "/tmp/sel4-mcp-python.log"))
+
+
+def _log_debug(message: str) -> None:
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    try:
+        with MCP_DEBUG_LOG.open("a", encoding="utf-8") as log_fp:
+            log_fp.write(f"[{timestamp}] {message}\n")
+    except Exception:
+        pass
 
 
 def _request_epoch_s(request_id: str, autopilot_dir: str | None) -> float | None:
@@ -141,6 +150,21 @@ def _require_ttys(arguments: dict) -> tuple[str, str] | None:
     return str(tty0), str(tty1)
 
 
+def _require_platform(arguments: dict) -> str | None:
+    platform = arguments.get("platform")
+    if not (platform and str(platform).strip()):
+        return None
+    return str(platform).strip()
+
+
+def _platform_requires_ttys(platform: str) -> bool:
+    apm = _get_autopilot_manager()
+    helper = getattr(apm, "platform_requires_ttys", None)
+    if callable(helper):
+        return bool(helper(platform))
+    return platform.strip() not in {"qemu-generic"}
+
+
 def _profile_runtime_mode(profile: str) -> dict:
     qemu_profiles = {
         "qemu_arm64_defconfig": "qemu_arm64",
@@ -202,7 +226,13 @@ def _derive_build_config(binary_path: str, runtime_mode: dict) -> dict:
 
 
 # MCP Protocol implementation
-# Codex CLI MCP transport uses newline-delimited JSON-RPC over stdio.
+# Codex's current stdio MCP client expects newline-delimited JSON-RPC on
+# stdout. The input side accepts both framed MCP messages and legacy JSONL.
+
+
+def _write_stdio_message(payload: dict) -> None:
+    sys.stdout.write(json.dumps(payload) + "\n")
+    sys.stdout.flush()
 
 
 def send_response(id: Any, result: Any = None, error: Any = None):
@@ -212,8 +242,7 @@ def send_response(id: Any, result: Any = None, error: Any = None):
         response["error"] = error
     else:
         response["result"] = result
-    sys.stdout.write(json.dumps(response) + "\n")
-    sys.stdout.flush()
+    _write_stdio_message(response)
 
 
 def send_notification(method: str, params: Any = None):
@@ -221,8 +250,7 @@ def send_notification(method: str, params: Any = None):
     notification = {"jsonrpc": "2.0", "method": method}
     if params is not None:
         notification["params"] = params
-    sys.stdout.write(json.dumps(notification) + "\n")
-    sys.stdout.flush()
+    _write_stdio_message(notification)
 
 
 # Common autopilot_dir property for all tools
@@ -600,23 +628,25 @@ Returns session names, IDs, and log paths if available.""",
                     "description": "Run Autopilot inside tmux for attachable TUI",
                     "default": True
                 },
+                "platform": {
+                    "type": "string",
+                    "description": "Execution target platform. Use qemu-generic for remote-QEMU profiles, or a bench-backed platform such as orin-agx-uefi-netboot."
+                },
                 "tmux_session": {
                     "type": "string",
                     "description": "tmux session name (default: autopilot)"
                 },
                 "tty0": {
                     "type": "string",
-                    "description": "UART device for tty0 (required, e.g. /dev/ttyACM0)",
-                    "default": DEFAULT_TTY0
+                    "description": "UART device for tty0. Required only for bench-backed platforms."
                 },
                 "tty1": {
                     "type": "string",
-                    "description": "UART device for tty1 (required, e.g. /dev/ttyACM1)",
-                    "default": DEFAULT_TTY1
+                    "description": "UART device for tty1. Required only for bench-backed platforms."
                 },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
-            "required": ["tty0", "tty1"]
+            "required": ["platform"]
         }
     },
     {
@@ -649,6 +679,10 @@ Returns session names, IDs, and log paths if available.""",
                     "description": "Run Autopilot inside tmux for attachable TUI",
                     "default": True
                 },
+                "platform": {
+                    "type": "string",
+                    "description": "Execution target platform. Use qemu-generic for remote-QEMU profiles, or a bench-backed platform such as orin-agx-uefi-netboot."
+                },
                 "tmux_session": {
                     "type": "string",
                     "description": "tmux session name (default: autopilot)"
@@ -660,17 +694,15 @@ Returns session names, IDs, and log paths if available.""",
                 },
                 "tty0": {
                     "type": "string",
-                    "description": "UART device for tty0 (required, e.g. /dev/ttyACM0)",
-                    "default": DEFAULT_TTY0
+                    "description": "UART device for tty0. Required only for bench-backed platforms."
                 },
                 "tty1": {
                     "type": "string",
-                    "description": "UART device for tty1 (required, e.g. /dev/ttyACM1)",
-                    "default": DEFAULT_TTY1
+                    "description": "UART device for tty1. Required only for bench-backed platforms."
                 },
                 "autopilot_dir": AUTOPILOT_DIR_PROP
             },
-            "required": ["tty0", "tty1"]
+            "required": ["platform"]
         }
     }
 ]
@@ -1156,13 +1188,27 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         command = arguments.get("command")
         use_tmux = arguments.get("use_tmux", True)
         tmux_session = arguments.get("tmux_session")
-        ttys = _require_ttys(arguments)
-        if not ttys:
+        platform = _require_platform(arguments)
+        if not platform:
             return {
-                "content": [{"type": "text", "text": "tty0 and tty1 are required (examples: /dev/ttyACM0, /dev/ttyACM1)"}],
+                "content": [{"type": "text", "text": "platform is required (for example: qemu-generic or orin-agx-uefi-netboot)"}],
                 "isError": True
             }
-        tty0, tty1 = ttys
+        tty0 = None
+        tty1 = None
+        if _platform_requires_ttys(platform):
+            ttys = _require_ttys(arguments)
+            if not ttys:
+                return {
+                    "content": [{"type": "text", "text": "tty0 and tty1 are required for bench-backed platforms"}],
+                    "isError": True
+                }
+            tty0, tty1 = ttys
+        elif arguments.get("tty0") or arguments.get("tty1"):
+            return {
+                "content": [{"type": "text", "text": "tty0/tty1 must not be set for qemu-generic"}],
+                "isError": True
+            }
         result = apm.start_autopilot(
             autopilot_dir=str(paths["autopilot"]),
             command=command,
@@ -1170,6 +1216,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             tmux_session=tmux_session,
             tty0=tty0,
             tty1=tty1,
+            platform=platform,
         )
         return {
             "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
@@ -1190,13 +1237,27 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
         use_tmux = arguments.get("use_tmux", True)
         tmux_session = arguments.get("tmux_session")
         force = arguments.get("force", False)
-        ttys = _require_ttys(arguments)
-        if not ttys:
+        platform = _require_platform(arguments)
+        if not platform:
             return {
-                "content": [{"type": "text", "text": "tty0 and tty1 are required (examples: /dev/ttyACM0, /dev/ttyACM1)"}],
+                "content": [{"type": "text", "text": "platform is required (for example: qemu-generic or orin-agx-uefi-netboot)"}],
                 "isError": True
             }
-        tty0, tty1 = ttys
+        tty0 = None
+        tty1 = None
+        if _platform_requires_ttys(platform):
+            ttys = _require_ttys(arguments)
+            if not ttys:
+                return {
+                    "content": [{"type": "text", "text": "tty0 and tty1 are required for bench-backed platforms"}],
+                    "isError": True
+                }
+            tty0, tty1 = ttys
+        elif arguments.get("tty0") or arguments.get("tty1"):
+            return {
+                "content": [{"type": "text", "text": "tty0/tty1 must not be set for qemu-generic"}],
+                "isError": True
+            }
         result = apm.restart_autopilot(
             autopilot_dir=str(paths["autopilot"]),
             command=command,
@@ -1205,6 +1266,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             force=force,
             tty0=tty0,
             tty1=tty1,
+            platform=platform,
         )
         return {
             "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
@@ -1221,20 +1283,34 @@ def handle_request(request: dict) -> None:
     """Handle an incoming JSON-RPC request."""
     method = request.get("method")
     id = request.get("id")
-    params = request.get("params", {})
+    params = request.get("params") or {}
+
+    _log_debug(f"request method={method!r} id={id!r}")
 
     if method == "initialize":
-        # Echo client protocol version to satisfy strict MCP handshake checks.
-        requested_protocol = params.get("protocolVersion") or "2024-11-05"
+        requested_protocol = str(params.get("protocolVersion") or "").strip()
+        negotiated_protocol = requested_protocol or SUPPORTED_PROTOCOL_VERSIONS[-1]
+        if requested_protocol and requested_protocol not in SUPPORTED_PROTOCOL_VERSIONS:
+            _log_debug(
+                "initialize requested unsupported protocol "
+                f"{requested_protocol!r}; echoing it back for client compatibility"
+            )
+        else:
+            _log_debug(
+                f"initialize requested={requested_protocol!r} negotiated={negotiated_protocol!r}"
+            )
         send_response(id, {
-            "protocolVersion": requested_protocol,
+            "protocolVersion": negotiated_protocol,
             "capabilities": {
-                "tools": {}
+                "tools": {
+                    "listChanged": False
+                }
             },
             "serverInfo": {
                 "name": "sel4-autopilot",
                 "version": "1.0.0"
-            }
+            },
+            "instructions": "Use tools/list then tools/call over MCP stdio."
         })
 
     elif method == "notifications/initialized":
@@ -1296,15 +1372,20 @@ def _read_stdio_message(stdin_buf) -> str | None:
 
 def main():
     """Main loop - read JSON-RPC requests from stdin, write responses to stdout."""
-    sys.stderr.write("seL4 Autopilot MCP Server starting...\n")
-    sys.stderr.flush()
-
+    _log_debug(
+        "server starting "
+        f"pid={os.getpid()} cwd={os.getcwd()} "
+        f"workspace={os.environ.get('WORKSPACE', '')!r} "
+        f"autopilot_dir={os.environ.get('AUTOPILOT_DIR', '')!r}"
+    )
     stdin_buf = sys.stdin.buffer
     while True:
         raw = _read_stdio_message(stdin_buf)
         if raw is None:
+            _log_debug("stdin EOF; exiting main loop")
             break
         if not raw:
+            _log_debug("empty/invalid stdio frame received; continuing")
             continue
 
         request = None
@@ -1312,9 +1393,11 @@ def main():
             request = json.loads(raw)
             handle_request(request)
         except json.JSONDecodeError as e:
+            _log_debug(f"JSON parse error: {e}; raw_prefix={raw[:200]!r}")
             sys.stderr.write(f"JSON parse error: {e}\n")
             sys.stderr.flush()
         except Exception as e:
+            _log_debug(f"request handling error: {e!r}")
             sys.stderr.write(f"Error handling request: {e}\n")
             sys.stderr.flush()
             try:
@@ -1328,4 +1411,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        _log_debug(f"fatal server error: {e!r}")
+        raise
