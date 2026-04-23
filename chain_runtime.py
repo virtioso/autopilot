@@ -197,6 +197,9 @@ class SourceBinding:
         self._proc = None
         self._proc_stdin = None
         self._proc_stdout = None
+        self._write_fd = None
+        self._write_tty_path = None
+        self._write_path_resolver = None
         if self.tty:
             self._serial = serial.Serial(self.tty, baudrate=self.baud, timeout=0.1)
             # Always start from an empty UART state for deterministic pattern matching.
@@ -218,6 +221,21 @@ class SourceBinding:
         else:
             raise ValueError("source binding requires tty or command")
         self._thread.start()
+
+    def set_write_path_resolver(self, resolver) -> None:
+        self._write_path_resolver = resolver
+
+    def _ensure_write_endpoint(self) -> None:
+        if self._serial is not None or self._write_fd is not None:
+            return
+        if self._write_path_resolver is None:
+            return
+        tty_path = self._write_path_resolver()
+        if not tty_path:
+            return
+        fd = os.open(str(tty_path), os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        self._write_fd = fd
+        self._write_tty_path = str(tty_path)
 
     def _run(self) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -286,6 +304,10 @@ class SourceBinding:
             if self._serial is not None:
                 self._serial.write(payload)
                 return
+            self._ensure_write_endpoint()
+            if self._write_fd is not None:
+                os.write(self._write_fd, payload)
+                return
             if self._proc_stdin is None:
                 raise RuntimeError("process stdin not available")
             self._proc_stdin.write(payload)
@@ -318,6 +340,12 @@ class SourceBinding:
                 self._serial.close()
         except Exception:
             pass
+        if self._write_fd is not None:
+            try:
+                os.close(self._write_fd)
+            except Exception:
+                pass
+            self._write_fd = None
         if self._proc is not None:
             try:
                 if self._proc_stdin:
@@ -414,7 +442,46 @@ class SourceManager:
             env=env,
             emit=self._emit,
         )
+        binding.set_write_path_resolver(lambda source_name=source: self._resolve_router_write_tty(source_name))
         self.sources[source] = binding
+
+    def _resolve_router_write_tty(self, source: str) -> Optional[str]:
+        console_dir = self.result_dir / "console"
+        manifest_path = console_dir / "console-manifest.json"
+        if not manifest_path.exists():
+            return None
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except Exception:
+            return None
+
+        channel_name = None
+        for channel in manifest.get("channels", []):
+            name = channel.get("name")
+            if source == name or source in channel.get("legacy_aliases", []):
+                channel_name = name
+                break
+        if not channel_name:
+            return None
+
+        session_candidates = [
+            console_dir / "console-runtime" / "sessions.json",
+            console_dir / "sessions.json",
+        ]
+        for sessions_path in session_candidates:
+            if not sessions_path.exists():
+                continue
+            try:
+                sessions = json.loads(sessions_path.read_text())
+            except Exception:
+                continue
+            for sess in sessions.get("sessions", []):
+                if sess.get("name") != channel_name:
+                    continue
+                pty_path = sess.get("pty_path")
+                if pty_path and os.path.exists(str(pty_path)):
+                    return str(pty_path)
+        return None
 
     def _emit(self, source: str, data: bytes) -> None:
         if self.ui:
