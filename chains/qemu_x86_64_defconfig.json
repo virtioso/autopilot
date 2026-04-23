@@ -38,6 +38,11 @@
           "next": "set_verdict_pass"
         },
         {
+          "label": "vm_login",
+          "pattern": "driver-vm /dev/ttyS0|driver-vm login:|login:",
+          "next": "set_verdict_pass"
+        },
+        {
           "label": "panic",
           "pattern": "\\*\\*\\* FAILURES DETECTED \\*\\*\\*|Halting on fatal assertion\\.\\.\\.|Halting on first test failure|\\*\\*\\* ALL tests not run \\*\\*\\*|Kernel panic|QEMU_RUNNER_ERROR:|AUTOPILOT_FAIL: PROCESS_EXIT_NONZERO",
           "next": "set_verdict_fail"
