@@ -1,0 +1,131 @@
+{
+  "entry": "launch_runner",
+  "steps": {
+    "launch_runner": {
+      "type": "map_command_source",
+      "source": "tty0",
+      "log": "console/tty0.raw",
+      "env": {
+        "VIRTIOSO_CONSOLE_ROUTER_USE_VM_PREFIX_DEMUX": "1",
+        "VIRTIOSO_QEMU_SPLIT_MONITOR": "1"
+      },
+      "command": [
+        "python3",
+        "-u",
+        "{workspace}/projects/virtioso-camkes-vm/tools/qemu_runner.py",
+        "run-remote",
+        "--target",
+        "qemu_x86_64_defconfig",
+        "--binary",
+        "{original_binary}",
+        "--console-runtime-dir",
+        "{result_dir}/console"
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_vm0_login_or_shell"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_vm0_login_or_shell": {
+      "type": "wait_pattern",
+      "timeout_s": 420,
+      "outcomes": [
+        {
+          "label": "runner_failed",
+          "pattern": "QEMU_RUNNER_ERROR:|AUTOPILOT_FAIL: PROCESS_EXIT_NONZERO rc=[0-9]+",
+          "source": "tty0",
+          "next": "set_verdict_fail"
+        },
+        {
+          "label": "driver_vm_shell",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
+          "source": "driver_vm_console",
+          "next": "set_verdict_pass"
+        },
+        {
+          "label": "driver_vm_login",
+          "pattern": "driver-vm login:|login:",
+          "source": "driver_vm_console",
+          "next": "wait_vm0_login_quiet"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_vm0_login_quiet": {
+      "type": "wait_pattern",
+      "timeout_s": 30,
+      "outcomes": [
+        {
+          "label": "driver_vm_shell",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
+          "source": "driver_vm_console",
+          "next": "set_verdict_pass"
+        },
+        {
+          "label": "driver_vm_console_quiet",
+          "pattern": "CE: hpet increased min_delta_ns to 973075 nsec",
+          "source": "driver_vm_console",
+          "next": "send_root_login"
+        }
+      ],
+      "on_timeout": "send_root_login"
+    },
+    "send_root_login": {
+      "type": "send_cmd",
+      "source": "driver_vm_console",
+      "cmd": "root",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_vm0_shell"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_vm0_shell": {
+      "type": "wait_pattern",
+      "timeout_s": 120,
+      "outcomes": [
+        {
+          "label": "driver_vm_shell",
+          "pattern": "root@driver-vm:~#|root@.*:~#",
+          "source": "driver_vm_console",
+          "next": "set_verdict_pass"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "set_verdict_pass": {
+      "type": "set_test_verdict",
+      "verdict": "pass",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "pass"
+    },
+    "set_verdict_fail": {
+      "type": "set_test_verdict",
+      "verdict": "fail",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": {
+      "type": "pass"
+    },
+    "fail": {
+      "type": "fail"
+    }
+  }
+}
