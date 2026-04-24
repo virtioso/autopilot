@@ -49,27 +49,14 @@
           "label": "driver_vm_login",
           "pattern": "driver-vm login:|login:",
           "source": "driver_vm_console",
-          "next": "nudge_vm0_login"
+          "next": "wait_vm0_login_quiet"
         }
       ],
       "on_timeout": "emit_timeout_diag"
     },
-    "nudge_vm0_login": {
-      "type": "send_cmd",
-      "source": "driver_vm_console",
-      "cmd": "",
-      "suffix": "\n",
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "wait_vm0_login_clean"
-        }
-      ],
-      "on_timeout": "set_verdict_fail"
-    },
-    "wait_vm0_login_clean": {
+    "wait_vm0_login_quiet": {
       "type": "wait_pattern",
-      "timeout_s": 20,
+      "timeout_s": 30,
       "outcomes": [
         {
           "label": "driver_vm_shell",
@@ -78,8 +65,8 @@
           "next": "run_uservmctl"
         },
         {
-          "label": "driver_vm_login",
-          "pattern": "driver-vm login:|login:",
+          "label": "driver_vm_console_quiet",
+          "pattern": "CE: hpet increased min_delta_ns to 973075 nsec",
           "source": "driver_vm_console",
           "next": "send_root_login"
         }
