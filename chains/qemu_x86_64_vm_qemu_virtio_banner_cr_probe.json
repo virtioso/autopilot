@@ -1,5 +1,5 @@
 {
-  "entry": "launch_runner",
+  "entry": "verify_remote_qemu_host_ready",
   "steps": {
     "launch_runner": {
       "type": "map_command_source",
@@ -145,6 +145,22 @@
     },
     "fail": {
       "type": "fail"
+    },
+    "verify_remote_qemu_host_ready": {
+      "type": "ssh_wait_ready",
+      "target_user": "hlyytine",
+      "target_ip": "192.168.101.110",
+      "cmd": "true",
+      "per_try_timeout_s": 5,
+      "total_timeout_s": 30,
+      "retry_interval_s": 2,
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "launch_runner"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
     }
   }
 }
