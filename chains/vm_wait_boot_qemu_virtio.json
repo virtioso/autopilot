@@ -81,7 +81,7 @@
     "wait_uservm_ready": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: USERVM_READY_WAIT_BEGIN'; if uservmctl wait-ready 240; then echo 'AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK'; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED rc=$rc\"; fi; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; echo 'AUTOPILOT_INFO: USERVM_READY_WAIT_END'",
+      "cmd": "echo 'AUTOPILOT_INFO: USERVM_READY_WAIT_BEGIN'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n +1 -f /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG_LIVE: /' & uservm_log_tail=$!; else uservm_log_tail=; fi; if uservmctl wait-ready 240; then echo 'AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK'; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED rc=$rc\"; fi; if [ -n \"${uservm_log_tail:-}\" ]; then kill \"$uservm_log_tail\" >/dev/null 2>&1 || true; wait \"$uservm_log_tail\" >/dev/null 2>&1 || true; fi; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; echo 'AUTOPILOT_INFO: USERVM_READY_WAIT_END'",
       "suffix": "\n",
       "outcomes": [
         {
