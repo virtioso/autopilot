@@ -65,13 +65,13 @@
       "outcomes": [
         {
           "label": "start_failed",
-          "pattern": "^AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=[0-9]+",
+          "pattern": "AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=[0-9]+",
           "source": "tty0",
           "next": "emit_uservm_timeout_diag"
         },
         {
           "label": "start_ok",
-          "pattern": "^AUTOPILOT_INFO: USERVMCTL_START_OK",
+          "pattern": "AUTOPILOT_INFO: USERVMCTL_START_OK",
           "source": "tty0",
           "next": "wait_uservm_ready"
         }
@@ -97,13 +97,13 @@
       "outcomes": [
         {
           "label": "ready_failed",
-          "pattern": "^AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED rc=[0-9]+",
+          "pattern": "AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED rc=[0-9]+",
           "source": "tty0",
           "next": "emit_uservm_timeout_diag"
         },
         {
           "label": "ready_ok",
-          "pattern": "^AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK",
+          "pattern": "AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK",
           "source": "tty0",
           "next": "emit_qemu_bootstrap_diag"
         }
