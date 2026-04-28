@@ -394,6 +394,12 @@ def _hook_result(
     summary: str,
     artifacts: list[str] = None,
     error: str = None,
+    required: bool | None = None,
+    severity: str | None = None,
+    expected: str | None = None,
+    observed: str | None = None,
+    evidence_excerpt: str | None = None,
+    source_file: str | None = None,
 ) -> dict:
     payload = {
         "hook_id": hook_id,
@@ -403,6 +409,18 @@ def _hook_result(
     }
     if error:
         payload["error"] = error
+    if required is not None:
+        payload["required"] = required
+    if severity:
+        payload["severity"] = severity
+    if expected:
+        payload["expected"] = expected
+    if observed:
+        payload["observed"] = observed
+    if evidence_excerpt:
+        payload["evidence_excerpt"] = evidence_excerpt
+    if source_file:
+        payload["source_file"] = source_file
     return payload
 
 
@@ -424,6 +442,61 @@ def _analysis_text_log_contents(path: Path) -> str:
     if denul and denul != text:
         return text + "\n" + denul
     return denul or text
+
+
+def _first_matching_log_line(paths: list[Path], patterns: list[str]) -> dict | None:
+    compiled = [re.compile(pattern) for pattern in patterns]
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except Exception:
+            continue
+        for line_no, line in enumerate(lines, start=1):
+            for pattern in compiled:
+                if pattern.search(line):
+                    return {
+                        "source_file": str(path),
+                        "line": line_no,
+                        "text": line.strip(),
+                    }
+    return None
+
+
+def _hook_failure_evidence(result_dir: Path, hook_id: str, summary: str) -> dict:
+    console_paths = [
+        result_dir / "console" / "tty0.filtered.log",
+        result_dir / "console" / "tty0.ansi.log",
+        result_dir / "console" / "tty0.raw",
+        result_dir / "console" / "autopilot.fail.log",
+    ]
+    patterns = [re.escape(summary)] if summary else []
+    if hook_id.startswith("vio_trace"):
+        patterns = [
+            r"ERROR: vio_trace not ready",
+            r"VIO_TRACE_DUMP_END",
+            r"TRACE_DUMP_TERMINAL",
+            r"vio[-_]trace.*failed",
+        ] + patterns
+    match = _first_matching_log_line(console_paths, patterns)
+    if not match:
+        return {}
+    return {
+        "evidence_excerpt": match["text"],
+        "source_file": match["source_file"],
+    }
+
+
+def _apply_hook_policy(result_dir: Path, hook: dict, required: bool) -> dict:
+    out = dict(hook)
+    out["required"] = required
+    out["severity"] = "required_for_pass" if required else "diagnostic_only"
+    out.setdefault("expected", "hook result pass")
+    out.setdefault("observed", out.get("summary") or out.get("error") or out.get("result"))
+    if out.get("result") != "pass" and not out.get("evidence_excerpt"):
+        out.update(_hook_failure_evidence(result_dir, out.get("hook_id", ""), out.get("summary", "")))
+    return out
 
 
 def _run_hook_ftrace_index_integrity(result_dir: Path, ftrace_post: dict) -> dict:
@@ -1220,10 +1293,14 @@ def run_external_analysis_hooks(result_dir: Path, profile_name: str, ftrace_post
             )
             continue
         try:
-            required_results.append(runner())
+            required_results.append(_apply_hook_policy(result_dir, runner(), required=True))
         except Exception as exc:
             required_results.append(
-                _hook_result(hook_id, "fail", "required hook execution failed", error=str(exc))
+                _apply_hook_policy(
+                    result_dir,
+                    _hook_result(hook_id, "fail", "required hook execution failed", error=str(exc)),
+                    required=True,
+                )
             )
 
     for hook_id in hooks_cfg.get("optional", []):
@@ -1239,10 +1316,14 @@ def run_external_analysis_hooks(result_dir: Path, profile_name: str, ftrace_post
             )
             continue
         try:
-            optional_results.append(runner())
+            optional_results.append(_apply_hook_policy(result_dir, runner(), required=False))
         except Exception as exc:
             optional_results.append(
-                _hook_result(hook_id, "fail", "optional hook execution failed", error=str(exc))
+                _apply_hook_policy(
+                    result_dir,
+                    _hook_result(hook_id, "fail", "optional hook execution failed", error=str(exc)),
+                    required=False,
+                )
             )
 
     required_ok = all(item.get("result") == "pass" for item in required_results)
@@ -1250,6 +1331,14 @@ def run_external_analysis_hooks(result_dir: Path, profile_name: str, ftrace_post
         "profile": profile_name,
         "required": required_results,
         "optional": optional_results,
+        "hook_policy": [
+            {
+                "hook_id": item.get("hook_id"),
+                "required": item.get("required"),
+                "severity": item.get("severity"),
+            }
+            for item in required_results + optional_results
+        ],
         "required_ok": required_ok,
     }
     out = result_dir / "analysis_hooks" / "analysis_hooks.json"
