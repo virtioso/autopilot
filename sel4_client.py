@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Optional
 
 from config import get_autopilot_dir, get_paths
+from startup_queue import read_startup_cleanup
 from chain_runtime import ChainValidationError, validate_chain
 
 
@@ -507,6 +508,7 @@ def get_autopilot_status(autopilot_dir: str = None) -> dict:
         "failed": {"count": len(failed), "latest_ids": failed[-10:]},
         "current": current,
         "prepare": prepare_state,
+        "startup_cleanup": read_startup_cleanup(str(paths["autopilot"])),
     }
 
 

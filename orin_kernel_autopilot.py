@@ -23,6 +23,7 @@ from config import (
     get_workspace_roots,
 )
 from extract_guest_dtb import extract_guest_dtbs
+from startup_queue import clear_startup_requests
 from tmux_ui import TmuxControlServer, TmuxUICompat, TmuxUIState, TmuxWindowManager, detect_tmux_session
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -1590,6 +1591,14 @@ class PrepareLifecycle:
 
 def main() -> None:
     ensure_dirs()
+    startup_cleanup = clear_startup_requests(str(AUTOPILOT_DIR), reason="daemon_start")
+    cleared = startup_cleanup["pending_cleared"] + startup_cleanup["processing_cleared"]
+    if cleared:
+        print(
+            "Startup cleanup cleared requests by policy "
+            f"{startup_cleanup['policy']}: {', '.join(cleared)}",
+            flush=True,
+        )
     validate_all_chains()
 
     board = BoardControl.BoardControlLocal()

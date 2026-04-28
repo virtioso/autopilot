@@ -11,11 +11,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from config import get_code_root, get_default_ttys
+from config import get_code_root
+from startup_queue import clear_startup_requests, read_startup_cleanup
 
 DEFAULT_COMMAND = f"python3 {shlex.quote(str(get_code_root() / 'orin_kernel_autopilot.py'))}"
 DEFAULT_TMUX_SESSION = "autopilot"
 DEFAULT_PLATFORM = "orin-agx-uefi-netboot"
+
+
+def platform_requires_ttys(platform: str) -> bool:
+    normalized = (platform or "").strip()
+    return normalized not in {"qemu-generic"}
 
 
 def _runtime_dir(autopilot_dir: Path) -> Path:
@@ -34,6 +40,13 @@ def _meta_path(runtime_dir: Path) -> Path:
 
 def _log_path(runtime_dir: Path) -> Path:
     return runtime_dir / "autopilot.log"
+
+
+def _append_runtime_log(log_path: Path, message: str) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().isoformat() + "Z"
+    with log_path.open("a", encoding="utf-8") as fh:
+        fh.write(f"[manager {timestamp}] {message}\n")
 
 
 def _read_pid(pid_path: Path) -> Optional[int]:
@@ -234,6 +247,7 @@ def status_autopilot(
         "tty0": meta.get("tty0"),
         "tty1": meta.get("tty1"),
         "last_start_time": meta.get("start_time"),
+        "startup_cleanup": read_startup_cleanup(str(base)),
     }
 
 
@@ -266,27 +280,45 @@ def start_autopilot(
             "log_path": str(log_path),
         }
 
+    stale_pid = _read_pid(pid_file)
+    if stale_pid is not None and not _is_running(stale_pid, marker) and pid_file.exists():
+        pid_file.unlink()
+
+    startup_cleanup = clear_startup_requests(str(base), reason="manager_start")
+    cleared = startup_cleanup["pending_cleared"] + startup_cleanup["processing_cleared"]
+    if cleared:
+        _append_runtime_log(
+            log_path,
+            "Cleared startup requests by policy "
+            f"{startup_cleanup['policy']}: {', '.join(cleared)}",
+        )
+    elif stale_pid is not None and not _is_running(stale_pid, marker):
+        _append_runtime_log(
+            log_path,
+            f"Detected stale daemon pid={stale_pid}; no pending/processing requests needed cleanup",
+        )
+
     if use_tmux and shutil_which("tmux") is None:
         return {"status": "error", "error": "tmux not found in PATH"}
 
     env = os.environ.copy()
-    default_tty0, default_tty1 = get_default_ttys()
     env["AUTOPILOT_DIR"] = str(base)
     env["AUTOPILOT_TMUX_SESSION"] = session
-    if tty0 is None and tty1 is None:
+    resolved_platform = (platform or "").strip()
+    if not resolved_platform:
+        return {"status": "error", "error": "platform must be specified explicitly"}
+
+    if platform_requires_ttys(resolved_platform):
+        resolved_tty0 = _require_non_empty_tty("tty0", tty0, "")
+        resolved_tty1 = _require_non_empty_tty("tty1", tty1, "")
+        env["AUTOPILOT_TTY0"] = resolved_tty0
+        env["AUTOPILOT_TTY1"] = resolved_tty1
+    else:
         resolved_tty0 = None
         resolved_tty1 = None
         env.pop("AUTOPILOT_TTY0", None)
         env.pop("AUTOPILOT_TTY1", None)
-    else:
-        resolved_tty0 = _require_non_empty_tty("tty0", tty0, default_tty0)
-        resolved_tty1 = _require_non_empty_tty("tty1", tty1, default_tty1)
-        env["AUTOPILOT_TTY0"] = resolved_tty0
-        env["AUTOPILOT_TTY1"] = resolved_tty1
-    if platform is not None:
-        env["AUTOPILOT_PLATFORM"] = platform.strip()
-    else:
-        env.setdefault("AUTOPILOT_PLATFORM", DEFAULT_PLATFORM)
+    env["AUTOPILOT_PLATFORM"] = resolved_platform
 
     if use_tmux:
         if _tmux_has_session(session):
@@ -376,6 +408,7 @@ def start_autopilot(
         "log_path": str(log_path),
         "tty0": resolved_tty0,
         "tty1": resolved_tty1,
+        "startup_cleanup": startup_cleanup,
     }
 
 
