@@ -36,7 +36,7 @@ UEFI boot command dispatch via `boot_efi` chain step.
 
 The only supported agent-facing control surface is the `autopilot` command in
 `PATH`. It returns JSON and is the API agents must use for lifecycle, submit,
-status, and logs.
+status, evidence, and logs.
 
 Required pattern:
 
@@ -48,10 +48,23 @@ Do not use MCP tools, direct request/result queue edits, or Python internals as
 fallback paths. If the command API fails, returns invalid/ambiguous JSON, or
 lacks a needed operation, stop and ask the human owner.
 
-Orin AGX note: always specify UARTs explicitly when starting/restarting:
-`--tty0 /dev/ttyACM0` and `--tty1 /dev/ttyACM1`.
-Replace these for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*` and
-a different platform override chain).
+Orin AGX note: `orin-agx-uefi-netboot` defaults to `/dev/ttyACM0` and
+`/dev/ttyACM1` when UARTs are not specified. Replace these explicitly for other
+platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*` and a different platform
+override chain).
+
+For failed tests, start with:
+
+```bash
+autopilot --autopilot-dir "$WORKSPACE/autopilot" get <request-id> --json
+autopilot --autopilot-dir "$WORKSPACE/autopilot" evidence <request-id> --json
+```
+
+Use bounded log reads, not full raw dumps:
+
+```bash
+autopilot --autopilot-dir "$WORKSPACE/autopilot" logs <request-id> --grep 'AUTOPILOT_FAIL|ERROR' --tail 100 --json
+```
 
 On daemon startup, Autopilot clears all pending and processing requests before
 accepting new work. Old queue entries are not durable intent after restart.

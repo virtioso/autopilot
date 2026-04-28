@@ -163,6 +163,20 @@ autopilot --autopilot-dir "${WORKSPACE}/autopilot" submit efi --chain vm-qemu-vi
 autopilot --autopilot-dir "${WORKSPACE}/autopilot" get <request-id> --json
 ```
 
+For failed tests, `get` includes structured `failure` data and log artifact
+paths. Use `evidence` for the compact triage view:
+
+```bash
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" evidence <request-id> --json
+```
+
+Use bounded log reads instead of full raw dumps:
+
+```bash
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" logs <request-id> --grep 'AUTOPILOT_FAIL|ERROR' --tail 100 --json
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" logs <request-id> --file tty0.filtered.log --tail 200 --json
+```
+
 ### Cancel a Test (Hard Cancel)
 
 Use `autopilot stop --json` for daemon lifecycle control. Do not manipulate
@@ -244,8 +258,8 @@ journalctl -u autopilot -f
 # Check autopilot service status
 systemctl status autopilot
 
-# Restart autopilot (moves processing back to pending)
-systemctl restart autopilot
+# Restart autopilot. Startup clears pending/processing requests by policy.
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" restart --platform orin-agx-uefi-netboot --tmux --json
 
 # Check board power
 ssh 192.168.101.110 './boot.sh normal'

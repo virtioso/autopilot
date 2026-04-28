@@ -60,7 +60,7 @@ runtime overrides (for example chain aliases).
 Use the `autopilot` command to start Autopilot in a detached tmux session:
 
 ```bash
-autopilot --autopilot-dir "${WORKSPACE}/autopilot" start --platform orin-agx-uefi-netboot --tmux --tty0 /dev/ttyACM0 --tty1 /dev/ttyACM1 --json
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" start --platform orin-agx-uefi-netboot --tmux --json
 ```
 
 The response includes an `attach_hint`, typically:
@@ -73,8 +73,9 @@ Agents must not use MCP tools, direct queue-file writes, or Python internals as
 fallback paths. If `autopilot ... --json` fails or is ambiguous, stop and ask
 the human owner.
 
-**Orin AGX note**: pass `--tty0 /dev/ttyACM0` and `--tty1 /dev/ttyACM1`
-explicitly. Replace these for other platforms.
+**Orin AGX note**: `orin-agx-uefi-netboot` defaults to `/dev/ttyACM0` and
+`/dev/ttyACM1`. Pass `--tty0` and `--tty1` explicitly when using different
+UART devices.
 
 ## Stop the Autopilot Daemon
 
@@ -95,8 +96,32 @@ autopilot --autopilot-dir "${WORKSPACE}/autopilot" stop --json
 ### Restart
 
 ```bash
-autopilot --autopilot-dir "${WORKSPACE}/autopilot" restart --platform orin-agx-uefi-netboot --tmux --tty0 /dev/ttyACM0 --tty1 /dev/ttyACM1 --json
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" restart --platform orin-agx-uefi-netboot --tmux --json
 ```
+
+## Result Interpretation
+
+`autopilot get <request-id> --json` is the primary result API. For failed tests
+it includes:
+
+- `chain_summary`: high-level chain verdict
+- `last_step`: last recorded chain step
+- `failure`: structured required-hook failure details
+- `artifacts.available_logs`: known log files without reading their contents
+
+Use `autopilot evidence <request-id> --json` for a compact failure summary. It
+returns fail markers, required-hook failures, selected runtime markers, and log
+artifact paths.
+
+Use bounded log reads for deeper inspection:
+
+```bash
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" logs <request-id> --grep 'AUTOPILOT_FAIL|ERROR' --tail 100 --json
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" logs <request-id> --file tty0.filtered.log --tail 200 --json
+```
+
+Avoid `--include-contents` unless a full log payload is explicitly needed.
+Responses include truncation metadata when `--tail` or `--grep` filters content.
 
 ## Chain Model Overview
 
