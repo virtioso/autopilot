@@ -34,9 +34,16 @@ def _json_error(kind: str, message: str, **extra: object) -> dict:
 
 def _run_json_command(func: Callable[[argparse.Namespace], dict], args: argparse.Namespace) -> int:
     try:
-        return _emit(func(args))
-    except (FileNotFoundError, RuntimeError, ValueError) as exc:
-        return _emit(_json_error(type(exc).__name__, str(exc)))
+        payload = func(args)
+        if payload.get("status") == "error" and isinstance(payload.get("error"), str):
+            payload = _json_error("validation", payload["error"])
+        return _emit(payload)
+    except ValueError as exc:
+        return _emit(_json_error("validation", str(exc)))
+    except FileNotFoundError as exc:
+        return _emit(_json_error("not_found", str(exc)))
+    except RuntimeError as exc:
+        return _emit(_json_error("runtime", str(exc)))
 
 
 def _autopilot_dir(args: argparse.Namespace) -> str:
