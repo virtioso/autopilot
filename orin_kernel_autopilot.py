@@ -1365,7 +1365,7 @@ def write_post_run_lifecycle(
             "wait_for_ftrace_uart_drain",
             "run_post_run_ftrace_pipeline",
             "run_external_analysis_hooks",
-            "mark_next_request_needs_prepare",
+            "prepare_next_run",
         ],
         "drain": {
             "state": transfer_state.get("drain_state", "not_required"),
@@ -1728,10 +1728,6 @@ class PrepareLifecycle:
         self._set_state("degraded", reason=reason)
         return False
 
-    def mark_needs_prepare(self, trigger: str) -> None:
-        self.retry_count = 0
-        self._set_state("needs_prepare", reason=trigger)
-
     def can_admit_request(self) -> bool:
         if self.state == "pass":
             return True
@@ -1890,9 +1886,6 @@ def main() -> None:
         requests = sorted(PENDING_DIR.glob("*.request"))
         if not requests:
             time.sleep(1)
-            continue
-        if prepare_lifecycle.state == "needs_prepare":
-            prepare_lifecycle.run_prepare_cycle(trigger=f"request_admission:{requests[0].stem}")
             continue
         if not prepare_lifecycle.can_admit_request():
             if prepare_lifecycle.state == "degraded":
@@ -2075,13 +2068,7 @@ def main() -> None:
             prepare_lifecycle._set_state("degraded", reason=blocked_reason)
             print(f"Post-run lifecycle: {lifecycle.get('artifact')}", flush=True)
         else:
-            trigger = f"request_complete:{timestamp}"
-            prepare_lifecycle.mark_needs_prepare(trigger=trigger)
-            print(
-                f"Post-run lifecycle: deferred prepare_next_run until next request ({trigger})",
-                flush=True,
-            )
-            print(f"Post-run lifecycle: {lifecycle.get('artifact')}", flush=True)
+            prepare_lifecycle.run_prepare_cycle(trigger=f"request_complete:{timestamp}")
 
     control.stop()
     ui.stop()
