@@ -1,6 +1,21 @@
 {
-  "entry": "run_boot_stock",
+  "entry": "map_sources",
   "steps": {
+    "map_sources": {
+      "type": "call_chain",
+      "chain": "startup",
+      "outcomes": [
+        {
+          "label": "pass",
+          "next": "run_boot_stock"
+        },
+        {
+          "label": "fail",
+          "next": "fail"
+        }
+      ],
+      "on_timeout": "fail"
+    },
     "run_boot_stock": {
       "type": "call_chain",
       "chain": "boot_stock_linux",
