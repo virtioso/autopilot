@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+CODE_ROOT = Path(__file__).resolve().parents[1]
+if str(CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CODE_ROOT))
+
+from autopilot_manager import restart_autopilot, start_autopilot, status_autopilot, stop_autopilot
+from config import get_autopilot_dir
+from sel4_client import (
+    get_autopilot_status,
+    get_logs,
+    get_request_info,
+    get_test_status,
+    submit_sel4_efi_test,
+)
+
+
+def _emit(payload: dict) -> int:
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    status = payload.get("status")
+    if status == "error" or payload.get("error"):
+        return 1
+    return 0
+
+
+def _autopilot_dir(args: argparse.Namespace) -> str:
+    return str(get_autopilot_dir(args.autopilot_dir))
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    autopilot_dir = _autopilot_dir(args)
+    return _emit({
+        "status": "ok",
+        "autopilot_dir": autopilot_dir,
+        "daemon": status_autopilot(autopilot_dir=autopilot_dir),
+        "queue": get_autopilot_status(autopilot_dir=autopilot_dir),
+        "interpretation": {
+            "api": "autopilot-cli-json",
+            "rule": "If this JSON is invalid, ambiguous, or lacks the needed operation, stop and ask the human owner.",
+        },
+    })
+
+
+def _cmd_start(args: argparse.Namespace) -> int:
+    result = start_autopilot(
+        autopilot_dir=_autopilot_dir(args),
+        command=args.command,
+        use_tmux=args.tmux,
+        tmux_session=args.tmux_session,
+        tty0=args.tty0,
+        tty1=args.tty1,
+        platform=args.platform,
+    )
+    return _emit(result)
+
+
+def _cmd_restart(args: argparse.Namespace) -> int:
+    result = restart_autopilot(
+        autopilot_dir=_autopilot_dir(args),
+        command=args.command,
+        use_tmux=args.tmux,
+        tmux_session=args.tmux_session,
+        force=args.force,
+        tty0=args.tty0,
+        tty1=args.tty1,
+        platform=args.platform,
+    )
+    return _emit(result)
+
+
+def _cmd_stop(args: argparse.Namespace) -> int:
+    result = stop_autopilot(
+        autopilot_dir=_autopilot_dir(args),
+        force=args.force,
+        command=args.command,
+        tmux_session=args.tmux_session,
+    )
+    return _emit(result)
+
+
+def _cmd_submit_efi(args: argparse.Namespace) -> int:
+    build_config = {
+        "arm_hyp": args.arm_hyp,
+        "platform": args.build_platform,
+    }
+    request_id = submit_sel4_efi_test(
+        binary_path=args.binary,
+        binary_name=args.name or Path(args.binary).name,
+        description=args.description,
+        build_config=build_config,
+        autopilot_dir=_autopilot_dir(args),
+        profile=args.chain,
+    )
+    return _emit({
+        "status": "submitted",
+        "request_id": request_id,
+        "chain": args.chain,
+        "request": get_request_info(request_id, autopilot_dir=_autopilot_dir(args)),
+    })
+
+
+def _cmd_get(args: argparse.Namespace) -> int:
+    return _emit(get_test_status(args.request_id, autopilot_dir=_autopilot_dir(args)))
+
+
+def _cmd_logs(args: argparse.Namespace) -> int:
+    return _emit(get_logs(
+        args.request_id,
+        include_contents=args.include_contents,
+        autopilot_dir=_autopilot_dir(args),
+    ))
+
+
+def _add_common(parser: argparse.ArgumentParser, *, include_autopilot_dir: bool = True) -> None:
+    if include_autopilot_dir:
+        parser.add_argument("--autopilot-dir", default=None)
+    parser.add_argument("--json", action="store_true", help="Accepted for clarity; output is always JSON.")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Autopilot command API for agents")
+    _add_common(parser)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    status_parser = subparsers.add_parser("status")
+    _add_common(status_parser, include_autopilot_dir=False)
+    status_parser.set_defaults(func=_cmd_status)
+
+    start_parser = subparsers.add_parser("start")
+    _add_common(start_parser, include_autopilot_dir=False)
+    start_parser.add_argument("--platform", required=True)
+    start_parser.add_argument("--tmux", action=argparse.BooleanOptionalAction, default=True)
+    start_parser.add_argument("--tmux-session", default=None)
+    start_parser.add_argument("--tty0", default=None)
+    start_parser.add_argument("--tty1", default=None)
+    start_parser.add_argument("--command", default=None)
+    start_parser.set_defaults(func=_cmd_start)
+
+    restart_parser = subparsers.add_parser("restart")
+    _add_common(restart_parser, include_autopilot_dir=False)
+    restart_parser.add_argument("--platform", required=True)
+    restart_parser.add_argument("--tmux", action=argparse.BooleanOptionalAction, default=True)
+    restart_parser.add_argument("--tmux-session", default=None)
+    restart_parser.add_argument("--tty0", default=None)
+    restart_parser.add_argument("--tty1", default=None)
+    restart_parser.add_argument("--command", default=None)
+    restart_parser.add_argument("--force", action="store_true")
+    restart_parser.set_defaults(func=_cmd_restart)
+
+    stop_parser = subparsers.add_parser("stop")
+    _add_common(stop_parser, include_autopilot_dir=False)
+    stop_parser.add_argument("--tmux-session", default=None)
+    stop_parser.add_argument("--command", default=None)
+    stop_parser.add_argument("--force", action="store_true")
+    stop_parser.set_defaults(func=_cmd_stop)
+
+    submit_parser = subparsers.add_parser("submit")
+    _add_common(submit_parser, include_autopilot_dir=False)
+    submit_sub = submit_parser.add_subparsers(dest="submit_kind", required=True)
+    efi_parser = submit_sub.add_parser("efi")
+    _add_common(efi_parser, include_autopilot_dir=False)
+    efi_parser.add_argument("--chain", required=True)
+    efi_parser.add_argument("--binary", required=True)
+    efi_parser.add_argument("--name", default=None)
+    efi_parser.add_argument("--description", default="")
+    efi_parser.add_argument("--build-platform", default="orinagx")
+    efi_parser.add_argument("--arm-hyp", action=argparse.BooleanOptionalAction, default=True)
+    efi_parser.set_defaults(func=_cmd_submit_efi)
+
+    get_parser = subparsers.add_parser("get")
+    _add_common(get_parser, include_autopilot_dir=False)
+    get_parser.add_argument("request_id")
+    get_parser.set_defaults(func=_cmd_get)
+
+    logs_parser = subparsers.add_parser("logs")
+    _add_common(logs_parser, include_autopilot_dir=False)
+    logs_parser.add_argument("request_id")
+    logs_parser.add_argument("--include-contents", action="store_true")
+    logs_parser.set_defaults(func=_cmd_logs)
+
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
