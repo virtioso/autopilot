@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Dict
 
 DEFAULT_AUTOPILOT_DIRNAME = "autopilot"
-DEFAULT_TTY0 = "/dev/ttyACM0"
-DEFAULT_TTY1 = "/dev/ttyACM1"
+DEFAULT_TTY0 = ""
+DEFAULT_TTY1 = ""
 DEFAULT_TARGET_IP = "192.168.101.112"
 DEFAULT_TARGET_USER = "root"
 DEFAULT_BOOT_CONTROL_HOST = "192.168.101.110"
