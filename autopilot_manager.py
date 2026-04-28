@@ -17,6 +17,9 @@ from startup_queue import clear_startup_requests, read_startup_cleanup
 DEFAULT_COMMAND = f"python3 {shlex.quote(str(get_code_root() / 'orin_kernel_autopilot.py'))}"
 DEFAULT_TMUX_SESSION = "autopilot"
 DEFAULT_PLATFORM = "orin-agx-uefi-netboot"
+PLATFORM_DEFAULT_TTYS = {
+    "orin-agx-uefi-netboot": ("/dev/ttyACM0", "/dev/ttyACM1"),
+}
 
 
 def platform_requires_ttys(platform: str) -> bool:
@@ -157,7 +160,7 @@ def _tmux_pane_pid(session: str) -> Optional[int]:
         return None
 
 
-def _find_child_pid(parent_pid: int, marker: str) -> Optional[int]:
+def _child_pids(parent_pid: int) -> list[int]:
     result = subprocess.run(
         ["pgrep", "-P", str(parent_pid)],
         stdout=subprocess.PIPE,
@@ -166,15 +169,28 @@ def _find_child_pid(parent_pid: int, marker: str) -> Optional[int]:
         check=False,
     )
     if result.returncode != 0:
-        return None
+        return []
+    pids: list[int] = []
     for line in result.stdout.splitlines():
         try:
-            child_pid = int(line.strip())
+            pids.append(int(line.strip()))
         except Exception:
             continue
+    return pids
+
+
+def _find_child_pid(parent_pid: int, marker: str) -> Optional[int]:
+    pending = list(_child_pids(parent_pid))
+    seen: set[int] = set()
+    while pending:
+        child_pid = pending.pop(0)
+        if child_pid in seen:
+            continue
+        seen.add(child_pid)
         cmdline = _read_cmdline(child_pid)
         if _cmdline_matches(cmdline, marker):
             return child_pid
+        pending.extend(_child_pids(child_pid))
     return None
 
 
@@ -187,7 +203,21 @@ def _resolve_pid_from_tmux(session: str, marker: str) -> Optional[int]:
     child_pid = _find_child_pid(pane_pid, marker)
     if child_pid:
         return child_pid
-    return pane_pid
+    return None
+
+
+def _tmux_session_status(session: str, marker: str) -> dict:
+    exists = _tmux_has_session(session)
+    pane_pid = _tmux_pane_pid(session) if exists else None
+    worker_pid = _resolve_pid_from_tmux(session, marker) if exists else None
+    return {
+        "name": session,
+        "exists": exists,
+        "pane_pid": pane_pid,
+        "pane_cmdline": _read_cmdline(pane_pid) if pane_pid else [],
+        "worker_pid": worker_pid,
+        "worker_cmdline": _read_cmdline(worker_pid) if worker_pid else [],
+    }
 
 
 def _write_meta(meta_path: Path, data: dict) -> None:
@@ -213,6 +243,14 @@ def _require_non_empty_tty(name: str, value: Optional[str], fallback: str) -> st
     return candidate
 
 
+def _resolve_ttys(platform: str, tty0: Optional[str], tty1: Optional[str]) -> tuple[str, str]:
+    default_tty0, default_tty1 = PLATFORM_DEFAULT_TTYS.get(platform, ("", ""))
+    return (
+        _require_non_empty_tty("tty0", tty0, default_tty0),
+        _require_non_empty_tty("tty1", tty1, default_tty1),
+    )
+
+
 def status_autopilot(
     autopilot_dir: str,
     command: Optional[str] = None,
@@ -230,24 +268,46 @@ def status_autopilot(
     use_tmux = bool(meta.get("use_tmux", True))
 
     pid = _read_pid(pid_file)
-    running = bool(pid and _is_running(pid, marker))
+    pid_running = bool(pid and _is_running(pid, marker))
+    tmux_status = _tmux_session_status(session, marker) if use_tmux else {
+        "name": None,
+        "exists": False,
+        "pane_pid": None,
+        "pane_cmdline": [],
+        "worker_pid": None,
+        "worker_cmdline": [],
+    }
 
-    if not running and use_tmux and _tmux_has_session(session):
-        tmux_pid = _resolve_pid_from_tmux(session, marker)
-        if tmux_pid and _is_running(tmux_pid, marker):
-            pid = tmux_pid
-            running = True
+    worker_pid = pid if pid_running else tmux_status.get("worker_pid")
+    running = bool(worker_pid and _is_running(worker_pid, marker))
+    api_health = {"status": "ok"}
+    if use_tmux and tmux_status.get("exists") and not running:
+        api_health = {
+            "status": "inconsistent",
+            "reason": "tmux_session_exists_but_worker_not_running",
+        }
 
     return {
         "running": running,
-        "pid": pid,
-        "cmdline": _read_cmdline(pid) if pid else [],
+        "pid": worker_pid,
+        "cmdline": _read_cmdline(worker_pid) if worker_pid else [],
+        "worker_process": {
+            "pid": worker_pid,
+            "running": running,
+            "cmdline": _read_cmdline(worker_pid) if worker_pid else [],
+        },
+        "manager_process": {
+            "pid_file_pid": pid,
+            "pid_file_running": pid_running,
+        },
+        "tmux": tmux_status if use_tmux else None,
         "tmux_session": session if use_tmux else None,
         "platform": meta.get("platform"),
         "tty0": meta.get("tty0"),
         "tty1": meta.get("tty1"),
         "last_start_time": meta.get("start_time"),
         "startup_cleanup": read_startup_cleanup(str(base)),
+        "api_health": api_health,
     }
 
 
@@ -309,8 +369,7 @@ def start_autopilot(
         return {"status": "error", "error": "platform must be specified explicitly"}
 
     if platform_requires_ttys(resolved_platform):
-        resolved_tty0 = _require_non_empty_tty("tty0", tty0, "")
-        resolved_tty1 = _require_non_empty_tty("tty1", tty1, "")
+        resolved_tty0, resolved_tty1 = _resolve_ttys(resolved_platform, tty0, tty1)
         env["AUTOPILOT_TTY0"] = resolved_tty0
         env["AUTOPILOT_TTY1"] = resolved_tty1
     else:

@@ -293,7 +293,10 @@ def get_status(timestamp: str, autopilot_dir: str = None) -> dict:
             'result_dir': paths['results'] / timestamp
         }
     elif (paths['processing'] / request_name).exists():
-        return {'status': 'processing'}
+        return {
+            'status': 'processing',
+            'result_dir': paths['results'] / timestamp
+        }
     elif (paths['pending'] / request_name).exists():
         return {'status': 'pending'}
     else:
@@ -325,7 +328,38 @@ def wait_for_result(timestamp: str, timeout: int = 300, poll_interval: int = 1,
     return {'status': 'timeout'}
 
 
-def get_logs(timestamp: str, autopilot_dir: str = None, include_contents: bool = False) -> dict:
+def _read_text_bounded(path: Path, tail: int = None, grep: str = None) -> tuple[str, dict]:
+    text = path.read_text(errors="replace")
+    lines = text.splitlines()
+    original_line_count = len(lines)
+    grep_pattern = None
+    if grep:
+        grep_pattern = re.compile(grep)
+        lines = [line for line in lines if grep_pattern.search(line)]
+    grep_line_count = len(lines)
+    if tail is not None and tail >= 0:
+        lines = lines[-tail:]
+    content = "\n".join(lines)
+    if content:
+        content += "\n"
+    return content, {
+        "original_line_count": original_line_count,
+        "matched_line_count": grep_line_count if grep else None,
+        "returned_line_count": len(lines),
+        "tail": tail,
+        "grep": grep,
+        "truncated": tail is not None and grep_line_count > len(lines),
+    }
+
+
+def get_logs(
+    timestamp: str,
+    autopilot_dir: str = None,
+    include_contents: bool = False,
+    tail: int = None,
+    file_name: str = None,
+    grep: str = None,
+) -> dict:
     """
     List console logs for a request.
 
@@ -333,6 +367,9 @@ def get_logs(timestamp: str, autopilot_dir: str = None, include_contents: bool =
         timestamp: Request ID from submit_sel4_efi_test()
         autopilot_dir: Optional override for autopilot working directory
         include_contents: If True, include file contents in response
+        tail: Optional maximum number of lines to return per file
+        file_name: Optional basename to restrict output to one log file
+        grep: Optional regular expression to filter returned lines
 
     Returns:
         dict with console_dir and list of files (path, size, contents optional)
@@ -343,12 +380,17 @@ def get_logs(timestamp: str, autopilot_dir: str = None, include_contents: bool =
     if console_dir.exists():
         for path in sorted(console_dir.glob("*")):
             if path.is_file():
+                if file_name and path.name != file_name:
+                    continue
                 entry = {
                     "path": str(path),
+                    "name": path.name,
                     "size": path.stat().st_size,
                 }
-                if include_contents:
-                    entry["contents"] = path.read_text(errors="replace")
+                if include_contents or tail is not None or grep:
+                    contents, meta = _read_text_bounded(path, tail=tail, grep=grep)
+                    entry["contents"] = contents
+                    entry["content_meta"] = meta
                 files.append(entry)
     return {
         "console_dir": str(console_dir),
@@ -469,6 +511,143 @@ def _read_chain_summary(result_dir: Path) -> Optional[dict]:
     }
 
 
+def _available_logs(result_dir: Path) -> list[dict]:
+    console_dir = result_dir / "console"
+    if not console_dir.exists():
+        return []
+    logs = []
+    for path in sorted(console_dir.glob("*")):
+        if path.is_file():
+            logs.append({
+                "name": path.name,
+                "path": str(path),
+                "size": path.stat().st_size,
+            })
+    return logs
+
+
+def _read_fail_markers(result_dir: Path) -> list[dict]:
+    fail_log = result_dir / "console" / "autopilot.fail.log"
+    markers = []
+    if not fail_log.exists():
+        return markers
+    for line_no, line in enumerate(fail_log.read_text(errors="replace").splitlines(), start=1):
+        if "AUTOPILOT_FAIL:" not in line:
+            continue
+        markers.append({
+            "source_file": str(fail_log),
+            "line": line_no,
+            "text": line.strip(),
+        })
+    return markers
+
+
+def _read_analysis_hooks(result_dir: Path) -> Optional[dict]:
+    hooks_path = result_dir / "analysis_hooks" / "analysis_hooks.json"
+    if not hooks_path.exists():
+        return None
+    try:
+        payload = json.loads(hooks_path.read_text())
+    except Exception:
+        return {
+            "error": "analysis_hooks_json_parse_failed",
+            "source_file": str(hooks_path),
+        }
+    payload["source_file"] = str(hooks_path)
+    return payload
+
+
+def _hook_policy(hook_id: str, required: bool) -> dict:
+    severity = "required_for_pass" if required else "diagnostic_only"
+    return {
+        "hook_id": hook_id,
+        "required": required,
+        "severity": severity,
+    }
+
+
+def _failure_from_analysis_hooks(result_dir: Path) -> Optional[dict]:
+    hooks = _read_analysis_hooks(result_dir)
+    if not hooks:
+        return None
+    failed_required = []
+    for item in hooks.get("required", []):
+        if item.get("result") == "pass":
+            continue
+        hook_id = item.get("hook_id")
+        failed_required.append({
+            **_hook_policy(hook_id, required=True),
+            "summary": item.get("summary"),
+            "error": item.get("error"),
+            "artifacts": item.get("artifacts", []),
+            "expected": item.get("expected", "hook result pass"),
+            "observed": item.get("observed", item.get("summary") or item.get("error")),
+            "evidence_excerpt": item.get("evidence_excerpt"),
+            "source_file": hooks.get("source_file"),
+        })
+    if not failed_required:
+        return None
+    return {
+        "kind": hooks.get("error", "REQUIRED_HOOK_FAILED"),
+        "message": "one or more required analysis hooks failed",
+        "failed_required_hooks": failed_required,
+        "hook_policy": [
+            _hook_policy(item.get("hook_id"), required=True)
+            for item in hooks.get("required", [])
+        ] + [
+            _hook_policy(item.get("hook_id"), required=False)
+            for item in hooks.get("optional", [])
+        ],
+        "source_file": hooks.get("source_file"),
+    }
+
+
+def _find_runtime_markers(result_dir: Path) -> list[dict]:
+    markers = []
+    patterns = [
+        ("uservmctl_start_ok", "AUTOPILOT_INFO: USERVMCTL_START_OK"),
+        ("uservmctl_status_exited", "AUTOPILOT_USERVM_STATUS: status=exited"),
+        ("uservmctl_status_running", "AUTOPILOT_USERVM_STATUS: status=running"),
+        ("vio_trace_not_ready", "ERROR: vio_trace not ready"),
+        ("direct_delegation_permission_denied", "direct_delegation: Permission denied"),
+    ]
+    for log in _available_logs(result_dir):
+        path = Path(log["path"])
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except Exception:
+            continue
+        for line_no, line in enumerate(lines, start=1):
+            for marker_id, needle in patterns:
+                if needle in line:
+                    markers.append({
+                        "marker": marker_id,
+                        "source_file": str(path),
+                        "line": line_no,
+                        "text": line.strip(),
+                    })
+    return markers
+
+
+def get_evidence(timestamp: str, autopilot_dir: str = None) -> dict:
+    paths = get_paths(autopilot_dir)
+    result_dir = paths['results'] / timestamp
+    return {
+        "request_id": timestamp,
+        "result_dir": str(result_dir),
+        "status": get_status(timestamp, autopilot_dir=autopilot_dir).get("status"),
+        "chain_summary": _read_chain_summary(result_dir),
+        "last_step": _read_chain_last_step(result_dir),
+        "failure": _failure_from_analysis_hooks(result_dir),
+        "fail_markers": _read_fail_markers(result_dir),
+        "runtime_markers": _find_runtime_markers(result_dir),
+        "artifacts": {
+            "console_dir": str(result_dir / "console"),
+            "available_logs": _available_logs(result_dir),
+        },
+    }
+
+
 def get_autopilot_status(autopilot_dir: str = None) -> dict:
     paths = get_paths(autopilot_dir)
     pending = list_pending(autopilot_dir=autopilot_dir)
@@ -525,6 +704,11 @@ def get_test_status(timestamp: str, autopilot_dir: str = None) -> dict:
         "request": get_request_info(timestamp, autopilot_dir=autopilot_dir),
         "last_step": _read_chain_last_step(result_dir),
         "chain_summary": _read_chain_summary(result_dir),
+        "failure": _failure_from_analysis_hooks(result_dir),
+        "artifacts": {
+            "console_dir": str(result_dir / "console"),
+            "available_logs": _available_logs(result_dir),
+        },
         "error": error_text,
     }
 

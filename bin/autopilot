@@ -5,20 +5,11 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Callable
 
 CODE_ROOT = Path(__file__).resolve().parents[1]
 if str(CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(CODE_ROOT))
-
-from autopilot_manager import restart_autopilot, start_autopilot, status_autopilot, stop_autopilot
-from config import get_autopilot_dir
-from sel4_client import (
-    get_autopilot_status,
-    get_logs,
-    get_request_info,
-    get_test_status,
-    submit_sel4_efi_test,
-)
 
 
 def _emit(payload: dict) -> int:
@@ -29,62 +20,116 @@ def _emit(payload: dict) -> int:
     return 0
 
 
+def _json_error(kind: str, message: str, **extra: object) -> dict:
+    error = {
+        "kind": kind,
+        "message": message,
+    }
+    error.update(extra)
+    return {
+        "status": "error",
+        "error": error,
+    }
+
+
+def _run_json_command(func: Callable[[argparse.Namespace], dict], args: argparse.Namespace) -> int:
+    try:
+        return _emit(func(args))
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        return _emit(_json_error(type(exc).__name__, str(exc)))
+
+
 def _autopilot_dir(args: argparse.Namespace) -> str:
+    from config import get_autopilot_dir
+
     return str(get_autopilot_dir(args.autopilot_dir))
 
 
-def _cmd_status(args: argparse.Namespace) -> int:
+def _status_payload(args: argparse.Namespace) -> dict:
+    from autopilot_manager import status_autopilot
+    from sel4_client import get_autopilot_status
+
     autopilot_dir = _autopilot_dir(args)
-    return _emit({
+    daemon = status_autopilot(autopilot_dir=autopilot_dir)
+    queue = get_autopilot_status(autopilot_dir=autopilot_dir)
+    processing_count = queue.get("processing", {}).get("count", 0)
+    if processing_count and not daemon.get("running"):
+        daemon["api_health"] = {
+            "status": "inconsistent",
+            "reason": "processing_requests_exist_but_worker_not_running",
+            "processing_ids": queue.get("processing", {}).get("ids", []),
+        }
+    return {
         "status": "ok",
         "autopilot_dir": autopilot_dir,
-        "daemon": status_autopilot(autopilot_dir=autopilot_dir),
-        "queue": get_autopilot_status(autopilot_dir=autopilot_dir),
+        "daemon": daemon,
+        "queue": queue,
         "interpretation": {
             "api": "autopilot-cli-json",
             "rule": "If this JSON is invalid, ambiguous, or lacks the needed operation, stop and ask the human owner.",
         },
-    })
+    }
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    return _run_json_command(_status_payload, args)
+
+
+def _start_payload(args: argparse.Namespace) -> dict:
+    from autopilot_manager import start_autopilot
+
+    return start_autopilot(
+        autopilot_dir=_autopilot_dir(args),
+        command=args.command,
+        use_tmux=args.tmux,
+        tmux_session=args.tmux_session,
+        tty0=args.tty0,
+        tty1=args.tty1,
+        platform=args.platform,
+    )
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
-    result = start_autopilot(
+    return _run_json_command(_start_payload, args)
+
+
+def _restart_payload(args: argparse.Namespace) -> dict:
+    from autopilot_manager import restart_autopilot
+
+    return restart_autopilot(
         autopilot_dir=_autopilot_dir(args),
         command=args.command,
         use_tmux=args.tmux,
         tmux_session=args.tmux_session,
+        force=args.force,
         tty0=args.tty0,
         tty1=args.tty1,
         platform=args.platform,
     )
-    return _emit(result)
 
 
 def _cmd_restart(args: argparse.Namespace) -> int:
-    result = restart_autopilot(
+    return _run_json_command(_restart_payload, args)
+
+
+def _stop_payload(args: argparse.Namespace) -> dict:
+    from autopilot_manager import stop_autopilot
+
+    return stop_autopilot(
         autopilot_dir=_autopilot_dir(args),
-        command=args.command,
-        use_tmux=args.tmux,
-        tmux_session=args.tmux_session,
         force=args.force,
-        tty0=args.tty0,
-        tty1=args.tty1,
-        platform=args.platform,
+        command=args.command,
+        tmux_session=args.tmux_session,
     )
-    return _emit(result)
 
 
 def _cmd_stop(args: argparse.Namespace) -> int:
-    result = stop_autopilot(
-        autopilot_dir=_autopilot_dir(args),
-        force=args.force,
-        command=args.command,
-        tmux_session=args.tmux_session,
-    )
-    return _emit(result)
+    return _run_json_command(_stop_payload, args)
 
 
-def _cmd_submit_efi(args: argparse.Namespace) -> int:
+def _submit_efi_payload(args: argparse.Namespace) -> dict:
+    from sel4_client import get_request_info, submit_sel4_efi_test
+
     build_config = {
         "arm_hyp": args.arm_hyp,
         "platform": args.build_platform,
@@ -97,24 +142,53 @@ def _cmd_submit_efi(args: argparse.Namespace) -> int:
         autopilot_dir=_autopilot_dir(args),
         profile=args.chain,
     )
-    return _emit({
+    return {
         "status": "submitted",
         "request_id": request_id,
         "chain": args.chain,
         "request": get_request_info(request_id, autopilot_dir=_autopilot_dir(args)),
-    })
+    }
+
+
+def _cmd_submit_efi(args: argparse.Namespace) -> int:
+    return _run_json_command(_submit_efi_payload, args)
+
+
+def _get_payload(args: argparse.Namespace) -> dict:
+    from sel4_client import get_test_status
+
+    return get_test_status(args.request_id, autopilot_dir=_autopilot_dir(args))
 
 
 def _cmd_get(args: argparse.Namespace) -> int:
-    return _emit(get_test_status(args.request_id, autopilot_dir=_autopilot_dir(args)))
+    return _run_json_command(_get_payload, args)
+
+
+def _logs_payload(args: argparse.Namespace) -> dict:
+    from sel4_client import get_logs
+
+    return get_logs(
+        args.request_id,
+        include_contents=args.include_contents,
+        tail=args.tail,
+        file_name=args.file,
+        grep=args.grep,
+        autopilot_dir=_autopilot_dir(args),
+    )
 
 
 def _cmd_logs(args: argparse.Namespace) -> int:
-    return _emit(get_logs(
-        args.request_id,
-        include_contents=args.include_contents,
-        autopilot_dir=_autopilot_dir(args),
-    ))
+    return _run_json_command(_logs_payload, args)
+
+
+def _evidence_payload(args: argparse.Namespace) -> dict:
+    from sel4_client import get_evidence
+
+    return get_evidence(args.request_id, autopilot_dir=_autopilot_dir(args))
+
+
+def _cmd_evidence(args: argparse.Namespace) -> int:
+    return _run_json_command(_evidence_payload, args)
 
 
 def _add_common(parser: argparse.ArgumentParser, *, include_autopilot_dir: bool = True) -> None:
@@ -182,7 +256,15 @@ def main(argv: list[str] | None = None) -> int:
     _add_common(logs_parser, include_autopilot_dir=False)
     logs_parser.add_argument("request_id")
     logs_parser.add_argument("--include-contents", action="store_true")
+    logs_parser.add_argument("--tail", type=int, default=None)
+    logs_parser.add_argument("--file", default=None)
+    logs_parser.add_argument("--grep", default=None)
     logs_parser.set_defaults(func=_cmd_logs)
+
+    evidence_parser = subparsers.add_parser("evidence")
+    _add_common(evidence_parser, include_autopilot_dir=False)
+    evidence_parser.add_argument("request_id")
+    evidence_parser.set_defaults(func=_cmd_evidence)
 
     args = parser.parse_args(argv)
     return args.func(args)
