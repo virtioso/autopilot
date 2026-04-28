@@ -1608,7 +1608,62 @@ class PrepareLifecycle:
         self.status_path.parent.mkdir(parents=True, exist_ok=True)
         self.status_path.write_text(json.dumps(payload, indent=2))
 
-    def _run_chain_once(self, chain_name: str) -> tuple[bool, str]:
+    def _chain_failure_detail(self, chain_name: str, status: str) -> tuple[str, dict]:
+        artifact = RUNTIME_DIR / chain_name / "chain.json"
+        detail = {
+            "chain": chain_name,
+            "artifact": str(artifact),
+            "status": status,
+        }
+        message = status
+        try:
+            data = json.loads(artifact.read_text())
+        except Exception as exc:
+            detail["read_error"] = str(exc)
+            return message, detail
+
+        steps = data.get("steps", [])
+        if not isinstance(steps, list):
+            detail["read_error"] = "chain artifact steps missing or invalid"
+            return message, detail
+
+        selected = None
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            if step.get("error_message") or step.get("error_code") or step.get("status") == "error":
+                selected = step
+                break
+        if selected is None:
+            for step in reversed(steps):
+                if isinstance(step, dict) and step.get("outcome_label") == "fail":
+                    selected = step
+                    break
+        if selected is None:
+            return message, detail
+
+        chain_stack = selected.get("chain_stack") or [selected.get("chain_name") or chain_name]
+        if not isinstance(chain_stack, list):
+            chain_stack = [str(chain_stack)]
+        chain_stack = [str(item) for item in chain_stack if item]
+        step_name = str(selected.get("step") or "")
+        error_message = selected.get("error_message") or selected.get("error_code") or selected.get("outcome_label") or status
+        step_detail = {
+            "step": step_name,
+            "chain_name": selected.get("chain_name"),
+            "chain_stack": chain_stack,
+            "status": selected.get("status"),
+            "error_code": selected.get("error_code"),
+            "error_message": selected.get("error_message"),
+            "outcome_label": selected.get("outcome_label"),
+            "next_step": selected.get("next_step"),
+        }
+        detail["failing_step"] = step_detail
+        location = ".".join(chain_stack + ([step_name] if step_name else []))
+        message = f"{location}: {error_message}" if location else str(error_message)
+        return message, detail
+
+    def _run_chain_once(self, chain_name: str) -> tuple[bool, str, dict]:
         try:
             status = run_bootstrap_chain(
                 chain_name=chain_name,
@@ -1623,15 +1678,20 @@ class PrepareLifecycle:
                 platform_overrides=self.platform_overrides,
                 task_registry=self.task_registry,
             )
-            return status == "pass", status
+            if status == "pass":
+                return True, status, None
+            detail, payload = self._chain_failure_detail(chain_name, status)
+            return False, detail, payload
         except Exception as exc:
-            return False, str(exc)
+            return False, str(exc), {"chain": chain_name, "exception": str(exc)}
 
     def startup_probe(self) -> None:
         self._set_state("probing")
-        ok, detail = self._run_chain_once(self.probe_chain)
+        ok, detail, failure = self._run_chain_once(self.probe_chain)
         self.last_probe = self._stamp("pass" if ok else "fail", None if ok else detail)
         self.last_probe["chain"] = self.probe_chain
+        if failure:
+            self.last_probe["failure"] = failure
         if ok:
             self.retry_count = 0
             self._set_state("pass")
@@ -1644,11 +1704,13 @@ class PrepareLifecycle:
         last_detail = ""
         for attempt in range(1, attempts + 1):
             self.retry_count = attempt - 1
-            ok, detail = self._run_chain_once(self.run_chain)
+            ok, detail, failure = self._run_chain_once(self.run_chain)
             self.last_prepare = self._stamp("pass" if ok else "fail", None if ok else detail)
             self.last_prepare["chain"] = self.run_chain
             self.last_prepare["trigger"] = trigger
             self.last_prepare["attempt"] = attempt
+            if failure:
+                self.last_prepare["failure"] = failure
             if ok:
                 self.retry_count = 0
                 self._set_state("pass")
