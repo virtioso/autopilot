@@ -5,7 +5,7 @@ project-specific state (queues, results, runtime) inside each project repo.
 
 ## Goal
 
-- Keep Autopilot **code** in a dedicated location (example: `~/autopilot`).
+- Keep Autopilot **code** in a dedicated location inside the workspace (example: `<workspace>/tools/autopilot`).
 - Keep Autopilot **working state** per project (example: `<workspace>/autopilot`).
 - Make it easy for AI tools (Codex/Claude Code) to use Autopilot in any repo.
 
@@ -14,11 +14,11 @@ Defaults for `AUTOPILOT_DIR`, TTYs, and queue names are defined in `config.py` (
 
 ## Recommended Layout
 
-- Code location: `~/autopilot` (or any path you prefer)
+- Code location: `<workspace>/tools/autopilot`
 - Project working directory: `<project>/autopilot`
 
 Example:
-- Code: `~/autopilot` (clone of this repo)
+- Code: `<workspace>/tools/autopilot` (clone of this repo)
 - Project: `<workspace>`
 - Working dir: `<workspace>/autopilot`
 
@@ -33,10 +33,10 @@ mkdir -p <workspace>/autopilot/requests/{pending,processing,completed,failed}
 
 ### Optional: One-command initializer
 
-You can use the helper script to create the working directory and `.mcp.json`:
+You can use the helper script to create the working directory:
 
 ```bash
-~/autopilot/scripts/new-project-init.sh <workspace>
+<workspace>/tools/autopilot/scripts/new-project-init.sh <workspace>
 ```
 
 ## Step 2: Set Environment Variables
@@ -55,30 +55,19 @@ export AUTOPILOT_TTY1=/dev/ttyACM1
 From the code repo:
 
 ```bash
-python3 ~/autopilot/orin_kernel_autopilot.py
+python3 <workspace>/tools/autopilot/orin_kernel_autopilot.py
 ```
 
-## Step 4: Add MCP Server (Optional but Recommended)
+## Step 4: Add Autopilot Command To PATH
 
-Create `<project>/.mcp.json`:
+Expose the command API used by agents:
 
-```json
-{
-  "mcpServers": {
-    "sel4-autopilot": {
-      "command": "python3",
-      "args": ["~/autopilot/sel4_mcp_server.py"],
-      "env": {
-        "WORKSPACE": "${WORKSPACE}",
-        "AUTOPILOT_DIR": "${AUTOPILOT_DIR:-${WORKSPACE}/autopilot}"
-      }
-    }
-  }
-}
+```bash
+ln -s <workspace>/tools/autopilot/bin/autopilot ~/.local/bin/autopilot
 ```
 
-Some clients auto-load MCP servers from `.mcp.json`; some do not. If MCP is
-unavailable, fall back to the request/result queues in `AUTOPILOT_DIR`.
+Agents must use `autopilot ... --json` for lifecycle, submit, status, and logs.
+Do not use MCP tools, direct queue files, or Python internals as fallback paths.
 
 ## Step 5: Add AGENTS.md To The Project
 
@@ -96,10 +85,10 @@ references Autopilot docs, for example:
 Use a prompt like this when starting a session:
 
 ```
-You are working in <project>. Autopilot is installed at ~/autopilot, and
-AUTOPILOT_DIR is <workspace>/autopilot. Prefer MCP tools if available; otherwise
-use the request/result queues under AUTOPILOT_DIR. Read the Autopilot docs in
-~/autopilot/docs before making changes.
+You are working in <project>. Autopilot is installed at <workspace>/tools/autopilot, and
+AUTOPILOT_DIR is <workspace>/autopilot. Use only `autopilot ... --json`; if it
+fails or is ambiguous, stop and ask the human owner. Read the Autopilot docs in
+<workspace>/tools/autopilot/docs before making changes.
 ```
 
 ### Prompt Templates
@@ -107,22 +96,24 @@ use the request/result queues under AUTOPILOT_DIR. Read the Autopilot docs in
 **Codex CLI (short)**
 
 ```
-You are working in <project>. Autopilot code is in ~/autopilot and the working
-directory is AUTOPILOT_DIR=<project>/autopilot. Read ~/autopilot/docs/README.md
-and ~/autopilot/docs/runbook.md before changes. Prefer MCP; otherwise use the
-request/result queues under AUTOPILOT_DIR.
+You are working in <project>. Autopilot code is in <workspace>/tools/autopilot
+and the working directory is AUTOPILOT_DIR=<workspace>/autopilot. Read
+<workspace>/tools/autopilot/docs/README.md and
+<workspace>/tools/autopilot/docs/runbook.md before changes. Use only
+`autopilot ... --json`.
 ```
 
 **Claude Code (short)**
 
 ```
-Read ~/autopilot/AGENTS.md and ~/autopilot/docs/README.md first. Autopilot code
-is in ~/autopilot; AUTOPILOT_DIR=<project>/autopilot. Use MCP if available, else
-operate via the request/result queues.
+Read <workspace>/tools/autopilot/AGENTS.md and
+<workspace>/tools/autopilot/docs/README.md first. Autopilot code is in
+<workspace>/tools/autopilot; AUTOPILOT_DIR=<workspace>/autopilot. Use only
+`autopilot ... --json`.
 ```
 
 ## Notes
 
 - Autopilot code and project working directories are decoupled on purpose.
-- Profiles are **static data** and live in `~/autopilot/profiles` (single source of truth).
+- Profiles are **static data** and live in `<workspace>/tools/autopilot/profiles` (single source of truth).
 - Do not copy profiles into `AUTOPILOT_DIR`; edits must be made in the code repo.

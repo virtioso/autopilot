@@ -55,17 +55,12 @@ For Orin AGX, this platform setting is mandatory. Autopilot runs
 `chains/platform-init-<platform>.json` during startup. This chain can set
 runtime overrides (for example chain aliases).
 
-### Start via MCP (Headless + tmux UI)
+### Start Via Command API (Headless + tmux UI)
 
-Use the MCP tools to start Autopilot in a detached tmux session:
+Use the `autopilot` command to start Autopilot in a detached tmux session:
 
-```json
-{
-  "tool": "autopilot_start",
-  "autopilot_dir": "${WORKSPACE}/autopilot",
-  "tty0": "/dev/ttyACM0",
-  "tty1": "/dev/ttyACM1"
-}
+```bash
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" start --platform orin-agx-uefi-netboot --tmux --tty0 /dev/ttyACM0 --tty1 /dev/ttyACM1 --json
 ```
 
 The response includes an `attach_hint`, typically:
@@ -74,67 +69,33 @@ The response includes an `attach_hint`, typically:
 tmux attach -t autopilot
 ```
 
-When submitting tests via MCP, the server will auto-start Autopilot if it is
-not running, so you usually do not need to start it manually.
+Agents must not use MCP tools, direct queue-file writes, or Python internals as
+fallback paths. If `autopilot ... --json` fails or is ambiguous, stop and ask
+the human owner.
 
-**Orin AGX note**: The MCP start path sets `AUTOPILOT_TTY0=/dev/ttyACM0` and
-`AUTOPILOT_TTY1=/dev/ttyACM1` by default, and defaults
-`AUTOPILOT_PLATFORM=orin-agx-uefi-netboot` when not already set. These Orin
-defaults must be replaced for other platforms (e.g. Raspberry Pi 4 uses
-`/dev/ttyUSB*` and a different platform override chain).
-These defaults are injected into the tmux session environment.
+**Orin AGX note**: pass `--tty0 /dev/ttyACM0` and `--tty1 /dev/ttyACM1`
+explicitly. Replace these for other platforms.
 
 ## Stop the Autopilot Daemon
 
-1. Press `Ctrl+C` in the running terminal.
-2. Autopilot will move any `processing` requests back to `pending`.
+1. Press `Ctrl+C` in the running terminal, or use `autopilot stop`.
+2. Restarting Autopilot clears all `pending` and `processing` requests before
+   accepting new work.
 
-### Stop via MCP
+If the daemon dies unexpectedly, the next `autopilot start` or
+`autopilot restart` clears pending/processing requests and reports the cleanup
+in JSON.
 
-```json
-{
-  "tool": "autopilot_stop",
-  "autopilot_dir": "${WORKSPACE}/autopilot"
-}
+### Stop
+
+```bash
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" stop --json
 ```
 
-### Restart via MCP
+### Restart
 
-```json
-{
-  "tool": "autopilot_restart",
-  "autopilot_dir": "${WORKSPACE}/autopilot",
-  "tty0": "/dev/ttyACM0",
-  "tty1": "/dev/ttyACM1"
-}
-```
-
-### Codex MCP Examples
-
-When calling from Codex, use the fully qualified MCP tool names:
-
-```python
-import os
-
-mcp__sel4-autopilot__autopilot_start(
-    autopilot_dir=f"{os.environ['WORKSPACE']}/autopilot",
-    tty0="/dev/ttyACM0",
-    tty1="/dev/ttyACM1"
-)
-
-mcp__sel4-autopilot__autopilot_restart(
-    autopilot_dir=f"{os.environ['WORKSPACE']}/autopilot",
-    tty0="/dev/ttyACM0",
-    tty1="/dev/ttyACM1"
-)
-
-mcp__sel4-autopilot__autopilot_status(
-    autopilot_dir=f"{os.environ['WORKSPACE']}/autopilot"
-)
-
-mcp__sel4-autopilot__autopilot_stop(
-    autopilot_dir=f"{os.environ['WORKSPACE']}/autopilot"
-)
+```bash
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" restart --platform orin-agx-uefi-netboot --tmux --tty0 /dev/ttyACM0 --tty1 /dev/ttyACM1 --json
 ```
 
 ## Chain Model Overview
@@ -314,17 +275,11 @@ is present, it adds `match_snippet` using a context window around that offset.
 
 ## Submit a Request (Example)
 
-Requests reference a profile that contains a chain definition.
+Requests reference a profile that contains a chain definition. Agents submit
+through the command API:
 
 ```bash
-cd "${WORKSPACE}/autopilot"
-TS=$(date +%Y%m%d-%H%M%S)
-cat > requests/pending/${TS}.request <<'EOF'
-{
-  "profile": "linux-yocto",
-  "description": "single-run kernel test"
-}
-EOF
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" submit efi --chain linux-yocto --binary /absolute/path/to/image --json
 ```
 
 Results appear in `results/<timestamp>/`.
@@ -348,19 +303,10 @@ first-line debugging step.
 ## Interactive EFI Sessions
 
 For EFI-based interactive sessions, use the `boot-interactive-efi` profile and
-provide `binary_path` and `binary_name` in the request:
+provide the binary through the command API:
 
 ```bash
-TS=$(date +%Y%m%d-%H%M%S)
-cat > requests/pending/${TS}.request <<'EOF'
-{
-  "profile": "boot-interactive-efi",
-  "type": "boot_interactive",
-  "binary_path": "/absolute/path/to/sel4test.efi",
-  "binary_name": "sel4test.efi",
-  "description": "EFI interactive session"
-}
-EOF
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" submit efi --chain boot-interactive-efi --binary /absolute/path/to/sel4test.efi --name sel4test.efi --description "EFI interactive session" --json
 ```
 
 ## Chain Files (Where to Edit)

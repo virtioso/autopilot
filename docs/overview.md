@@ -38,16 +38,13 @@ AUTOPILOT_DIR="${WORKSPACE}/autopilot" \
 python3 orin_kernel_autopilot.py
 ```
 
-### Start Autopilot via MCP (Headless + tmux UI)
+### Start Autopilot Via Command API (Headless + tmux UI)
 
-If you want Autopilot running headless while preserving the operator UI, start it via
-MCP in a tmux session:
+If you want Autopilot running headless while preserving the operator UI, start
+it via the `autopilot` command in a tmux session:
 
-```json
-{
-  "tool": "autopilot_start",
-  "autopilot_dir": "${WORKSPACE}/autopilot"
-}
+```bash
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" start --platform orin-agx-uefi-netboot --tmux --tty0 /dev/ttyACM0 --tty1 /dev/ttyACM1 --json
 ```
 
 Attach to the tmux session:
@@ -56,23 +53,16 @@ Attach to the tmux session:
 tmux attach -t autopilot
 ```
 
-**Orin AGX note**: The MCP start path sets `AUTOPILOT_TTY0=/dev/ttyACM0` and
-`AUTOPILOT_TTY1=/dev/ttyACM1` by default. These are Orin AGX-specific and must
-be replaced for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*`).
+**Orin AGX note**: pass `--tty0 /dev/ttyACM0` and `--tty1 /dev/ttyACM1`
+explicitly. These are Orin AGX-specific and must be replaced for other
+platforms.
 
 ### Submit a Request
 
-Requests are JSON files that specify a root chain by name in `profile`:
+Submit through the command API:
 
 ```bash
-cd "${WORKSPACE}/autopilot"
-TS=$(date +%Y%m%d-%H%M%S)
-cat > requests/pending/${TS}.request <<'EOF_REQ'
-{
-  "profile": "linux-kernel",
-  "description": "single-run kernel test"
-}
-EOF_REQ
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" submit efi --chain linux-kernel --binary /absolute/path/to/image --json
 ```
 
 Results appear in `results/<timestamp>/`.

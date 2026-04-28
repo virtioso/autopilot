@@ -49,37 +49,22 @@ if result['status'] == 'completed':
 
 ```bash
 # Submit a test
-./sel4_client.py submit /path/to/binary.efi --name mytest.efi --desc "Test description" --profile sel4test
-
-# Submit and wait for result
-./sel4_client.py submit /path/to/binary.efi --profile sel4test --wait
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" submit efi --chain sel4test --binary /path/to/binary.efi --name mytest.efi --description "Test description" --json
 
 # Check status
-./sel4_client.py status 20251212-143022
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" get 20251212-143022 --json
 
 # List console logs
-./sel4_client.py logs 20251212-143022
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" logs 20251212-143022 --json
 
-# Show console log contents
-./sel4_client.py logs 20251212-143022 --show
-
-# List requests
-./sel4_client.py list --pending --completed --failed
+# Queue and daemon status
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" status --json
 ```
 
-### Manual Request (JSON file)
+### Request API
 
-Create a `.request` file in `requests/pending/`:
-
-```json
-{
-    "profile": "sel4test",
-    "binary_path": "/absolute/path/to/sel4test.efi",
-    "binary_name": "sel4test.efi",
-    "description": "optional description",
-    "build_config": {"arm_hyp": true, "platform": "orinagx"}
-}
-```
+Agents must use the `autopilot` command. Do not create request files directly
+or call Python internals as fallback paths.
 
 Defaults (AUTOPILOT_DIR/TTYs and queue names) are defined in `config.py` (SSOT).
 

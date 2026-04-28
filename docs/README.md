@@ -89,7 +89,7 @@ JSON schema and step definitions for the chain-based execution model.
 **Topics**:
 - boot_interactive request format
 - console sessions and profiles
-- MCP tools for send/read/close
+- command API boundaries for interactive sessions
 - transcript locations and offsets
 
 **Best for**: AI-assisted debugging, interactive exploration
@@ -147,41 +147,26 @@ make dtbs
 
 **DO NOT use**: nvbuild.sh, kernel_out/ directory, or any other method!
 
-### Submit a Test (MCP, Async)
+### Submit a Test (Command API, Async)
 
-Autopilot MCP test tools are **submit-only** and return immediately with a
-`request_id`. The AI client should poll for completion.
+The `autopilot` command returns JSON immediately with a `request_id`. The AI
+client should poll for completion with the same command API.
 
 **Strict single-request policy**:
 - A new submission **fails** if any request is already `pending` or `processing`.
 - If a submission is rejected, investigate why a request is stuck.
 
-Example (MCP):
-```python
-# Submit (returns immediately)
-mcp__sel4-autopilot__test_sel4_binary(binary_path="...")  # returns request_id
+Example:
+```bash
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" submit efi --chain vm-qemu-virtio --binary /absolute/path/to/image --json
 
-# Poll for completion (recommended: 1s interval, 300s overall)
-mcp__sel4-autopilot__get_test_status(request_id="...")
-```
-
-### Short-Blocking Wait (Optional)
-
-`wait_for_test` is **short-blocking only** (default max 30s) to avoid tool-call timeouts.
-Use it in a loop if you want a helper:
-
-```python
-mcp__sel4-autopilot__wait_for_test(request_id="...", timeout=300, poll_interval=1, max_block_s=30)
+autopilot --autopilot-dir "${WORKSPACE}/autopilot" get <request-id> --json
 ```
 
 ### Cancel a Test (Hard Cancel)
 
-```python
-mcp__sel4-autopilot__cancel_test(request_id="...")
-```
-
-- If pending: request is immediately marked failed with `abort_reason="canceled"`.
-- If processing: chain aborts promptly, sessions close, request marked failed.
+Use `autopilot stop --json` for daemon lifecycle control. Do not manipulate
+queue files directly.
 
 ### Check Test Status (Manual)
 
@@ -206,7 +191,7 @@ journalctl -u autopilot -f
 
 | Directory | Purpose |
 |-----------|---------|
-| `requests/pending/` | Submit test requests here |
+| `requests/pending/` | Internal daemon queue; agents must submit through `autopilot ... --json` |
 | `requests/processing/` | Currently running test |
 | `requests/completed/` | Successfully completed tests |
 | `requests/failed/` | Failed tests |

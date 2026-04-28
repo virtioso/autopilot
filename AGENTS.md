@@ -19,7 +19,7 @@ Always read the following documents before you start planning or making changes:
 path. Executable chains live in the code repo at
 `<code_root>/chains`. Console login/prompt profiles live at
 `<code_root>/profiles`. The code can live anywhere (for example
-`~/autopilot`), while each project uses its own `AUTOPILOT_DIR`, typically
+`$WORKSPACE/tools/autopilot`), while each project uses its own `AUTOPILOT_DIR`, typically
 `$WORKSPACE/autopilot`. `WORKSPACE` must be set.
 
 ## Orin AGX Default Workflow (Mandatory)
@@ -32,22 +32,29 @@ This enforces the platform-init chain for Orin AGX behavior. Current EFI
 deployment flow is SCP upload to `/efiboot/{target_binary_name}` + SSH reboot +
 UEFI boot command dispatch via `boot_efi` chain step.
 
-## MCP-Controlled Autopilot Daemon
+## Agent-Facing Autopilot API
 
-Autopilot can be started/stopped/restarted via MCP tools:
-- `autopilot_start`
-- `autopilot_stop`
-- `autopilot_restart`
-- `autopilot_status`
+The only supported agent-facing control surface is the `autopilot` command in
+`PATH`. It returns JSON and is the API agents must use for lifecycle, submit,
+status, and logs.
 
-These tools run the daemon headless by default in a tmux session and return an
-attach hint (`tmux attach -t autopilot`) to access the TUI.
+Required pattern:
 
-Orin AGX note: always specify UARTs explicitly when starting/restarting via MCP:
-`tty0="/dev/ttyACM0"` and `tty1="/dev/ttyACM1"`.
-Defaults still exist, but callers must provide explicit values.
+```bash
+autopilot --autopilot-dir "$WORKSPACE/autopilot" <command> --json
+```
+
+Do not use MCP tools, direct request/result queue edits, or Python internals as
+fallback paths. If the command API fails, returns invalid/ambiguous JSON, or
+lacks a needed operation, stop and ask the human owner.
+
+Orin AGX note: always specify UARTs explicitly when starting/restarting:
+`--tty0 /dev/ttyACM0` and `--tty1 /dev/ttyACM1`.
 Replace these for other platforms (e.g. Raspberry Pi 4 uses `/dev/ttyUSB*` and
 a different platform override chain).
+
+On daemon startup, Autopilot clears all pending and processing requests before
+accepting new work. Old queue entries are not durable intent after restart.
 
 ## When Working From Another Project
 
