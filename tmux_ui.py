@@ -213,6 +213,8 @@ def detect_tmux_session() -> Optional[str]:
     explicit_session = os.environ.get("AUTOPILOT_TMUX_SESSION", "").strip()
     if explicit_session:
         return explicit_session
+    if os.environ.get("AUTOPILOT_ALLOW_INHERITED_TMUX", "").strip() != "1":
+        return None
     tmux_env = os.environ.get("TMUX", "")
     if not tmux_env:
         return None
