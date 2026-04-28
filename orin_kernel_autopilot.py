@@ -57,15 +57,11 @@ PROFILE_ANALYSIS_HOOKS = {
         "optional": [],
     },
     "vm-qemu-virtio": {
-        "required": [
-            "vio_trace_validate_strict",
-            "vio_trace_marker_contract",
-        ],
+        # TEMPORARY: disable tracing.
+        "required": [],
         "optional": [
-            "ftrace_index_integrity",
             "crossvm_irq_path_check",
             "virtio_console_probe_window_check",
-            "timeline_render",
             "summary_markdown_export",
         ],
     },

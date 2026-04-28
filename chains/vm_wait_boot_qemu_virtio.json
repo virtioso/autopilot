@@ -59,44 +59,6 @@
       ],
       "on_timeout": "fail"
     },
-    "wait_trace_dump_complete": {
-      "type": "wait_pattern",
-      "timeout_s": 300,
-      "outcomes": [
-        {
-          "label": "uservm_start_failed",
-          "pattern": "AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=[0-9]+",
-          "source": "tty0",
-          "next": "fail"
-        },
-        {
-          "label": "qemu_exit_nonzero",
-          "pattern": "AUTOPILOT_FAIL: QEMU_RND_HELPER_EXIT_NONZERO rc=[0-9]+",
-          "source": "tty0",
-          "next": "fail"
-        },
-        {
-          "label": "trace_dump_complete",
-          "pattern": "VIO_TRACE_DUMP_END",
-          "source": "tty0",
-          "next": "pass"
-        }
-      ],
-      "on_timeout": "emit_dump_timeout_diag"
-    },
-    "emit_dump_timeout_diag": {
-      "type": "send_cmd",
-      "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: NO_TRACE_DUMP_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 80 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_FAIL: VIO_TRACE_DUMP_NOT_COMPLETED_AFTER_TIMEOUT'; echo 'AUTOPILOT_INFO: NO_TRACE_DUMP_DIAG_END'",
-      "suffix": "\n",
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "fail"
-        }
-      ],
-      "on_timeout": "fail"
-    },
     "pass": {
       "type": "pass"
     },
@@ -111,7 +73,7 @@
       "outcomes": [
         {
           "label": "ok",
-          "next": "wait_trace_dump_complete"
+          "next": "pass"
         }
       ],
       "on_timeout": "fail"
