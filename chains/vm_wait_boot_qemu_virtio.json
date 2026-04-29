@@ -73,38 +73,19 @@
           "label": "start_ok",
           "pattern": "AUTOPILOT_INFO: USERVMCTL_START_OK",
           "source": "tty0",
-          "next": "wait_uservm_ready"
+          "next": "wait_uservm_tty1_ready"
         }
       ],
       "on_timeout": "emit_uservm_timeout_diag"
     },
-    "wait_uservm_ready": {
-      "type": "send_cmd",
-      "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: USERVM_READY_WAIT_BEGIN'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n +1 -f /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG_LIVE: /' & uservm_log_tail=$!; else uservm_log_tail=; fi; if uservmctl wait-ready 240; then echo 'AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK'; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED rc=$rc\"; fi; if [ -n \"${uservm_log_tail:-}\" ]; then kill \"$uservm_log_tail\" >/dev/null 2>&1 || true; wait \"$uservm_log_tail\" >/dev/null 2>&1 || true; fi; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; echo 'AUTOPILOT_INFO: USERVM_READY_WAIT_END'",
-      "suffix": "\n",
-      "outcomes": [
-        {
-          "label": "ok",
-          "next": "wait_uservm_ready_result"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "wait_uservm_ready_result": {
+    "wait_uservm_tty1_ready": {
       "type": "wait_pattern",
-      "timeout_s": 270,
+      "timeout_s": 240,
       "outcomes": [
         {
-          "label": "ready_failed",
-          "pattern": "AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED rc=[0-9]+",
-          "source": "tty0",
-          "next": "emit_uservm_timeout_diag"
-        },
-        {
-          "label": "ready_ok",
-          "pattern": "AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK",
-          "source": "tty0",
+          "label": "ready_marker",
+          "pattern": "USERVM_READY version=1|login:",
+          "source": "tty1",
           "next": "emit_qemu_bootstrap_diag"
         }
       ],
@@ -119,24 +100,11 @@
     "emit_qemu_bootstrap_diag": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /run/uservm/vm1-supervisor.pid ]; then upid=$(cat /run/uservm/vm1-supervisor.pid); echo \"AUTOPILOT_INFO: USERVMCTL_RUNNING pid=$upid\"; if [ -r /proc/$upid/comm ]; then printf 'AUTOPILOT_USERVM_PROC: pid=%s comm=%s\\n' \"$upid\" \"$(cat /proc/$upid/comm)\"; fi; if [ -r /proc/$upid/cmdline ]; then tr '\\000' ' ' < /proc/$upid/cmdline | sed \"s/^/AUTOPILOT_USERVM_PROC: pid=$upid cmdline=/\"; fi; else echo 'AUTOPILOT_INFO: USERVMCTL_NOT_RUNNING_AFTER_LAUNCH'; fi; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 60 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_AFTER_LAUNCH'; fi; echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_END'",
+      "cmd": "echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /run/uservm/vm1-supervisor.pid ]; then upid=$(cat /run/uservm/vm1-supervisor.pid); echo \"AUTOPILOT_INFO: USERVMCTL_RUNNING pid=$upid\"; if [ -r /proc/$upid/comm ]; then printf 'AUTOPILOT_USERVM_PROC: pid=%s comm=%s\\n' \"$upid\" \"$(cat /proc/$upid/comm)\"; fi; if [ -r /proc/$upid/cmdline ]; then tr '\\000' ' ' < /proc/$upid/cmdline | sed \"s/^/AUTOPILOT_USERVM_PROC: pid=$upid cmdline=/\"; fi; else echo 'AUTOPILOT_INFO: USERVMCTL_NOT_RUNNING_AFTER_LAUNCH'; fi; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 120 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_AFTER_LAUNCH'; fi; echo 'AUTOPILOT_INFO: USERVM_CONSOLE_SOURCE=tty1'; echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_END'",
       "suffix": "\n",
       "outcomes": [
         {
           "label": "ok",
-          "next": "wait_qemu_bootstrap_diag"
-        }
-      ],
-      "on_timeout": "fail"
-    },
-    "wait_qemu_bootstrap_diag": {
-      "type": "wait_pattern",
-      "timeout_s": 30,
-      "outcomes": [
-        {
-          "label": "diag_end",
-          "pattern": "^AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_END",
-          "source": "tty0",
           "next": "pass"
         }
       ],
@@ -145,7 +113,7 @@
     "emit_uservm_timeout_diag": {
       "type": "send_cmd",
       "source": "tty0",
-      "cmd": "echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 120 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_FAIL: USERVM_READY_TIMEOUT'; echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_END'",
+      "cmd": "echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 120 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_INFO: USERVM_CONSOLE_SOURCE=tty1'; echo 'AUTOPILOT_FAIL: USERVM_READY_TIMEOUT'; echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_END'",
       "suffix": "\n",
       "outcomes": [
         {

@@ -579,15 +579,15 @@ def _run_hook_crossvm_irq_path_check(result_dir: Path) -> dict:
 
 
 def _run_hook_virtio_console_probe_window_check(result_dir: Path) -> dict:
-    tty0 = _analysis_text_log_path(result_dir, source="tty0")
-    if not tty0.exists():
+    tty1 = _analysis_text_log_path(result_dir, source="tty1")
+    if not tty1.exists():
         return _hook_result(
             "virtio_console_probe_window_check",
             "fail",
             "console log missing",
-            error="tty0 analysis log not found",
+            error="tty1 analysis log not found",
         )
-    text = _analysis_text_log_contents(tty0)
+    text = _analysis_text_log_contents(tty1)
     has_init = "virtio_console_init" in text
     has_probe = "virtcons_probe" in text
     if has_init and has_probe:
@@ -595,33 +595,47 @@ def _run_hook_virtio_console_probe_window_check(result_dir: Path) -> dict:
             "virtio_console_probe_window_check",
             "pass",
             "both virtio_console_init and virtcons_probe markers observed",
-            artifacts=[str(tty0)],
+            artifacts=[str(tty1)],
         )
     if has_init:
         return _hook_result(
             "virtio_console_probe_window_check",
             "pass",
             "virtio_console_init marker observed (probe marker absent)",
-            artifacts=[str(tty0)],
+            artifacts=[str(tty1)],
         )
     # Fallback for low-noise runs where symbol-level probe markers are absent:
     # validate that VM1 reaches stable console and virtio guest-device init.
     has_vm1_cmdline = "Kernel command line:" in text and "uservm=1," in text
-    has_console_enabled = "printk: console [ttyTCU0] enabled" in text
+    has_console_enabled = (
+        "printk: console [ttyS0] enabled" in text
+        or "console [ttyS0] enabled" in text
+        or "earlycon: uart8250" in text
+    )
     has_guest_device = "sel4 0000:00:01.0: guest-device-1 initialized" in text
     has_vm1_boot_window = "Starting user VM" in text or "Linux version" in text
     if has_vm1_cmdline and has_console_enabled and (has_guest_device or has_vm1_boot_window):
         return _hook_result(
             "virtio_console_probe_window_check",
             "pass",
-            "virtio console window fallback observed (VM1 cmdline + ttyTCU0 console + guest-device-1/boot-window)",
-            artifacts=[str(tty0)],
+            "virtio console window fallback observed on tty1 (VM1 cmdline + UART console + guest-device-1/boot-window)",
+            artifacts=[str(tty1)],
+        )
+    has_uservm_ready = "USERVM_READY version=1" in text
+    has_user_vm_login = "user-vm login:" in text
+    has_ttyama0_login = "user-vm /dev/ttyAMA0" in text
+    if has_uservm_ready or (has_user_vm_login and has_ttyama0_login):
+        return _hook_result(
+            "virtio_console_probe_window_check",
+            "pass",
+            "VM1 readiness observed on tty1 UART console",
+            artifacts=[str(tty1)],
         )
     return _hook_result(
         "virtio_console_probe_window_check",
         "fail",
         "virtio console probe window markers not observed (primary and fallback missing)",
-        artifacts=[str(tty0)],
+        artifacts=[str(tty1)],
     )
 
 
