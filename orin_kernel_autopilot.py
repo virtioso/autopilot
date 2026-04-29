@@ -621,14 +621,14 @@ def _run_hook_virtio_console_probe_window_check(result_dir: Path) -> dict:
             "virtio console window fallback observed on tty1 (VM1 cmdline + UART console + guest-device-1/boot-window)",
             artifacts=[str(tty1)],
         )
-    has_uservm_ready = "USERVM_READY version=1" in text
     has_user_vm_login = "user-vm login:" in text
-    has_ttyama0_login = "user-vm /dev/ttyAMA0" in text
-    if has_uservm_ready or (has_user_vm_login and has_ttyama0_login):
+    has_user_vm_shell = "root@user-vm:~#" in text
+    has_uname = re.search(r"Linux user-vm [^\r\n]*", text) is not None
+    if has_user_vm_login and has_user_vm_shell and has_uname:
         return _hook_result(
             "virtio_console_probe_window_check",
             "pass",
-            "VM1 readiness observed on tty1 UART console",
+            "VM1 tty1 root login and uname -a succeeded",
             artifacts=[str(tty1)],
         )
     return _hook_result(

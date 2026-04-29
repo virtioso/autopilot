@@ -83,8 +83,60 @@
       "timeout_s": 240,
       "outcomes": [
         {
-          "label": "ready_marker",
-          "pattern": "USERVM_READY version=1|login:",
+          "label": "login_prompt",
+          "pattern": "user-vm login:|login:",
+          "source": "tty1",
+          "next": "send_uservm_root_login"
+        }
+      ],
+      "on_timeout": "emit_uservm_timeout_diag"
+    },
+    "send_uservm_root_login": {
+      "type": "send_cmd",
+      "source": "tty1",
+      "cmd": "root",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_uservm_shell"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_uservm_shell": {
+      "type": "wait_pattern",
+      "timeout_s": 30,
+      "outcomes": [
+        {
+          "label": "user_vm_shell",
+          "pattern": "root@user-vm:~#|root@.*:~#",
+          "source": "tty1",
+          "next": "run_uservm_uname"
+        }
+      ],
+      "on_timeout": "emit_uservm_timeout_diag"
+    },
+    "run_uservm_uname": {
+      "type": "send_cmd",
+      "source": "tty1",
+      "cmd": "uname -a",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_uservm_uname"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_uservm_uname": {
+      "type": "wait_pattern",
+      "timeout_s": 30,
+      "outcomes": [
+        {
+          "label": "uname_output",
+          "pattern": "Linux user-vm [^\\r\\n]*",
           "source": "tty1",
           "next": "emit_qemu_bootstrap_diag"
         }
