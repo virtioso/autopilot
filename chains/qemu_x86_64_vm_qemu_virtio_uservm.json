@@ -138,6 +138,77 @@
           "label": "ready",
           "pattern": "AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK",
           "source": "driver_vm_console",
+          "next": "wait_uservm_login_or_shell"
+        }
+      ],
+      "on_timeout": "emit_timeout_diag"
+    },
+    "wait_uservm_login_or_shell": {
+      "type": "wait_pattern",
+      "timeout_s": 120,
+      "outcomes": [
+        {
+          "label": "user_vm_shell",
+          "pattern": "root@user-vm:~#|root@.*:~#",
+          "source": "user_vm_console",
+          "next": "run_uservm_uname"
+        },
+        {
+          "label": "user_vm_login",
+          "pattern": "user-vm login:|login:",
+          "source": "user_vm_console",
+          "next": "send_uservm_root_login"
+        }
+      ],
+      "on_timeout": "emit_timeout_diag"
+    },
+    "send_uservm_root_login": {
+      "type": "send_cmd",
+      "source": "user_vm_console",
+      "cmd": "root",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_uservm_shell"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_uservm_shell": {
+      "type": "wait_pattern",
+      "timeout_s": 60,
+      "outcomes": [
+        {
+          "label": "user_vm_shell",
+          "pattern": "root@user-vm:~#|root@.*:~#",
+          "source": "user_vm_console",
+          "next": "run_uservm_uname"
+        }
+      ],
+      "on_timeout": "emit_timeout_diag"
+    },
+    "run_uservm_uname": {
+      "type": "send_cmd",
+      "source": "user_vm_console",
+      "cmd": "uname -a",
+      "suffix": "\n",
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "wait_uservm_uname"
+        }
+      ],
+      "on_timeout": "set_verdict_fail"
+    },
+    "wait_uservm_uname": {
+      "type": "wait_pattern",
+      "timeout_s": 30,
+      "outcomes": [
+        {
+          "label": "uname_output",
+          "pattern": "Linux user-vm [^\\r\\n]*",
+          "source": "user_vm_console",
           "next": "set_verdict_pass"
         }
       ],
