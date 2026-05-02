@@ -176,6 +176,7 @@ class SourceBinding:
         env: Optional[Dict[str, str]] = None,
         emit=None,
         on_data=None,
+        own_process_group: bool = True,
     ):
         self.source = source
         self.tty = tty
@@ -183,6 +184,7 @@ class SourceBinding:
         self.cwd = cwd
         self.env = dict(env) if env else None
         self.on_data = on_data
+        self.own_process_group = own_process_group
         self.log_path = log_path
         self.analysis_log_path = analysis_log_path
         self.live_log_path = live_log_path
@@ -216,7 +218,7 @@ class SourceBinding:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 bufsize=0,
-                start_new_session=True,
+                start_new_session=self.own_process_group,
             )
             self._proc_stdin = self._proc.stdin
             self._proc_stdout = self._proc.stdout
@@ -358,12 +360,18 @@ class SourceBinding:
                 pass
             try:
                 if self._proc.poll() is None:
-                    os.killpg(self._proc.pid, signal.SIGTERM)
+                    if self.own_process_group:
+                        os.killpg(self._proc.pid, signal.SIGTERM)
+                    else:
+                        self._proc.terminate()
                     self._proc.wait(timeout=3.0)
             except Exception:
                 try:
                     if self._proc.poll() is None:
-                        os.killpg(self._proc.pid, signal.SIGKILL)
+                        if self.own_process_group:
+                            os.killpg(self._proc.pid, signal.SIGKILL)
+                        else:
+                            self._proc.kill()
                 except Exception:
                     pass
             try:
@@ -561,6 +569,7 @@ class SourceManager:
             command=command,
             emit=self._emit,
             on_data=handle_mapping,
+            own_process_group=False,
         )
         self.sources[source] = binding
 
