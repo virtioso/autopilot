@@ -175,12 +175,14 @@ class SourceBinding:
         cwd: Optional[Path] = None,
         env: Optional[Dict[str, str]] = None,
         emit=None,
+        on_data=None,
     ):
         self.source = source
         self.tty = tty
         self.command = list(command) if command else None
         self.cwd = cwd
         self.env = dict(env) if env else None
+        self.on_data = on_data
         self.log_path = log_path
         self.analysis_log_path = analysis_log_path
         self.live_log_path = live_log_path
@@ -263,6 +265,8 @@ class SourceBinding:
                     continue
                 if self.emit:
                     self.emit(self.source, data)
+                if self.on_data:
+                    self.on_data(data)
                 f.write(data)
                 if analysis_file:
                     analysis_file.write(self._analysis_sanitizer.sanitize(data))
@@ -389,6 +393,7 @@ class SourceManager:
         self._reported_fail_markers: set[Tuple[str, str]] = set()
         self._marker_window_max = 8192
         self._router_session_cache: Dict[str, dict] = {}
+        self._router_sessions_lock = threading.Lock()
 
     def set_result_dir(self, result_dir: Path) -> None:
         self.result_dir = result_dir
@@ -397,9 +402,7 @@ class SourceManager:
         self._router_session_cache.clear()
 
     def map_source(self, source: str, tty: str, log_rel: str, baud: int = 115200) -> None:
-        if source in self.sources:
-            self.sources[source].stop()
-            del self.sources[source]
+        self.unmap_source(source)
         log_path = self.result_dir / log_rel
         analysis_log_path = log_path.with_suffix(".ansi.log")
         live_log_path = None
@@ -417,6 +420,13 @@ class SourceManager:
         self.sources[source] = binding
         self.tty_to_source[tty] = source
 
+    def unmap_source(self, source: str) -> None:
+        binding = self.sources.get(source)
+        if not binding:
+            return
+        binding.stop()
+        del self.sources[source]
+
     def map_command_source(
         self,
         source: str,
@@ -425,9 +435,7 @@ class SourceManager:
         cwd: Optional[Path] = None,
         env: Optional[Dict[str, str]] = None,
     ) -> None:
-        if source in self.sources:
-            self.sources[source].stop()
-            del self.sources[source]
+        self.unmap_source(source)
         log_path = self.result_dir / log_rel
         analysis_log_path = log_path.with_suffix(".ansi.log")
         live_log_path = None
@@ -447,6 +455,132 @@ class SourceManager:
         binding.set_write_path_resolver(lambda source_name=source: self._resolve_router_write_tty(source_name))
         self.sources[source] = binding
 
+    def map_tcu_mux_source(
+        self,
+        source: str,
+        tty: str,
+        log_rel: str,
+        *,
+        tcu_muxer_path: str,
+        replace_sources: Optional[List[str]] = None,
+    ) -> None:
+        for replace_source in replace_sources or []:
+            self.unmap_source(replace_source)
+
+        console_dir = self.result_dir / "console"
+        runtime_dir = console_dir / "console-runtime"
+        logs_dir = runtime_dir / "tcu_muxer_logs"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        stdout_log = self.result_dir / log_rel
+        raw_log = runtime_dir / "tcu_muxer.raw.log"
+        sessions_path = runtime_dir / "sessions.json"
+        manifest_path = console_dir / "console-manifest.json"
+        manifest_path.write_text(json.dumps({
+            "version": 1,
+            "transport": {
+                "type": "virtioso_tcu_mux_physical_uart",
+                "tty": tty,
+                "tcu_muxer_path": tcu_muxer_path,
+            },
+            "channels": [
+                {
+                    "name": "driver_vm_console",
+                    "legacy_aliases": ["tty0"],
+                },
+                {
+                    "name": "vm1_guest_console_sink",
+                    "legacy_aliases": ["tty1", "user_vm_console"],
+                },
+            ],
+        }, indent=2) + "\n")
+
+        sessions: Dict[str, dict] = {}
+        self._write_router_sessions(sessions_path, sessions)
+
+        pending_mapping_text = ""
+
+        def handle_mapping(data: bytes) -> None:
+            nonlocal pending_mapping_text
+            text = pending_mapping_text + data.decode("utf-8", errors="replace")
+            if "\n" in text:
+                *lines, pending_mapping_text = text.split("\n")
+            else:
+                pending_mapping_text = text
+                lines = []
+            updated = False
+            with self._router_sessions_lock:
+                current = self._read_router_sessions(sessions_path)
+                for line in lines:
+                    line = line.rstrip("\r")
+                    if "\t" not in line:
+                        continue
+                    pty_path, name = line.split("\t", 1)
+                    if not pty_path or not name:
+                        continue
+                    log_path = logs_dir / f"{name}.txt"
+                    current[name] = {
+                        "session_id": name,
+                        "name": name,
+                        "kind": "virtioso_mux_stream",
+                        "interactive": True,
+                        "log_path": str(log_path),
+                        "events_path": None,
+                        "pty_path": pty_path,
+                    }
+                    if name == "driver_vm_console":
+                        current[name]["kind"] = "physical_uart_default"
+                        current[name]["legacy_aliases"] = ["tty0"]
+                    if name == "vm1_guest_console_sink":
+                        current[name]["legacy_aliases"] = ["tty1", "user_vm_console"]
+                    updated = True
+                if updated:
+                    self._write_router_sessions(sessions_path, current)
+                    self._router_session_cache.clear()
+
+        command = [
+            tcu_muxer_path,
+            "-A",
+            "-O",
+            "raw",
+            "-d",
+            tty,
+            "-s",
+            str(logs_dir),
+            "-l",
+            str(raw_log),
+            "-L",
+            "-w",
+        ]
+        self.unmap_source(source)
+        binding = SourceBinding(
+            source,
+            None,
+            stdout_log,
+            analysis_log_path=stdout_log.with_suffix(".ansi.log"),
+            command=command,
+            emit=self._emit,
+            on_data=handle_mapping,
+        )
+        self.sources[source] = binding
+
+    def _read_router_sessions(self, sessions_path: Path) -> Dict[str, dict]:
+        try:
+            payload = json.loads(sessions_path.read_text())
+        except Exception:
+            return {}
+        return {
+            str(sess.get("name")): sess
+            for sess in payload.get("sessions", [])
+            if sess.get("name")
+        }
+
+    def _write_router_sessions(self, sessions_path: Path, sessions: Dict[str, dict]) -> None:
+        sessions_path.write_text(json.dumps({
+            "version": 1,
+            "sessions": [sessions[name] for name in sorted(sessions)],
+        }, indent=2) + "\n")
+
     def _load_router_sessions(self) -> Dict[str, dict]:
         console_dir = self.result_dir / "console"
         manifest_path = console_dir / "console-manifest.json"
@@ -464,6 +598,12 @@ class SourceManager:
             for name, sess in by_name.items()
             if name
         }
+        for sess in sessions.get("sessions", []):
+            session_name = sess.get("name")
+            if not session_name:
+                continue
+            for alias in sess.get("legacy_aliases", []) or []:
+                resolved[str(alias)] = sess
         if manifest_path.exists():
             try:
                 manifest = json.loads(manifest_path.read_text())
@@ -546,9 +686,12 @@ class SourceManager:
 
     def analysis_log_for_source(self, source: str) -> Optional[str]:
         binding = self.sources.get(source)
-        if not binding or not binding.analysis_log_path:
-            return None
-        return str(binding.analysis_log_path)
+        if binding and binding.analysis_log_path:
+            return str(binding.analysis_log_path)
+        router_session = self.router_session_for_source(source)
+        if router_session and router_session.get("log_path"):
+            return str(router_session["log_path"])
+        return None
 
     def snapshot_offsets(self) -> Dict[str, Tuple[str, int]]:
         snapshot: Dict[str, Tuple[str, int]] = {}
@@ -598,6 +741,13 @@ def validate_chain(chain: dict) -> None:
                 raise ChainValidationError(
                     f"step {name} call_chain requires outcomes for labels 'pass' and 'fail'"
                 )
+        if step.get("type") == "map_tcu_mux_source":
+            if not step.get("source"):
+                raise ChainValidationError(f"step {name} map_tcu_mux_source requires source")
+            if not step.get("tty"):
+                raise ChainValidationError(f"step {name} map_tcu_mux_source requires tty")
+            if not step.get("tcu_muxer_path"):
+                raise ChainValidationError(f"step {name} map_tcu_mux_source requires tcu_muxer_path")
         if step.get("type") == "task_spawn":
             task_name = str(step.get("task", "")).strip()
             chain_name = str(step.get("chain", "")).strip()
@@ -887,6 +1037,8 @@ class ChainRunner:
                 return self._simple_outcome(step)
             if step_type == "map_source":
                 return self._step_map_source(step)
+            if step_type == "map_tcu_mux_source":
+                return self._step_map_tcu_mux_source(step)
             if step_type == "map_command_source":
                 return self._step_map_command_source(step)
             if step_type == "purge_sources":
@@ -998,6 +1150,31 @@ class ChainRunner:
         ui = self.ctx.get("ui")
         if ui and hasattr(ui, "state"):
             ui.state.map_source(source, shlex.join(resolved_command), str(self.ctx["result_dir"] / log_rel))
+        return self._simple_outcome(step)
+
+    def _step_map_tcu_mux_source(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        source = step["source"]
+        tty = self._resolve_value(step.get("tty"))
+        if isinstance(tty, str) and tty.startswith("env:"):
+            env_key = tty.split("env:", 1)[1]
+            tty = (os.environ.get(env_key, "") or "").strip()
+        if not tty:
+            raise ValueError("map_tcu_mux_source requires tty")
+        tcu_muxer_path = str(self._resolve_value(step.get("tcu_muxer_path")))
+        log_rel = step.get("log", f"console/{source}.raw")
+        replace_sources = step.get("replace_sources", []) or []
+        if not isinstance(replace_sources, list):
+            raise ValueError("map_tcu_mux_source replace_sources must be a list")
+        self.ctx["sources"].map_tcu_mux_source(
+            source,
+            str(tty),
+            log_rel,
+            tcu_muxer_path=tcu_muxer_path,
+            replace_sources=[str(item) for item in replace_sources],
+        )
+        ui = self.ctx.get("ui")
+        if ui and hasattr(ui, "state"):
+            ui.state.map_source(source, f"{tcu_muxer_path} -d {tty}", str(self.ctx["result_dir"] / log_rel))
         return self._simple_outcome(step)
 
     def _step_map_window(self, step: dict) -> Tuple[str, OutcomeMatch]:

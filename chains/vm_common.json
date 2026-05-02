@@ -73,11 +73,29 @@
       "outcomes": [
         {
           "label": "pass",
-          "next": "parallel_vm_boot_split"
+          "next": "start_tcu_muxer"
         },
         {
           "label": "fail",
           "next": "filter_logs_fail"
+        }
+      ],
+      "on_timeout": "filter_logs_fail"
+    },
+    "start_tcu_muxer": {
+      "type": "map_tcu_mux_source",
+      "source": "tcu_muxer",
+      "tty": "env:AUTOPILOT_TTY0",
+      "log": "console/tcu_muxer.stdout.log",
+      "tcu_muxer_path": "/home/hlyytine/tii-sel4/sources/tcu_muxer/tcu_muxer",
+      "replace_sources": [
+        "tty0",
+        "tty1"
+      ],
+      "outcomes": [
+        {
+          "label": "ok",
+          "next": "parallel_vm_boot_split"
         }
       ],
       "on_timeout": "filter_logs_fail"
