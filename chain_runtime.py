@@ -451,26 +451,34 @@ class SourceManager:
         console_dir = self.result_dir / "console"
         manifest_path = console_dir / "console-manifest.json"
         sessions_path = console_dir / "console-runtime" / "sessions.json"
-        if not manifest_path.exists() or not sessions_path.exists():
+        if not sessions_path.exists():
             return {}
         try:
-            manifest = json.loads(manifest_path.read_text())
             sessions = json.loads(sessions_path.read_text())
         except Exception:
             return {}
 
         by_name = {sess.get("name"): sess for sess in sessions.get("sessions", [])}
-        resolved: Dict[str, dict] = {}
-        for channel in manifest.get("channels", []):
-            channel_name = channel.get("name")
-            if not channel_name:
-                continue
-            sess = by_name.get(channel_name)
-            if not sess:
-                continue
-            names = [channel_name, *channel.get("legacy_aliases", [])]
-            for name in names:
-                resolved[str(name)] = sess
+        resolved: Dict[str, dict] = {
+            str(name): sess
+            for name, sess in by_name.items()
+            if name
+        }
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text())
+            except Exception:
+                manifest = {}
+            for channel in manifest.get("channels", []):
+                channel_name = channel.get("name")
+                if not channel_name:
+                    continue
+                sess = by_name.get(channel_name)
+                if not sess:
+                    continue
+                names = [channel_name, *channel.get("legacy_aliases", [])]
+                for name in names:
+                    resolved[str(name)] = sess
         return resolved
 
     def router_session_for_source(self, source: str) -> Optional[dict]:
