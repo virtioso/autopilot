@@ -378,13 +378,14 @@ def get_logs(
     console_dir = paths['results'] / timestamp / 'console'
     files = []
     if console_dir.exists():
-        for path in sorted(console_dir.glob("*")):
+        for path in sorted(console_dir.rglob("*")):
             if path.is_file():
-                if file_name and path.name != file_name:
+                rel_name = str(path.relative_to(console_dir))
+                if file_name and path.name != file_name and rel_name != file_name:
                     continue
                 entry = {
                     "path": str(path),
-                    "name": path.name,
+                    "name": rel_name,
                     "size": path.stat().st_size,
                 }
                 if include_contents or tail is not None or grep:
@@ -516,10 +517,10 @@ def _available_logs(result_dir: Path) -> list[dict]:
     if not console_dir.exists():
         return []
     logs = []
-    for path in sorted(console_dir.glob("*")):
+    for path in sorted(console_dir.rglob("*")):
         if path.is_file():
             logs.append({
-                "name": path.name,
+                "name": str(path.relative_to(console_dir)),
                 "path": str(path),
                 "size": path.stat().st_size,
             })
