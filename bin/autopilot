@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Callable
@@ -50,6 +51,12 @@ def _autopilot_dir(args: argparse.Namespace) -> str:
     from config import get_autopilot_dir
 
     return str(get_autopilot_dir(args.autopilot_dir))
+
+
+def _seed_path_env(args: argparse.Namespace) -> None:
+    autopilot_dir = Path(args.autopilot_dir).expanduser()
+    os.environ["AUTOPILOT_DIR"] = str(autopilot_dir)
+    os.environ.setdefault("WORKSPACE", str(autopilot_dir.parent))
 
 
 def _status_payload(args: argparse.Namespace) -> dict:
@@ -200,7 +207,7 @@ def _cmd_evidence(args: argparse.Namespace) -> int:
 
 def _add_common(parser: argparse.ArgumentParser, *, include_autopilot_dir: bool = True) -> None:
     if include_autopilot_dir:
-        parser.add_argument("--autopilot-dir", default=None)
+        parser.add_argument("--autopilot-dir", required=True)
     parser.add_argument("--json", action="store_true", help="Accepted for clarity; output is always JSON.")
 
 
@@ -274,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     evidence_parser.set_defaults(func=_cmd_evidence)
 
     args = parser.parse_args(argv)
+    _seed_path_env(args)
     return args.func(args)
 
 

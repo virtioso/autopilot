@@ -37,6 +37,7 @@
       "type": "boot_efi",
       "source": "tty0",
       "mode": "test_efi",
+      "shell_timeout_s": 180,
       "outcomes": [
         { "label": "ok", "next": "pass" }
       ],

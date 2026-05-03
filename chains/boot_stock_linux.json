@@ -5,6 +5,7 @@
       "type": "boot_efi",
       "source": "tty0",
       "mode": "extlinux",
+      "shell_timeout_s": 180,
       "outcomes": [
         {
           "label": "ok",

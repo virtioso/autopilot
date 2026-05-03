@@ -204,6 +204,8 @@ class SourceBinding:
         self._write_fd = None
         self._write_tty_path = None
         self._write_path_resolver = None
+        self._mirror_lock = threading.Lock()
+        self._mirror_path: Optional[Path] = None
         if self.tty:
             self._serial = serial.Serial(self.tty, baudrate=self.baud, timeout=0.1)
             # Always start from an empty UART state for deterministic pattern matching.
@@ -228,6 +230,21 @@ class SourceBinding:
 
     def set_write_path_resolver(self, resolver) -> None:
         self._write_path_resolver = resolver
+
+    def set_mirror_path(self, mirror_path: Optional[Path]) -> None:
+        with self._mirror_lock:
+            self._mirror_path = mirror_path
+
+    def _write_mirror(self, data: bytes) -> None:
+        with self._mirror_lock:
+            mirror_path = self._mirror_path
+        if not mirror_path:
+            return
+        try:
+            with mirror_path.open("ab", buffering=0) as mirror_file:
+                mirror_file.write(data)
+        except Exception:
+            return
 
     def _ensure_write_endpoint(self) -> None:
         if self._serial is not None or self._write_fd is not None:
@@ -270,6 +287,7 @@ class SourceBinding:
                 if self.on_data:
                     self.on_data(data)
                 f.write(data)
+                self._write_mirror(data)
                 if analysis_file:
                     analysis_file.write(self._analysis_sanitizer.sanitize(data))
                 if live_file:
@@ -294,6 +312,7 @@ class SourceBinding:
                     if self.emit:
                         self.emit(self.source, marker)
                     f.write(marker)
+                    self._write_mirror(marker)
                     if analysis_file:
                         analysis_file.write(self._analysis_sanitizer.sanitize(marker))
                     if live_file:
@@ -379,6 +398,8 @@ class SourceBinding:
                     self._proc_stdout.close()
             except Exception:
                 pass
+        if threading.current_thread() is not self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
 
     def purge(self) -> None:
         with self._lock:
@@ -402,12 +423,82 @@ class SourceManager:
         self._marker_window_max = 8192
         self._router_session_cache: Dict[str, dict] = {}
         self._router_sessions_lock = threading.Lock()
+        self._per_result_mirrors: Dict[str, Path] = {}
 
     def set_result_dir(self, result_dir: Path) -> None:
         self.result_dir = result_dir
         self._marker_windows.clear()
         self._reported_fail_markers.clear()
         self._router_session_cache.clear()
+        self._configure_per_result_mirrors()
+        self._link_external_router_runtime()
+
+    def _configure_per_result_mirrors(self) -> None:
+        previous = set(self._per_result_mirrors)
+        self._per_result_mirrors.clear()
+        for source in previous:
+            binding = self.sources.get(source)
+            if binding:
+                binding.set_mirror_path(None)
+        if not os.environ.get("AUTOPILOT_PHYSICAL_TTY0"):
+            return
+        mirror_path = self.result_dir / "console" / "raw_ccplex.txt"
+        binding = self.sources.get("tty0")
+        try:
+            mirror_path.parent.mkdir(parents=True, exist_ok=True)
+            if mirror_path.is_symlink():
+                mirror_path.unlink()
+            if mirror_path.exists() and mirror_path.is_dir():
+                shutil.rmtree(mirror_path)
+            mirror_path.write_bytes(b"")
+            if binding:
+                binding.set_mirror_path(mirror_path)
+            self._per_result_mirrors["tty0"] = mirror_path
+        except Exception:
+            if binding:
+                binding.set_mirror_path(None)
+            self._per_result_mirrors.pop("tty0", None)
+
+    def _ensure_symlink(self, link_path: Path, target_path: Path) -> None:
+        try:
+            link_path.parent.mkdir(parents=True, exist_ok=True)
+            if link_path.is_symlink():
+                if os.readlink(link_path) == str(target_path):
+                    return
+                link_path.unlink()
+            if link_path.exists():
+                if link_path.is_dir():
+                    shutil.rmtree(link_path)
+                else:
+                    link_path.unlink()
+            link_path.symlink_to(target_path, target_is_directory=target_path.is_dir())
+        except Exception:
+            return
+
+    def _link_external_router_runtime(self) -> None:
+        sessions_path = os.environ.get("AUTOPILOT_CONSOLE_ROUTER_SESSIONS", "").strip()
+        logs_dir = os.environ.get("AUTOPILOT_CONSOLE_ROUTER_LOGS_DIR", "").strip()
+        raw_log = os.environ.get("AUTOPILOT_CONSOLE_ROUTER_RAW_LOG", "").strip()
+        registry_path = os.environ.get("AUTOPILOT_CONSOLE_ROUTER_REGISTRY", "").strip()
+        if not sessions_path and not logs_dir and not raw_log and not registry_path:
+            return
+
+        runtime_dir = self.result_dir / "console" / "console-runtime"
+        if sessions_path:
+            self._ensure_symlink(runtime_dir / "sessions.json", Path(sessions_path))
+        if logs_dir:
+            self._ensure_symlink(runtime_dir / "tcu_muxer_logs", Path(logs_dir))
+        if raw_log:
+            self._ensure_symlink(runtime_dir / "tcu_muxer.raw.log", Path(raw_log))
+        else:
+            stale_raw_log = runtime_dir / "tcu_muxer.raw.log"
+            try:
+                if stale_raw_log.is_symlink():
+                    stale_raw_log.unlink()
+            except Exception:
+                return
+        if registry_path:
+            self._ensure_symlink(runtime_dir / "console-stream-registry.json", Path(registry_path))
 
     def map_source(self, source: str, tty: str, log_rel: str, baud: int = 115200) -> None:
         self.unmap_source(source)
@@ -427,13 +518,18 @@ class SourceManager:
         )
         self.sources[source] = binding
         self.tty_to_source[tty] = source
+        if source == "tty0":
+            self._configure_per_result_mirrors()
 
     def unmap_source(self, source: str) -> None:
         binding = self.sources.get(source)
         if not binding:
             return
+        binding.set_mirror_path(None)
         binding.stop()
         del self.sources[source]
+        if binding.tty:
+            self.tty_to_source.pop(binding.tty, None)
 
     def map_command_source(
         self,
@@ -470,6 +566,8 @@ class SourceManager:
         log_rel: str,
         *,
         tcu_muxer_path: str,
+        outer_mode: str = "raw",
+        outer_tag: str = "CCPLEX",
         replace_sources: Optional[List[str]] = None,
     ) -> None:
         for replace_source in replace_sources or []:
@@ -483,30 +581,35 @@ class SourceManager:
         stdout_log = self.result_dir / log_rel
         raw_log = runtime_dir / "tcu_muxer.raw.log"
         sessions_path = runtime_dir / "sessions.json"
-        manifest_path = console_dir / "console-manifest.json"
-        manifest_path.write_text(json.dumps({
-            "version": 1,
-            "transport": {
-                "type": "virtioso_tcu_mux_physical_uart",
-                "tty": tty,
-                "tcu_muxer_path": tcu_muxer_path,
-            },
-            "channels": [
-                {
-                    "name": "driver_vm_console",
-                    "legacy_aliases": ["tty0"],
-                },
-                {
-                    "name": "vm1_guest_console_sink",
-                    "legacy_aliases": ["tty1", "user_vm_console"],
-                },
-            ],
-        }, indent=2) + "\n")
-
+        registry_copy_path = runtime_dir / "console-stream-registry.json"
         sessions: Dict[str, dict] = {}
         self._write_router_sessions(sessions_path, sessions)
 
         pending_mapping_text = ""
+
+        def seed_sessions_from_registry(registry: dict) -> None:
+            current = self._read_router_sessions(sessions_path)
+            for stream in registry.get("streams", []) or []:
+                component = stream.get("component")
+                if not component:
+                    continue
+                name = str(component)
+                current[name] = {
+                    **current.get(name, {}),
+                    "session_id": name,
+                    "name": name,
+                    "kind": "camkes_component_declared",
+                    "stream_id": stream.get("stream_id"),
+                    "component": name,
+                    "component_type": stream.get("type"),
+                    "direction": stream.get("direction"),
+                    "interfaces": stream.get("interfaces", []),
+                    "interactive": stream.get("stream_id") is not None and int(stream.get("stream_id")) >= 0,
+                    "log_path": str(logs_dir / f"{name}.txt"),
+                    "events_path": None,
+                    "pty_path": current.get(name, {}).get("pty_path"),
+                }
+            self._write_router_sessions(sessions_path, current)
 
         def handle_mapping(data: bytes) -> None:
             nonlocal pending_mapping_text
@@ -521,26 +624,40 @@ class SourceManager:
                 current = self._read_router_sessions(sessions_path)
                 for line in lines:
                     line = line.rstrip("\r")
-                    if "\t" not in line:
+                    if not line:
                         continue
-                    pty_path, name = line.split("\t", 1)
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if record.get("event") == "stream_registry":
+                        try:
+                            registry = json.loads(str(record.get("registry_json") or "{}"))
+                        except json.JSONDecodeError:
+                            continue
+                        registry_copy_path.write_text(json.dumps(registry, indent=2, sort_keys=True) + "\n")
+                        seed_sessions_from_registry(registry)
+                        current = self._read_router_sessions(sessions_path)
+                        updated = True
+                        continue
+                    if record.get("event") != "session_open":
+                        continue
+                    pty_path = str(record.get("pty_path") or "")
+                    name = str(record.get("name") or "")
                     if not pty_path or not name:
                         continue
-                    log_path = logs_dir / f"{name}.txt"
+                    log_path = Path(record.get("log_path") or logs_dir / f"{name}.txt")
                     current[name] = {
+                        **current.get(name, {}),
                         "session_id": name,
                         "name": name,
-                        "kind": "virtioso_mux_stream",
+                        "kind": str(record.get("kind") or "unknown"),
+                        "stream_id": record.get("stream_id"),
                         "interactive": True,
                         "log_path": str(log_path),
                         "events_path": None,
                         "pty_path": pty_path,
                     }
-                    if name == "driver_vm_console":
-                        current[name]["kind"] = "physical_uart_default"
-                        current[name]["legacy_aliases"] = ["tty0"]
-                    if name == "vm1_guest_console_sink":
-                        current[name]["legacy_aliases"] = ["tty1", "user_vm_console"]
                     updated = True
                 if updated:
                     self._write_router_sessions(sessions_path, current)
@@ -550,7 +667,7 @@ class SourceManager:
             tcu_muxer_path,
             "-A",
             "-O",
-            "raw",
+            outer_mode,
             "-d",
             tty,
             "-s",
@@ -560,6 +677,8 @@ class SourceManager:
             "-L",
             "-w",
         ]
+        if outer_mode == "nvidia-tcu":
+            command.extend(["-C", outer_tag])
         self.unmap_source(source)
         binding = SourceBinding(
             source,
@@ -592,8 +711,11 @@ class SourceManager:
 
     def _load_router_sessions(self) -> Dict[str, dict]:
         console_dir = self.result_dir / "console"
-        manifest_path = console_dir / "console-manifest.json"
         sessions_path = console_dir / "console-runtime" / "sessions.json"
+        if not sessions_path.exists():
+            external_sessions = os.environ.get("AUTOPILOT_CONSOLE_ROUTER_SESSIONS", "").strip()
+            if external_sessions:
+                sessions_path = Path(external_sessions)
         if not sessions_path.exists():
             return {}
         try:
@@ -607,27 +729,6 @@ class SourceManager:
             for name, sess in by_name.items()
             if name
         }
-        for sess in sessions.get("sessions", []):
-            session_name = sess.get("name")
-            if not session_name:
-                continue
-            for alias in sess.get("legacy_aliases", []) or []:
-                resolved[str(alias)] = sess
-        if manifest_path.exists():
-            try:
-                manifest = json.loads(manifest_path.read_text())
-            except Exception:
-                manifest = {}
-            for channel in manifest.get("channels", []):
-                channel_name = channel.get("name")
-                if not channel_name:
-                    continue
-                sess = by_name.get(channel_name)
-                if not sess:
-                    continue
-                names = [channel_name, *channel.get("legacy_aliases", [])]
-                for name in names:
-                    resolved[str(name)] = sess
         return resolved
 
     def router_session_for_source(self, source: str) -> Optional[dict]:
@@ -664,6 +765,16 @@ class SourceManager:
             f.seek(read_offset)
             data = f.read()
         return data, read_offset + len(data), str(log_path)
+
+    def write_router_source(self, source: str, payload: bytes) -> None:
+        router_tty = self._resolve_router_write_tty(source)
+        if not router_tty:
+            raise ValueError(f"unknown source {source}")
+        fd = os.open(router_tty, os.O_RDWR | os.O_NOCTTY)
+        try:
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
 
     def _emit(self, source: str, data: bytes) -> None:
         if self.ui:
@@ -702,6 +813,19 @@ class SourceManager:
             return str(router_session["log_path"])
         return None
 
+    def analysis_log_paths(self) -> Dict[str, str]:
+        paths: Dict[str, str] = {}
+        for source, binding in self.sources.items():
+            if binding.analysis_log_path:
+                paths[source] = str(binding.analysis_log_path)
+        for source, mirror_path in self._per_result_mirrors.items():
+            paths[f"{source}_raw_ccplex"] = str(mirror_path)
+        for name, session in self._load_router_sessions().items():
+            log_path = session.get("log_path")
+            if log_path:
+                paths[str(name)] = str(log_path)
+        return paths
+
     def snapshot_offsets(self) -> Dict[str, Tuple[str, int]]:
         snapshot: Dict[str, Tuple[str, int]] = {}
         for source, binding in list(self.sources.items()):
@@ -712,6 +836,32 @@ class SourceManager:
         for binding in list(self.sources.values()):
             binding.stop()
         self.sources.clear()
+
+
+class RouterSourceAdapter:
+    def __init__(self, sources: SourceManager, source: str):
+        self.sources = sources
+        self.source = source
+        self._base_offset = 0
+
+    def read_since(self, offset: int) -> Tuple[bytes, int]:
+        data, new_offset, _ = self.sources.read_router_since(self.source, offset)
+        return data, new_offset
+
+    def write(self, text: str) -> None:
+        self.write_bytes(text.encode("utf-8", errors="ignore"))
+
+    def write_bytes(self, payload: bytes) -> None:
+        self.sources.write_router_source(self.source, payload)
+
+    def current_offset(self) -> int:
+        sess = self.sources.router_session_for_source(self.source)
+        if not sess:
+            return 0
+        log_path = Path(str(sess.get("log_path", "")))
+        if not log_path.exists():
+            return 0
+        return log_path.stat().st_size
 
 
 def validate_chain(chain: dict) -> None:
@@ -757,6 +907,9 @@ def validate_chain(chain: dict) -> None:
                 raise ChainValidationError(f"step {name} map_tcu_mux_source requires tty")
             if not step.get("tcu_muxer_path"):
                 raise ChainValidationError(f"step {name} map_tcu_mux_source requires tcu_muxer_path")
+        if step.get("type") == "wait_router_session":
+            if not step.get("source"):
+                raise ChainValidationError(f"step {name} wait_router_session requires source")
         if step.get("type") == "task_spawn":
             task_name = str(step.get("task", "")).strip()
             chain_name = str(step.get("chain", "")).strip()
@@ -1048,6 +1201,8 @@ class ChainRunner:
                 return self._step_map_source(step)
             if step_type == "map_tcu_mux_source":
                 return self._step_map_tcu_mux_source(step)
+            if step_type == "wait_router_session":
+                return self._step_wait_router_session(step)
             if step_type == "map_command_source":
                 return self._step_map_command_source(step)
             if step_type == "purge_sources":
@@ -1170,6 +1325,8 @@ class ChainRunner:
         if not tty:
             raise ValueError("map_tcu_mux_source requires tty")
         tcu_muxer_path = str(self._resolve_value(step.get("tcu_muxer_path")))
+        outer_mode = str(self._resolve_value(step.get("outer_mode", "raw")))
+        outer_tag = str(self._resolve_value(step.get("outer_tag", "CCPLEX")))
         log_rel = step.get("log", f"console/{source}.raw")
         replace_sources = step.get("replace_sources", []) or []
         if not isinstance(replace_sources, list):
@@ -1179,12 +1336,28 @@ class ChainRunner:
             str(tty),
             log_rel,
             tcu_muxer_path=tcu_muxer_path,
+            outer_mode=outer_mode,
+            outer_tag=outer_tag,
             replace_sources=[str(item) for item in replace_sources],
         )
         ui = self.ctx.get("ui")
         if ui and hasattr(ui, "state"):
             ui.state.map_source(source, f"{tcu_muxer_path} -d {tty}", str(self.ctx["result_dir"] / log_rel))
         return self._simple_outcome(step)
+
+    def _step_wait_router_session(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        source = str(step.get("source") or "").strip()
+        if not source:
+            raise ValueError("wait_router_session requires source")
+        timeout_s = float(step.get("timeout_s", 5.0))
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            self._poll_runtime_events()
+            session = self.ctx["sources"].router_session_for_source(source)
+            if session and (session.get("pty_path") or session.get("log_path")):
+                return self._simple_outcome(step)
+            time.sleep(0.05)
+        raise RuntimeError(f"router session not available: {source}")
 
     def _step_map_window(self, step: dict) -> Tuple[str, OutcomeMatch]:
         window = int(step["window"])
@@ -1207,21 +1380,15 @@ class ChainRunner:
 
     def _step_send_cmd(self, step: dict) -> Tuple[str, OutcomeMatch]:
         source = step["source"]
+        write_source = step.get("write_source", source)
         cmd = step["cmd"]
-        binding = self.ctx["sources"].get(source)
+        binding = self.ctx["sources"].get(write_source)
         suffix = step.get("suffix", "\n")
         payload = cmd + suffix
         if binding:
             binding.write(payload)
             return self._simple_outcome(step)
-        router_tty = self.ctx["sources"]._resolve_router_write_tty(source)
-        if not router_tty:
-            raise ValueError(f"unknown source {source}")
-        fd = os.open(router_tty, os.O_RDWR | os.O_NOCTTY)
-        try:
-            os.write(fd, payload.encode("utf-8", errors="ignore"))
-        finally:
-            os.close(fd)
+        self.ctx["sources"].write_router_source(write_source, payload.encode("utf-8", errors="ignore"))
         return self._simple_outcome(step)
 
     def _step_boot_menu(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -1428,6 +1595,8 @@ class ChainRunner:
         if start_from not in ("head", "tail"):
             raise ValueError("case start_from must be head|tail")
         binding = self.ctx["sources"].get(source)
+        if not binding and self.ctx["sources"].router_session_for_source(source):
+            binding = RouterSourceAdapter(self.ctx["sources"], source)
         if not binding:
             raise ValueError(f"unknown source {source}")
 
@@ -1535,6 +1704,8 @@ class ChainRunner:
 
     def _wait_for_any_pattern(self, source: str, patterns: List[str], timeout_s: int) -> int:
         binding = self.ctx["sources"].get(source)
+        if not binding and self.ctx["sources"].router_session_for_source(source):
+            binding = RouterSourceAdapter(self.ctx["sources"], source)
         if not binding:
             raise ValueError(f"unknown source {source}")
         idx, _ = self._wait_any_pattern_on_binding(
@@ -1685,6 +1856,7 @@ class ChainRunner:
             post_quiet_delay_s = float(step.get("post_quiet_delay_s", 0.5))
             startup_patterns = step.get("startup_patterns") or [
                 r"startup\.nsh",
+                r"Enter to continue boot\.",
             ]
             shell_patterns = step.get("shell_patterns") or [
                 r"Shell>",
@@ -2925,11 +3097,11 @@ class ChainRunner:
             format_ctx.setdefault("chains_dir", str(code_root / "chains"))
             format_ctx.setdefault("profiles_dir", str(code_root / "profiles"))
             sources = self.ctx.get("sources")
-            if sources and hasattr(sources, "analysis_log_for_source"):
-                for source_name in ("tty0", "tty1"):
-                    analysis_path = sources.analysis_log_for_source(source_name)
+            if sources and hasattr(sources, "analysis_log_paths"):
+                for source_name, analysis_path in sources.analysis_log_paths().items():
+                    key = re.sub(r"[^A-Za-z0-9_]", "_", source_name)
                     if analysis_path:
-                        format_ctx.setdefault(f"{source_name}_analysis_log", analysis_path)
+                        format_ctx.setdefault(f"{key}_analysis_log", analysis_path)
             format_ctx.update(self.ctx.get("request", {}))
             return value.format(**format_ctx)
         return value

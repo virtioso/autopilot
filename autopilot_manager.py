@@ -15,6 +15,9 @@ from config import get_code_root
 from startup_queue import clear_startup_requests, read_startup_cleanup
 
 DEFAULT_COMMAND = f"python3 {shlex.quote(str(get_code_root() / 'orin_kernel_autopilot.py'))}"
+ORIN_TCU_MUXER_COMMAND = (
+    f"python3 {shlex.quote(str(get_code_root() / 'tools' / 'orin_tcu_muxer_autopilot_wrapper.py'))}"
+)
 DEFAULT_TMUX_SESSION = "autopilot"
 DEFAULT_PLATFORM = "orin-agx-uefi-netboot"
 PLATFORM_DEFAULT_TTYS = {
@@ -25,6 +28,12 @@ PLATFORM_DEFAULT_TTYS = {
 def platform_requires_ttys(platform: str) -> bool:
     normalized = (platform or "").strip()
     return normalized not in {"qemu-generic"}
+
+
+def default_command_for_platform(platform: str) -> str:
+    if (platform or "").strip() == "orin-agx-uefi-netboot":
+        return ORIN_TCU_MUXER_COMMAND
+    return DEFAULT_COMMAND
 
 
 def _runtime_dir(autopilot_dir: Path) -> Path:
@@ -43,6 +52,17 @@ def _meta_path(runtime_dir: Path) -> Path:
 
 def _log_path(runtime_dir: Path) -> Path:
     return runtime_dir / "autopilot.log"
+
+
+def _console_router_status_path(runtime_dir: Path) -> Path:
+    return runtime_dir / "tcu_muxer_wrapper" / "status.json"
+
+
+def _read_console_router_status(runtime_dir: Path) -> dict | None:
+    try:
+        return json.loads(_console_router_status_path(runtime_dir).read_text())
+    except Exception:
+        return None
 
 
 def _append_runtime_log(log_path: Path, message: str) -> None:
@@ -80,6 +100,8 @@ def _cmdline_matches(cmdline: list[str], marker: str) -> bool:
 def _command_marker(command: str) -> str:
     tokens = shlex.split(command)
     for token in tokens:
+        if token.endswith("orin_tcu_muxer_autopilot_wrapper.py"):
+            return "orin_tcu_muxer_autopilot_wrapper.py"
         if token.endswith("orin_kernel_autopilot.py"):
             return "orin_kernel_autopilot.py"
     if tokens:
@@ -305,6 +327,7 @@ def status_autopilot(
         "platform": meta.get("platform"),
         "tty0": meta.get("tty0"),
         "tty1": meta.get("tty1"),
+        "console_router": _read_console_router_status(runtime),
         "last_start_time": meta.get("start_time"),
         "startup_cleanup": read_startup_cleanup(str(base)),
         "api_health": api_health,
@@ -326,7 +349,11 @@ def start_autopilot(
     meta_path = _meta_path(runtime)
     log_path = _log_path(runtime)
 
-    effective_command = command or DEFAULT_COMMAND
+    resolved_platform = (platform or "").strip()
+    if not resolved_platform:
+        return {"status": "error", "error": "platform must be specified explicitly"}
+
+    effective_command = command or default_command_for_platform(resolved_platform)
     marker = _command_marker(effective_command)
     session = tmux_session or DEFAULT_TMUX_SESSION
 
@@ -364,9 +391,6 @@ def start_autopilot(
     env = os.environ.copy()
     env["AUTOPILOT_DIR"] = str(base)
     env["AUTOPILOT_TMUX_SESSION"] = session
-    resolved_platform = (platform or "").strip()
-    if not resolved_platform:
-        return {"status": "error", "error": "platform must be specified explicitly"}
 
     if platform_requires_ttys(resolved_platform):
         resolved_tty0, resolved_tty1 = _resolve_ttys(resolved_platform, tty0, tty1)
@@ -445,6 +469,15 @@ def start_autopilot(
     if pid:
         pid_file.write_text(str(pid))
 
+    console_router = None
+    if marker == "orin_tcu_muxer_autopilot_wrapper.py":
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            console_router = _read_console_router_status(runtime)
+            if console_router:
+                break
+            time.sleep(0.1)
+
     meta = {
         "command": effective_command,
         "marker": marker,
@@ -457,6 +490,8 @@ def start_autopilot(
         "start_time": datetime.utcnow().isoformat() + "Z",
         "log_path": str(log_path),
     }
+    if console_router:
+        meta["console_router"] = console_router
     _write_meta(meta_path, meta)
 
     return {
@@ -467,6 +502,7 @@ def start_autopilot(
         "log_path": str(log_path),
         "tty0": resolved_tty0,
         "tty1": resolved_tty1,
+        "console_router": console_router,
         "startup_cleanup": startup_cleanup,
     }
 
