@@ -117,7 +117,7 @@
     },
     "wait_console_registry": {
       "type": "wait_router_session",
-      "source": "vm0_guest_console_sink",
+      "source": "vm0",
       "timeout_s": 30,
       "outcomes": [
         {
@@ -147,7 +147,7 @@
       "command": [
         "bash",
         "-lc",
-        "vm0_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm0_guest_console_sink.txt\"; vm1_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm1_guest_console_sink.txt\"; raw_log=\"{result_dir}/console/raw_ccplex.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; elif [ -f \"$raw_log\" ]; then {code_root}/filter_capdl_start.py < \"$raw_log\" > \"{result_dir}/console/raw_ccplex.filtered.log\"; else : > \"{result_dir}/console/raw_ccplex.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1_guest_console_sink.log\"; else : > \"{result_dir}/console/vm1_guest_console_sink.log\"; fi"
+        "vm0_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm0.txt\"; vm1_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm1.txt\"; raw_log=\"{result_dir}/console/raw_ccplex.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0.filtered.log\"; elif [ -f \"$raw_log\" ]; then {code_root}/filter_capdl_start.py < \"$raw_log\" > \"{result_dir}/console/raw_ccplex.filtered.log\"; else : > \"{result_dir}/console/raw_ccplex.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1.log\"; else : > \"{result_dir}/console/vm1.log\"; fi"
       ],
       "outcomes": [
         {
@@ -162,7 +162,7 @@
       "command": [
         "bash",
         "-lc",
-        "vm0_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm0_guest_console_sink.txt\"; vm1_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm1_guest_console_sink.txt\"; raw_log=\"{result_dir}/console/raw_ccplex.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; elif [ -f \"$raw_log\" ]; then {code_root}/filter_capdl_start.py < \"$raw_log\" > \"{result_dir}/console/raw_ccplex.filtered.log\"; else : > \"{result_dir}/console/raw_ccplex.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1_guest_console_sink.log\"; else : > \"{result_dir}/console/vm1_guest_console_sink.log\"; fi; if [ ! -f \"$vm0_log\" ]; then printf \"\\nAUTOPILOT_FAIL: VM0_CONSOLE_PAYLOAD_MISSING (registry arrived but vm0_guest_console_sink produced no bytes; see raw_ccplex.txt)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif ! grep -a -q \"ELF-loader started on CPU\" \"$vm0_log\"; then printf \"\\nAUTOPILOT_FAIL: VM0_CONSOLE_PAYLOAD_MISSING_ELFLOADER (generated VM0 stream lacks ELF-loader marker; see raw_ccplex.txt)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"$vm0_log\" && { [ ! -f \"$vm1_log\" ] || ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"$vm1_log\"; }; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; fi"
+        "vm0_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm0.txt\"; vm1_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm1.txt\"; raw_log=\"{result_dir}/console/raw_ccplex.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0.filtered.log\"; elif [ -f \"$raw_log\" ]; then {code_root}/filter_capdl_start.py < \"$raw_log\" > \"{result_dir}/console/raw_ccplex.filtered.log\"; else : > \"{result_dir}/console/raw_ccplex.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1.log\"; else : > \"{result_dir}/console/vm1.log\"; fi; if [ ! -f \"$vm0_log\" ]; then printf \"\\nAUTOPILOT_FAIL: VM0_CONSOLE_PAYLOAD_MISSING (registry arrived but vm0 produced no bytes; see raw_ccplex.txt)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif ! grep -a -q \"ELF-loader started on CPU\" \"$vm0_log\"; then printf \"\\nAUTOPILOT_FAIL: VM0_CONSOLE_PAYLOAD_MISSING_ELFLOADER (generated VM0 stream lacks ELF-loader marker; see raw_ccplex.txt)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"$vm0_log\" && { [ ! -f \"$vm1_log\" ] || ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"$vm1_log\"; }; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; fi"
       ],
       "outcomes": [
         {

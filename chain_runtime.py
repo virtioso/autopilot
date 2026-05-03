@@ -572,6 +572,8 @@ class SourceManager:
     ) -> None:
         for replace_source in replace_sources or []:
             self.unmap_source(replace_source)
+        if replace_sources:
+            time.sleep(0.25)
 
         console_dir = self.result_dir / "console"
         runtime_dir = console_dir / "console-runtime"
