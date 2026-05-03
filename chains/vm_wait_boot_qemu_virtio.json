@@ -8,13 +8,13 @@
         {
           "label": "driver_vm_shell",
           "pattern": "root@driver-vm:|root@.*:~#",
-          "source": "vm0",
+          "source": "vm0_guest_console_sink",
           "next": "run_qemu_rnd_helper"
         },
         {
           "label": "driver_vm_login",
           "pattern": "driver-vm login:|login:",
-          "source": "vm0",
+          "source": "vm0_guest_console_sink",
           "next": "send_root_login"
         }
       ],
@@ -22,7 +22,7 @@
     },
     "send_root_login": {
       "type": "send_cmd",
-      "source": "vm0",
+      "source": "vm0_guest_console_sink",
       "write_source": "vm0",
       "cmd": "root",
       "suffix": "\n",
@@ -36,7 +36,7 @@
     },
     "answer_vm0_cursor_query": {
       "type": "send_cmd",
-      "source": "vm0",
+      "source": "vm0_guest_console_sink",
       "write_source": "vm0",
       "cmd": "\u001b[1;1R",
       "suffix": "",
@@ -55,7 +55,7 @@
         {
           "label": "driver_vm_shell",
           "pattern": "root@driver-vm:|root@.*:~#",
-          "source": "vm0",
+          "source": "vm0_guest_console_sink",
           "next": "run_qemu_rnd_helper"
         }
       ],
@@ -63,11 +63,9 @@
     },
     "run_qemu_rnd_helper": {
       "type": "send_cmd",
-      "source": "vm0",
+      "source": "vm0_guest_console_sink",
       "write_source": "vm0",
       "cmd": "echo \"AUTOPILOT_INFO: USERVMCTL_START\"; uservmctl stop >/dev/null 2>&1 || true; if uservmctl start; then echo \"AUTOPILOT_INFO: USERVMCTL_START_OK\"; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=$rc\"; fi; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'",
-      "write_chunk_size": 1,
-      "write_chunk_delay_s": 0.02,
       "suffix": "\n",
       "outcomes": [
         {
@@ -84,13 +82,13 @@
         {
           "label": "start_failed",
           "pattern": "AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=[0-9]+",
-          "source": "vm0",
+          "source": "vm0_guest_console_sink",
           "next": "emit_uservm_timeout_diag"
         },
         {
           "label": "start_ok",
           "pattern": "AUTOPILOT_INFO: USERVMCTL_START_OK",
-          "source": "vm0",
+          "source": "vm0_guest_console_sink",
           "next": "wait_uservm_console_ready"
         }
       ],
@@ -103,7 +101,7 @@
         {
           "label": "login_prompt",
           "pattern": "user-vm login:|login:",
-          "source": "vm1",
+          "source": "vm1_guest_console_sink",
           "next": "send_uservm_root_login"
         }
       ],
@@ -111,7 +109,7 @@
     },
     "send_uservm_root_login": {
       "type": "send_cmd",
-      "source": "vm1",
+      "source": "vm1_guest_console_sink",
       "write_source": "vm1",
       "cmd": "root",
       "suffix": "\n",
@@ -125,7 +123,7 @@
     },
     "answer_uservm_cursor_query": {
       "type": "send_cmd",
-      "source": "vm1",
+      "source": "vm1_guest_console_sink",
       "write_source": "vm1",
       "cmd": "\u001b[1;1R",
       "suffix": "",
@@ -144,7 +142,7 @@
         {
           "label": "user_vm_shell",
           "pattern": "root@user-vm:|root@.*:~#",
-          "source": "vm1",
+          "source": "vm1_guest_console_sink",
           "next": "run_uservm_uname"
         }
       ],
@@ -152,7 +150,7 @@
     },
     "run_uservm_uname": {
       "type": "send_cmd",
-      "source": "vm1",
+      "source": "vm1_guest_console_sink",
       "write_source": "vm1",
       "cmd": "uname -a",
       "suffix": "\n",
@@ -171,7 +169,7 @@
         {
           "label": "uname_output",
           "pattern": "Linux user-vm [^\\r\\n]*",
-          "source": "vm1",
+          "source": "vm1_guest_console_sink",
           "next": "emit_qemu_bootstrap_diag"
         }
       ],
@@ -185,11 +183,9 @@
     },
     "emit_qemu_bootstrap_diag": {
       "type": "send_cmd",
-      "source": "vm0",
+      "source": "vm0_guest_console_sink",
       "write_source": "vm0",
       "cmd": "echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /run/uservm/vm1-supervisor.pid ]; then upid=$(cat /run/uservm/vm1-supervisor.pid); echo \"AUTOPILOT_INFO: USERVMCTL_RUNNING pid=$upid\"; if [ -r /proc/$upid/comm ]; then printf 'AUTOPILOT_USERVM_PROC: pid=%s comm=%s\\n' \"$upid\" \"$(cat /proc/$upid/comm)\"; fi; if [ -r /proc/$upid/cmdline ]; then tr '\\000' ' ' < /proc/$upid/cmdline | sed \"s/^/AUTOPILOT_USERVM_PROC: pid=$upid cmdline=/\"; fi; else echo 'AUTOPILOT_INFO: USERVMCTL_NOT_RUNNING_AFTER_LAUNCH'; fi; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 120 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_AFTER_LAUNCH'; fi; echo 'AUTOPILOT_INFO: USERVM_CONSOLE_SOURCE=vm1'; echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_END'",
-      "write_chunk_size": 1,
-      "write_chunk_delay_s": 0.02,
       "suffix": "\n",
       "outcomes": [
         {
@@ -201,11 +197,9 @@
     },
     "emit_uservm_timeout_diag": {
       "type": "send_cmd",
-      "source": "vm0",
+      "source": "vm0_guest_console_sink",
       "write_source": "vm0",
       "cmd": "echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 120 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_INFO: USERVM_CONSOLE_SOURCE=vm1'; echo 'AUTOPILOT_FAIL: USERVM_READY_TIMEOUT'; echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_END'",
-      "write_chunk_size": 1,
-      "write_chunk_delay_s": 0.02,
       "suffix": "\n",
       "outcomes": [
         {
@@ -222,7 +216,7 @@
         {
           "label": "diag_end",
           "pattern": "^AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_END",
-          "source": "vm0",
+          "source": "vm0_guest_console_sink",
           "next": "fail"
         }
       ],
