@@ -321,22 +321,31 @@ class SourceBinding:
                         self._buffer.extend(marker)
                         self._total_bytes += len(marker)
 
-    def write(self, text: str) -> None:
-        self.write_bytes(text.encode("utf-8", errors="ignore"))
+    def write(self, text: str, chunk_size: int = 0, chunk_delay_s: float = 0.0) -> None:
+        self.write_bytes(text.encode("utf-8", errors="ignore"), chunk_size=chunk_size, chunk_delay_s=chunk_delay_s)
 
-    def write_bytes(self, payload: bytes) -> None:
+    def _write_bytes_once(self, payload: bytes) -> None:
+        if self._serial is not None:
+            self._serial.write(payload)
+            return
+        self._ensure_write_endpoint()
+        if self._write_fd is not None:
+            os.write(self._write_fd, payload)
+            return
+        if self._proc_stdin is None:
+            raise RuntimeError("process stdin not available")
+        self._proc_stdin.write(payload)
+        self._proc_stdin.flush()
+
+    def write_bytes(self, payload: bytes, chunk_size: int = 0, chunk_delay_s: float = 0.0) -> None:
         with self._lock:
-            if self._serial is not None:
-                self._serial.write(payload)
+            if chunk_size <= 0 or len(payload) <= chunk_size:
+                self._write_bytes_once(payload)
                 return
-            self._ensure_write_endpoint()
-            if self._write_fd is not None:
-                os.write(self._write_fd, payload)
-                return
-            if self._proc_stdin is None:
-                raise RuntimeError("process stdin not available")
-            self._proc_stdin.write(payload)
-            self._proc_stdin.flush()
+            for offset in range(0, len(payload), chunk_size):
+                self._write_bytes_once(payload[offset : offset + chunk_size])
+                if chunk_delay_s > 0 and offset + chunk_size < len(payload):
+                    time.sleep(chunk_delay_s)
 
     def read_since(self, offset: int) -> Tuple[bytes, int]:
         with self._lock:
@@ -768,13 +777,25 @@ class SourceManager:
             data = f.read()
         return data, read_offset + len(data), str(log_path)
 
-    def write_router_source(self, source: str, payload: bytes) -> None:
+    def write_router_source(
+        self,
+        source: str,
+        payload: bytes,
+        chunk_size: int = 0,
+        chunk_delay_s: float = 0.0,
+    ) -> None:
         router_tty = self._resolve_router_write_tty(source)
         if not router_tty:
             raise ValueError(f"unknown source {source}")
         fd = os.open(router_tty, os.O_RDWR | os.O_NOCTTY)
         try:
-            os.write(fd, payload)
+            if chunk_size <= 0 or len(payload) <= chunk_size:
+                os.write(fd, payload)
+            else:
+                for offset in range(0, len(payload), chunk_size):
+                    os.write(fd, payload[offset : offset + chunk_size])
+                    if chunk_delay_s > 0 and offset + chunk_size < len(payload):
+                        time.sleep(chunk_delay_s)
         finally:
             os.close(fd)
 
@@ -850,11 +871,16 @@ class RouterSourceAdapter:
         data, new_offset, _ = self.sources.read_router_since(self.source, offset)
         return data, new_offset
 
-    def write(self, text: str) -> None:
-        self.write_bytes(text.encode("utf-8", errors="ignore"))
+    def write(self, text: str, chunk_size: int = 0, chunk_delay_s: float = 0.0) -> None:
+        self.write_bytes(text.encode("utf-8", errors="ignore"), chunk_size=chunk_size, chunk_delay_s=chunk_delay_s)
 
-    def write_bytes(self, payload: bytes) -> None:
-        self.sources.write_router_source(self.source, payload)
+    def write_bytes(self, payload: bytes, chunk_size: int = 0, chunk_delay_s: float = 0.0) -> None:
+        self.sources.write_router_source(
+            self.source,
+            payload,
+            chunk_size=chunk_size,
+            chunk_delay_s=chunk_delay_s,
+        )
 
     def current_offset(self) -> int:
         sess = self.sources.router_session_for_source(self.source)
@@ -1387,10 +1413,17 @@ class ChainRunner:
         binding = self.ctx["sources"].get(write_source)
         suffix = step.get("suffix", "\n")
         payload = cmd + suffix
+        chunk_size = int(step.get("write_chunk_size", 0) or 0)
+        chunk_delay_s = float(step.get("write_chunk_delay_s", 0.0) or 0.0)
         if binding:
-            binding.write(payload)
+            binding.write(payload, chunk_size=chunk_size, chunk_delay_s=chunk_delay_s)
             return self._simple_outcome(step)
-        self.ctx["sources"].write_router_source(write_source, payload.encode("utf-8", errors="ignore"))
+        self.ctx["sources"].write_router_source(
+            write_source,
+            payload.encode("utf-8", errors="ignore"),
+            chunk_size=chunk_size,
+            chunk_delay_s=chunk_delay_s,
+        )
         return self._simple_outcome(step)
 
     def _step_boot_menu(self, step: dict) -> Tuple[str, OutcomeMatch]:

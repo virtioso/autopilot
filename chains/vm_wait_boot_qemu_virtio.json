@@ -66,6 +66,8 @@
       "source": "vm0",
       "write_source": "vm0",
       "cmd": "echo \"AUTOPILOT_INFO: USERVMCTL_START\"; uservmctl stop >/dev/null 2>&1 || true; if uservmctl start; then echo \"AUTOPILOT_INFO: USERVMCTL_START_OK\"; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=$rc\"; fi; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'",
+      "write_chunk_size": 1,
+      "write_chunk_delay_s": 0.02,
       "suffix": "\n",
       "outcomes": [
         {
@@ -186,6 +188,8 @@
       "source": "vm0",
       "write_source": "vm0",
       "cmd": "echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /run/uservm/vm1-supervisor.pid ]; then upid=$(cat /run/uservm/vm1-supervisor.pid); echo \"AUTOPILOT_INFO: USERVMCTL_RUNNING pid=$upid\"; if [ -r /proc/$upid/comm ]; then printf 'AUTOPILOT_USERVM_PROC: pid=%s comm=%s\\n' \"$upid\" \"$(cat /proc/$upid/comm)\"; fi; if [ -r /proc/$upid/cmdline ]; then tr '\\000' ' ' < /proc/$upid/cmdline | sed \"s/^/AUTOPILOT_USERVM_PROC: pid=$upid cmdline=/\"; fi; else echo 'AUTOPILOT_INFO: USERVMCTL_NOT_RUNNING_AFTER_LAUNCH'; fi; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 120 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_AFTER_LAUNCH'; fi; echo 'AUTOPILOT_INFO: USERVM_CONSOLE_SOURCE=vm1'; echo 'AUTOPILOT_INFO: USERVM_BOOTSTRAP_DIAG_END'",
+      "write_chunk_size": 1,
+      "write_chunk_delay_s": 0.02,
       "suffix": "\n",
       "outcomes": [
         {
@@ -200,6 +204,8 @@
       "source": "vm0",
       "write_source": "vm0",
       "cmd": "echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_BEGIN'; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; if [ -f /var/log/uservm/vm1-console.log ]; then tail -n 120 /var/log/uservm/vm1-console.log | sed 's/^/AUTOPILOT_USERVM_LOG: /'; else echo 'AUTOPILOT_INFO: USERVM_LOG_MISSING_ON_TIMEOUT'; fi; echo 'AUTOPILOT_INFO: USERVM_CONSOLE_SOURCE=vm1'; echo 'AUTOPILOT_FAIL: USERVM_READY_TIMEOUT'; echo 'AUTOPILOT_INFO: USERVM_TIMEOUT_DIAG_END'",
+      "write_chunk_size": 1,
+      "write_chunk_delay_s": 0.02,
       "suffix": "\n",
       "outcomes": [
         {
