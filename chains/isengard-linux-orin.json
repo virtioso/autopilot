@@ -1,0 +1,49 @@
+{
+  "entry": "boot_stock_linux",
+  "steps": {
+    "boot_stock_linux": {
+      "type": "call_chain",
+      "chain": "boot_stock_linux",
+      "outcomes": [
+        { "label": "pass", "next": "upload_isengard_efi" }
+      ],
+      "on_timeout": "fail"
+    },
+    "upload_isengard_efi": {
+      "type": "upload_efi",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "target_path": "/efiboot/{target_binary_name}",
+      "outcomes": [
+        { "label": "ok", "next": "boot_isengard_efi" }
+      ],
+      "on_timeout": "fail"
+    },
+    "boot_isengard_efi": {
+      "type": "boot_efi",
+      "source": "tty0",
+      "mode": "test_efi",
+      "shell_timeout_s": 180,
+      "outcomes": [
+        { "label": "ok", "next": "wait_isengard_login" }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_isengard_login": {
+      "type": "wait_pattern",
+      "timeout_s": 120,
+      "start_from": "tail",
+      "outcomes": [
+        {
+          "label": "login",
+          "pattern": "isengard-agx-orin login:|isengard:",
+          "source": "tty0",
+          "next": "pass"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": { "type": "pass" },
+    "fail": { "type": "fail" }
+  }
+}
