@@ -9,6 +9,7 @@ import threading
 import time
 import shutil
 import hashlib
+import fnmatch
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -605,6 +606,8 @@ class SourceManager:
                 if not component:
                     continue
                 name = str(component)
+                direction = str(stream.get("direction") or "")
+                can_input = direction in ("input", "bidirectional")
                 current[name] = {
                     **current.get(name, {}),
                     "session_id": name,
@@ -613,9 +616,11 @@ class SourceManager:
                     "stream_id": stream.get("stream_id"),
                     "component": name,
                     "component_type": stream.get("type"),
-                    "direction": stream.get("direction"),
+                    "direction": direction,
                     "interfaces": stream.get("interfaces", []),
                     "interactive": stream.get("stream_id") is not None and int(stream.get("stream_id")) >= 0,
+                    "can_input": can_input,
+                    "read_only": direction == "output",
                     "log_path": str(logs_dir / f"{name}.txt"),
                     "events_path": None,
                     "pty_path": current.get(name, {}).get("pty_path"),
@@ -658,13 +663,17 @@ class SourceManager:
                     if not pty_path or not name:
                         continue
                     log_path = Path(record.get("log_path") or logs_dir / f"{name}.txt")
+                    existing = current.get(name, {})
+                    direction = str(existing.get("direction") or "")
                     current[name] = {
-                        **current.get(name, {}),
+                        **existing,
                         "session_id": name,
                         "name": name,
                         "kind": str(record.get("kind") or "unknown"),
                         "stream_id": record.get("stream_id"),
-                        "interactive": True,
+                        "interactive": bool(existing.get("interactive", True)),
+                        "can_input": bool(existing.get("can_input", True)),
+                        "read_only": bool(existing.get("read_only", direction == "output")),
                         "log_path": str(log_path),
                         "events_path": None,
                         "pty_path": pty_path,
@@ -753,6 +762,9 @@ class SourceManager:
             if cached is not None:
                 return cached
         return self._router_session_cache.get(source)
+
+    def router_sessions(self) -> Dict[str, dict]:
+        return self._load_router_sessions()
 
     def _resolve_router_write_tty(self, source: str) -> Optional[str]:
         sess = self.router_session_for_source(source)
@@ -938,6 +950,9 @@ def validate_chain(chain: dict) -> None:
         if step.get("type") == "wait_router_session":
             if not step.get("source"):
                 raise ChainValidationError(f"step {name} wait_router_session requires source")
+        if step.get("type") == "map_router_session_panes":
+            if not step.get("window"):
+                raise ChainValidationError(f"step {name} map_router_session_panes requires window")
         if step.get("type") == "task_spawn":
             task_name = str(step.get("task", "")).strip()
             chain_name = str(step.get("chain", "")).strip()
@@ -1231,6 +1246,8 @@ class ChainRunner:
                 return self._step_map_tcu_mux_source(step)
             if step_type == "wait_router_session":
                 return self._step_wait_router_session(step)
+            if step_type == "map_router_session_panes":
+                return self._step_map_router_session_panes(step)
             if step_type == "map_command_source":
                 return self._step_map_command_source(step)
             if step_type == "purge_sources":
@@ -1386,6 +1403,65 @@ class ChainRunner:
                 return self._simple_outcome(step)
             time.sleep(0.05)
         raise RuntimeError(f"router session not available: {source}")
+
+    def _step_map_router_session_panes(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        window = int(step["window"])
+        title = str(step.get("title") or "Console Sessions")
+        include_patterns = [str(item) for item in step.get("include_patterns", []) or []]
+        exclude_patterns = [str(item) for item in step.get("exclude_patterns", []) or []]
+        only_interactive = bool(step.get("only_interactive", False))
+        max_panes = int(step.get("max_panes", 8) or 8)
+        include_status_pane = bool(step.get("include_status_pane", False))
+        status_title = str(step.get("status_title") or "Autopilot")
+        layout = str(step.get("layout") or "tiled")
+        status_rows = int(step.get("status_rows", 0) or 0)
+        sessions = self.ctx["sources"].router_sessions()
+
+        def matched(name: str, patterns: List[str]) -> bool:
+            if not patterns:
+                return False
+            for pattern in patterns:
+                if fnmatch.fnmatch(name, pattern):
+                    return True
+                try:
+                    if re.search(pattern, name):
+                        return True
+                except re.error:
+                    continue
+            return False
+
+        panes = []
+        for name, session in sorted(sessions.items()):
+            if only_interactive and not session.get("interactive"):
+                continue
+            if include_patterns and not matched(name, include_patterns):
+                continue
+            if exclude_patterns and matched(name, exclude_patterns):
+                continue
+            log_path = str(session.get("log_path") or "")
+            if not log_path:
+                continue
+            panes.append({
+                "source": name,
+                "title": str(session.get("title") or name),
+                "log_path": log_path,
+                "read_only": bool(session.get("read_only", False)),
+            })
+            if max_panes > 0 and len(panes) >= max_panes:
+                break
+
+        ui = self.ctx.get("ui")
+        if panes and ui and hasattr(ui, "bind_source_panes"):
+            ui.bind_source_panes(
+                window,
+                title,
+                panes,
+                include_status_pane=include_status_pane,
+                status_title=status_title,
+                layout=layout,
+                status_rows=status_rows,
+            )
+        return self._simple_outcome(step)
 
     def _step_map_window(self, step: dict) -> Tuple[str, OutcomeMatch]:
         window = int(step["window"])
@@ -2191,8 +2267,10 @@ class ChainRunner:
         return subprocess.run(
             [
                 "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "BatchMode=yes",
+                "-o", "GSSAPIAuthentication=no",
                 f"{target_user}@{target_ip}",
                 cmd,
             ],
@@ -2247,8 +2325,10 @@ class ChainRunner:
         subprocess.run(
             [
                 "scp",
-                "-o",
-                "StrictHostKeyChecking=no",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "BatchMode=yes",
+                "-o", "GSSAPIAuthentication=no",
                 str(local_path),
                 f"{target_user}@{target_ip}:{upload_path}",
             ],
@@ -2359,7 +2439,9 @@ class ChainRunner:
             target_user = step.get("target_user", "root")
             target_ip = self._resolve_value(step.get("target_ip")) or self.ctx.get("target_ip")
             subprocess.run([
-                "ssh", "-o", "StrictHostKeyChecking=no",
+                "ssh",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
                 f"{target_user}@{target_ip}", "reboot"
             ])
         else:
@@ -2377,8 +2459,10 @@ class ChainRunner:
         timeout_s = step.get("timeout_s")
         run_args = [
             "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "BatchMode=yes",
+            "-o", "GSSAPIAuthentication=no",
             f"{target_user}@{target_ip}",
             cmd,
         ]
@@ -2414,8 +2498,10 @@ class ChainRunner:
             attempt_started_at = time.time()
             run_args = [
                 "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "BatchMode=yes",
+                "-o", "GSSAPIAuthentication=no",
                 f"{target_user}@{target_ip}",
                 cmd,
             ]

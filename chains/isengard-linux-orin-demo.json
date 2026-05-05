@@ -61,8 +61,21 @@
           "label": "login",
           "pattern": "isengard-agx-orin login:|isengard:",
           "source": "tty0",
-          "next": "run_demo_start"
+          "next": "wait_isengard_ssh"
         }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_isengard_ssh": {
+      "type": "ssh_wait_ready",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "true",
+      "total_timeout_s": 30,
+      "per_try_timeout_s": 3,
+      "retry_interval_s": 1,
+      "outcomes": [
+        { "label": "ok", "next": "run_demo_start" }
       ],
       "on_timeout": "fail"
     },
@@ -80,7 +93,7 @@
       "type": "ssh_cmd",
       "target_user": "root",
       "target_ip": "{target_ip}",
-      "cmd": "sleep 1 && echo '=== vcan0 ===' && ip link show vcan0 && echo '=== obj tree ===' && ls /obj/isengard/ && echo '=== sequence ===' && cat /obj/isengard/runtime/sequence && echo '=== status_word ===' && cat /obj/isengard/can/status_word && echo '=== uptime_ms ===' && cat /obj/isengard/runtime/uptime_ms",
+      "cmd": "sleep 1 && echo '=== vcan0 ===' && ip link show vcan0 && echo '=== obj tree ===' && ls /obj/obj/isengard/ && echo '=== sequence ===' && cat /obj/obj/isengard/runtime/sequence && echo '=== status_word ===' && cat /obj/obj/isengard/can/status_word",
       "outcomes": [
         { "label": "ok", "next": "pass" }
       ],
