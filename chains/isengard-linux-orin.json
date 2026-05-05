@@ -5,7 +5,8 @@
       "type": "call_chain",
       "chain": "boot_stock_linux",
       "outcomes": [
-        { "label": "pass", "next": "prepare_isengard_dir" }
+        { "label": "pass", "next": "prepare_isengard_dir" },
+        { "label": "fail", "next": "fail" }
       ],
       "on_timeout": "fail"
     },
