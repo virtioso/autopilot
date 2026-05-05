@@ -5,7 +5,29 @@
       "type": "call_chain",
       "chain": "boot_stock_linux",
       "outcomes": [
-        { "label": "pass", "next": "upload_isengard_efi" }
+        { "label": "pass", "next": "prepare_isengard_dir" }
+      ],
+      "on_timeout": "fail"
+    },
+    "prepare_isengard_dir": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "mkdir -p /var/lib/virtioso-vm-images",
+      "outcomes": [
+        { "label": "ok", "next": "upload_isengard_rootfs" }
+      ],
+      "on_timeout": "fail"
+    },
+    "upload_isengard_rootfs": {
+      "type": "upload_file",
+      "local_path": "{workspace}/vm-images/build/tmp/deploy/images/isengard-agx-orin/isengard-rootfs-isengard-agx-orin.rootfs.ext4",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "target_path": "/var/lib/virtioso-vm-images/isengard-rootfs.ext4",
+      "skip_if_same": "sha256",
+      "outcomes": [
+        { "label": "ok", "next": "upload_isengard_efi" }
       ],
       "on_timeout": "fail"
     },
