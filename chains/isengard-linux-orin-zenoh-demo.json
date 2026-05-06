@@ -1,0 +1,106 @@
+{
+  "entry": "boot_stock_linux",
+  "steps": {
+    "boot_stock_linux": {
+      "type": "call_chain",
+      "chain": "boot_stock_linux",
+      "outcomes": [
+        { "label": "pass", "next": "prepare_isengard_dir" },
+        { "label": "fail", "next": "fail" }
+      ],
+      "on_timeout": "fail"
+    },
+    "prepare_isengard_dir": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "mkdir -p /var/lib/virtioso-vm-images",
+      "outcomes": [
+        { "label": "ok", "next": "upload_isengard_rootfs" }
+      ],
+      "on_timeout": "fail"
+    },
+    "upload_isengard_rootfs": {
+      "type": "upload_file",
+      "local_path": "{workspace}/vm-images/build/tmp/deploy/images/isengard-agx-orin/isengard-rootfs-isengard-agx-orin.rootfs.ext4",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "target_path": "/var/lib/virtioso-vm-images/isengard-rootfs.ext4",
+      "skip_if_same": "sha256",
+      "outcomes": [
+        { "label": "ok", "next": "upload_isengard_efi" }
+      ],
+      "on_timeout": "fail"
+    },
+    "upload_isengard_efi": {
+      "type": "upload_efi",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "target_path": "/efiboot/{target_binary_name}",
+      "outcomes": [
+        { "label": "ok", "next": "boot_isengard_efi" }
+      ],
+      "on_timeout": "fail"
+    },
+    "boot_isengard_efi": {
+      "type": "boot_efi",
+      "source": "tty0",
+      "mode": "test_efi",
+      "shell_timeout_s": 180,
+      "outcomes": [
+        { "label": "ok", "next": "wait_isengard_login" }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_isengard_login": {
+      "type": "wait_pattern",
+      "timeout_s": 120,
+      "start_from": "tail",
+      "outcomes": [
+        {
+          "label": "login",
+          "pattern": "isengard-agx-orin login:|isengard:",
+          "source": "tty0",
+          "next": "wait_isengard_ssh"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_isengard_ssh": {
+      "type": "ssh_wait_ready",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "true",
+      "total_timeout_s": 30,
+      "per_try_timeout_s": 3,
+      "retry_interval_s": 1,
+      "outcomes": [
+        { "label": "ok", "next": "verify_bridge_binary" }
+      ],
+      "on_timeout": "fail"
+    },
+    "verify_bridge_binary": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "ls -l /usr/bin/isengard_zenoh_bridge /usr/bin/isengard-demo-zenoh-remote",
+      "outcomes": [
+        { "label": "ok", "next": "run_zenoh_demo" }
+      ],
+      "on_timeout": "fail"
+    },
+    "run_zenoh_demo": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "timeout 15 isengard-demo-zenoh-remote 2>&1; echo \"=== exit $? ===\"",
+      "timeout_s": 20,
+      "outcomes": [
+        { "label": "ok", "next": "pass" }
+      ],
+      "on_timeout": "fail"
+    },
+    "pass": { "type": "pass" },
+    "fail": { "type": "fail" }
+  }
+}
