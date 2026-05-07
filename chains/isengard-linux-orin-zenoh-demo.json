@@ -75,6 +75,26 @@
       "per_try_timeout_s": 3,
       "retry_interval_s": 1,
       "outcomes": [
+        { "label": "ok", "next": "map_window_console" }
+      ],
+      "on_timeout": "fail"
+    },
+    "map_window_console": {
+      "type": "map_window",
+      "window": 1,
+      "source": "tty0",
+      "title": "Isengard Console",
+      "outcomes": [
+        { "label": "ok", "next": "map_window_mux" }
+      ],
+      "on_timeout": "fail"
+    },
+    "map_window_mux": {
+      "type": "map_window",
+      "window": 2,
+      "source": "tty1",
+      "title": "Mux Output (ttyTCU1)",
+      "outcomes": [
         { "label": "ok", "next": "verify_bridge_binary" }
       ],
       "on_timeout": "fail"
@@ -83,7 +103,18 @@
       "type": "ssh_cmd",
       "target_user": "root",
       "target_ip": "{target_ip}",
-      "cmd": "ls -l /usr/bin/isengard_zenoh_bridge /usr/bin/isengard-demo-zenoh-remote",
+      "cmd": "ls -l /usr/bin/isengard_zenoh_bridge /usr/bin/isengard-demo-zenoh-remote /usr/bin/virtioso-muxd /usr/bin/virtioso-mux-exec",
+      "outcomes": [
+        { "label": "ok", "next": "start_muxd" }
+      ],
+      "on_timeout": "fail"
+    },
+    "start_muxd": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "nohup virtioso-muxd --sink uart:/dev/ttyAMA0 </dev/null >/tmp/muxd.log 2>&1 & sleep 1 && test -S /run/virtioso-mux/control.sock && echo 'muxd ready'",
+      "timeout_s": 10,
       "outcomes": [
         { "label": "ok", "next": "run_zenoh_demo" }
       ],
@@ -93,8 +124,19 @@
       "type": "ssh_cmd",
       "target_user": "root",
       "target_ip": "{target_ip}",
-      "cmd": "timeout 15 isengard-demo-zenoh-remote 2>&1; echo \"=== exit $? ===\"",
-      "timeout_s": 20,
+      "cmd": "virtioso-mux-exec --name zenoh_demo -- sh -c 'isengard-demo-zenoh-remote 2>&1 | tee /tmp/demo.log'; echo \"=== demo exit $? ===\"; true",
+      "timeout_s": 120,
+      "outcomes": [
+        { "label": "ok", "next": "collect_demo_log" }
+      ],
+      "on_timeout": "fail"
+    },
+    "collect_demo_log": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "echo '=== zenoh demo output ===' && cat /tmp/demo.log && echo '=== end ===' && grep -q '==> PASS' /tmp/demo.log && echo 'VERDICT: PASS' || { echo 'VERDICT: FAIL'; exit 1; }",
+      "timeout_s": 10,
       "outcomes": [
         { "label": "ok", "next": "pass" }
       ],
