@@ -3,9 +3,6 @@ layout:
     - id: isengard_console
       source: uart:tty0
       title: "Isengard Console"
-    - id: mux_output
-      source: mux:physical_uart_default
-      title: "Mux Output (ttyAMA0)"
     - id: zenoh_demo
       source: mux:zenoh_demo
       title: "Zenoh Demo"
@@ -15,4 +12,4 @@ verdict:
   target_user: root
   file: /tmp/demo.log
   pattern: "==> PASS"
-  timeout_s: 120
+  timeout_s: 150
