@@ -15,3 +15,4 @@ verdict:
   target_user: root
   file: /tmp/demo.log
   pattern: "==> PASS"
+  timeout_s: 120

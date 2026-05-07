@@ -1514,19 +1514,27 @@ class ChainRunner:
             file_path = verdict_spec["file"]
             target_user = verdict_spec.get("target_user", "root")
             target_ip = self._resolve_value(verdict_spec.get("target_ip", "{target_ip}"))
-            result = subprocess.run(
-                [
-                    "ssh",
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "UserKnownHostsFile=/dev/null",
-                    "-o", "BatchMode=yes",
-                    "-o", "GSSAPIAuthentication=no",
-                    f"{target_user}@{target_ip}",
-                    f"grep -q {shlex.quote(pattern)} {shlex.quote(file_path)}",
-                ],
-                check=False,
-            )
-            verdict = "pass" if result.returncode == 0 else "fail"
+            timeout_s = int(verdict_spec.get("timeout_s", 30))
+            ssh_base = [
+                "ssh",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "BatchMode=yes",
+                "-o", "GSSAPIAuthentication=no",
+                f"{target_user}@{target_ip}",
+            ]
+            verdict = "fail"
+            deadline = time.time() + timeout_s
+            while time.time() < deadline:
+                self._check_cancel()
+                result = subprocess.run(
+                    ssh_base + [f"grep -q {shlex.quote(pattern)} {shlex.quote(file_path)}"],
+                    check=False,
+                )
+                if result.returncode == 0:
+                    verdict = "pass"
+                    break
+                time.sleep(2)
 
         elif authority == "tmux_capture":
             pane_id = verdict_spec["pane"]
