@@ -1,0 +1,17 @@
+layout:
+  panes:
+    - id: isengard_console
+      source: uart:tty0
+      title: "Isengard Console"
+    - id: mux_output
+      source: uart:tty1
+      title: "Mux Output (ttyAMA0)"
+    - id: zenoh_demo
+      source: mux:zenoh_demo
+      title: "Zenoh Demo"
+
+verdict:
+  authority: artifact_grep
+  target_user: root
+  file: /tmp/demo.log
+  pattern: "==> PASS"

@@ -1300,6 +1300,10 @@ class ChainRunner:
                 return self._step_set_overrides(step)
             if step_type == "set_test_verdict":
                 return self._step_set_test_verdict(step)
+            if step_type == "setup_demo":
+                return self._step_setup_demo(step)
+            if step_type == "check_verdict":
+                return self._step_check_verdict(step)
             raise ChainValidationError(f"unknown step type: {step_type}")
         finally:
             if prev_step is None:
@@ -1471,6 +1475,92 @@ class ChainRunner:
         if ui and hasattr(ui, "bind_window"):
             ui.bind_window(window, source, title=title)
         return self._simple_outcome(step)
+
+    def _load_demo_layout(self, layout_name: str) -> dict:
+        import yaml
+        code_root = Path(__file__).resolve().parent
+        layout_path = code_root / "demos" / f"{layout_name}.yaml"
+        with open(layout_path) as f:
+            return yaml.safe_load(f)
+
+    def _step_setup_demo(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        layout_name = step["layout"]
+        layout = self._load_demo_layout(layout_name)
+        ui = self.ctx.get("ui")
+        pane_windows: dict = {}
+        for i, pane in enumerate(layout.get("layout", {}).get("panes", [])):
+            window = i + 1
+            pane_id = pane.get("id", str(i))
+            source_spec = pane.get("source", "")
+            title = pane.get("title", pane_id)
+            pane_windows[pane_id] = window
+            if source_spec.startswith("uart:"):
+                source = source_spec[len("uart:"):]
+                if ui and hasattr(ui, "bind_window"):
+                    ui.bind_window(window, source, title=title)
+            # mux: and container: sources are not yet wired; pane slot is reserved.
+        self.ctx["_demo_pane_windows"] = pane_windows
+        self.ctx["_demo_layout_name"] = layout_name
+        return self._simple_outcome(step)
+
+    def _step_check_verdict(self, step: dict) -> Tuple[str, OutcomeMatch]:
+        layout_name = step.get("layout") or self.ctx.get("_demo_layout_name")
+        layout = self._load_demo_layout(layout_name)
+        verdict_spec = layout.get("verdict", {})
+        authority = verdict_spec.get("authority", "exit_code")
+        pattern = verdict_spec.get("pattern", "PASS")
+
+        if authority == "artifact_grep":
+            file_path = verdict_spec["file"]
+            target_user = verdict_spec.get("target_user", "root")
+            target_ip = self._resolve_value(verdict_spec.get("target_ip", "{target_ip}"))
+            result = subprocess.run(
+                [
+                    "ssh",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "UserKnownHostsFile=/dev/null",
+                    "-o", "BatchMode=yes",
+                    "-o", "GSSAPIAuthentication=no",
+                    f"{target_user}@{target_ip}",
+                    f"grep -q {shlex.quote(pattern)} {shlex.quote(file_path)}",
+                ],
+                check=False,
+            )
+            verdict = "pass" if result.returncode == 0 else "fail"
+
+        elif authority == "tmux_capture":
+            pane_id = verdict_spec["pane"]
+            pane_windows = self.ctx.get("_demo_pane_windows", {})
+            window = pane_windows.get(pane_id)
+            timeout_s = int(verdict_spec.get("timeout_s", 30))
+            ui = self.ctx.get("ui")
+            session = None
+            if ui and hasattr(ui, "windows") and ui.windows:
+                session = getattr(ui.windows, "session", None)
+            verdict = "fail"
+            if session and window:
+                deadline = time.time() + timeout_s
+                while time.time() < deadline:
+                    self._check_cancel()
+                    result = subprocess.run(
+                        ["tmux", "capture-pane", "-t", f"{session}:{window}", "-p"],
+                        capture_output=True, text=True, check=False,
+                    )
+                    if re.search(pattern, result.stdout):
+                        verdict = "pass"
+                        break
+                    time.sleep(1)
+
+        else:
+            verdict = "fail"
+
+        outcomes = step.get("outcomes", [])
+        for outcome in outcomes:
+            if outcome.get("label") == verdict:
+                next_step = outcome["next"]
+                return next_step, OutcomeMatch(verdict, next_step, None, None, None, None)
+        fallback = step.get("on_timeout", "fail")
+        return fallback, OutcomeMatch(verdict, fallback, None, None, None, None)
 
     def _step_purge_sources(self, step: dict) -> Tuple[str, OutcomeMatch]:
         names = step.get("sources")

@@ -75,25 +75,13 @@
       "per_try_timeout_s": 3,
       "retry_interval_s": 1,
       "outcomes": [
-        { "label": "ok", "next": "map_window_console" }
+        { "label": "ok", "next": "setup_demo" }
       ],
       "on_timeout": "fail"
     },
-    "map_window_console": {
-      "type": "map_window",
-      "window": 1,
-      "source": "tty0",
-      "title": "Isengard Console",
-      "outcomes": [
-        { "label": "ok", "next": "map_window_mux" }
-      ],
-      "on_timeout": "fail"
-    },
-    "map_window_mux": {
-      "type": "map_window",
-      "window": 2,
-      "source": "tty1",
-      "title": "Mux Output (ttyTCU1)",
+    "setup_demo": {
+      "type": "setup_demo",
+      "layout": "zenoh-orin",
       "outcomes": [
         { "label": "ok", "next": "verify_bridge_binary" }
       ],
@@ -124,21 +112,41 @@
       "type": "ssh_cmd",
       "target_user": "root",
       "target_ip": "{target_ip}",
-      "cmd": "rm -f /tmp/demo.log && virtioso-mux-exec --name zenoh_demo -- sh -c 'isengard-demo-zenoh-remote 2>&1 | tee /tmp/demo.log'; echo \"=== demo exit $? ===\"; true",
-      "timeout_s": 120,
+      "cmd": "rm -f /tmp/demo.log && nohup virtioso-mux-exec --name zenoh_demo -- sh -c 'isengard-demo-zenoh-remote 2>&1 | tee /tmp/demo.log' </dev/null >/tmp/mux-exec.log 2>&1 &",
+      "timeout_s": 10,
       "outcomes": [
-        { "label": "ok", "next": "collect_demo_log" }
+        { "label": "ok", "next": "check_verdict" }
       ],
       "on_timeout": "fail"
     },
-    "collect_demo_log": {
+    "check_verdict": {
+      "type": "check_verdict",
+      "layout": "zenoh-orin",
+      "outcomes": [
+        { "label": "pass", "next": "collect_log_pass" },
+        { "label": "fail", "next": "collect_log_fail" }
+      ],
+      "on_timeout": "fail"
+    },
+    "collect_log_pass": {
       "type": "ssh_cmd",
       "target_user": "root",
       "target_ip": "{target_ip}",
-      "cmd": "echo '=== zenoh demo output ===' && cat /tmp/demo.log && echo '=== end ===' && grep -q '==> PASS' /tmp/demo.log && echo 'VERDICT: PASS' || { echo 'VERDICT: FAIL'; exit 1; }",
+      "cmd": "echo '=== demo log ===' && cat /tmp/demo.log 2>/dev/null; echo '=== muxd log ===' && cat /tmp/muxd.log 2>/dev/null",
       "timeout_s": 10,
       "outcomes": [
         { "label": "ok", "next": "pass" }
+      ],
+      "on_timeout": "pass"
+    },
+    "collect_log_fail": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "echo '=== demo log ===' && cat /tmp/demo.log 2>/dev/null; echo '=== muxd log ===' && cat /tmp/muxd.log 2>/dev/null",
+      "timeout_s": 10,
+      "outcomes": [
+        { "label": "ok", "next": "fail" }
       ],
       "on_timeout": "fail"
     },
