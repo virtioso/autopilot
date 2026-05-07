@@ -1487,18 +1487,62 @@ class ChainRunner:
         layout_name = step["layout"]
         layout = self._load_demo_layout(layout_name)
         ui = self.ctx.get("ui")
+        sources = self.ctx.get("sources")
+        result_dir = self.ctx.get("result_dir")
         pane_windows: dict = {}
-        for i, pane in enumerate(layout.get("layout", {}).get("panes", [])):
+
+        all_panes = layout.get("layout", {}).get("panes", [])
+        has_mux = any(p.get("source", "").startswith("mux:") for p in all_panes)
+
+        logs_dir: Optional[Path] = None
+        if has_mux and sources and result_dir:
+            tcu_muxer_path = str(self._resolve_value(step.get("tcu_muxer_path", "")))
+            if not tcu_muxer_path:
+                raise ChainValidationError(
+                    f"setup_demo step '{layout_name}' has mux: sources but no tcu_muxer_path"
+                )
+            tty1_binding = sources.get("tty1")
+            if not tty1_binding or not tty1_binding.tty:
+                raise ChainValidationError(
+                    "setup_demo: mux: sources require tty1 to be mapped to a serial device"
+                )
+            outer_mode = str(self._resolve_value(step.get("outer_mode", "raw")))
+            sources.map_tcu_mux_source(
+                "tcu_mux_router",
+                tty1_binding.tty,
+                "console/tcu_mux_router.raw",
+                tcu_muxer_path=tcu_muxer_path,
+                outer_mode=outer_mode,
+                replace_sources=["tty1"],
+            )
+            logs_dir = result_dir / "console" / "console-runtime" / "tcu_muxer_logs"
+
+        for i, pane in enumerate(all_panes):
             window = i + 1
             pane_id = pane.get("id", str(i))
             source_spec = pane.get("source", "")
             title = pane.get("title", pane_id)
             pane_windows[pane_id] = window
+
             if source_spec.startswith("uart:"):
                 source = source_spec[len("uart:"):]
                 if ui and hasattr(ui, "bind_window"):
                     ui.bind_window(window, source, title=title)
-            # mux: and container: sources are not yet wired; pane slot is reserved.
+
+            elif source_spec.startswith("mux:"):
+                stream_name = source_spec[len("mux:"):]
+                if ui and hasattr(ui, "state"):
+                    ui.state.map_window(window, stream_name, title=title)
+                if logs_dir and ui and hasattr(ui, "windows") and ui.windows:
+                    log_file = logs_dir / f"{stream_name}.txt"
+                    # tail -F: follows across creation; stays live before the
+                    # stream connects (CTRL_CONNECTED may arrive much later).
+                    cmd = f"exec tail -F {shlex.quote(str(log_file))}"
+                    try:
+                        ui.windows.ensure_window(window, title, cmd)
+                    except Exception:
+                        pass
+
         self.ctx["_demo_pane_windows"] = pane_windows
         self.ctx["_demo_layout_name"] = layout_name
         return self._simple_outcome(step)

@@ -4,7 +4,7 @@ layout:
       source: uart:tty0
       title: "Isengard Console"
     - id: mux_output
-      source: uart:tty1
+      source: mux:physical_uart_default
       title: "Mux Output (ttyAMA0)"
     - id: zenoh_demo
       source: mux:zenoh_demo

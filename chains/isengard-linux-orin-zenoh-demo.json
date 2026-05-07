@@ -82,6 +82,8 @@
     "setup_demo": {
       "type": "setup_demo",
       "layout": "zenoh-orin",
+      "tcu_muxer_path": "/home/hlyytine/tii-sel4/sources/tcu_muxer/tcu_muxer",
+      "outer_mode": "raw",
       "outcomes": [
         { "label": "ok", "next": "verify_bridge_binary" }
       ],
