@@ -124,7 +124,7 @@
       "type": "ssh_cmd",
       "target_user": "root",
       "target_ip": "{target_ip}",
-      "cmd": "virtioso-mux-exec --name zenoh_demo -- sh -c 'isengard-demo-zenoh-remote 2>&1 | tee /tmp/demo.log'; echo \"=== demo exit $? ===\"; true",
+      "cmd": "rm -f /tmp/demo.log && virtioso-mux-exec --name zenoh_demo -- sh -c 'isengard-demo-zenoh-remote 2>&1 | tee /tmp/demo.log'; echo \"=== demo exit $? ===\"; true",
       "timeout_s": 120,
       "outcomes": [
         { "label": "ok", "next": "collect_demo_log" }
