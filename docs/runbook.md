@@ -358,6 +358,7 @@ Example step types:
 - `reboot`
 - `map_source`
 - `map_window`
+- `map_router_session_panes`
 - `send_cmd`
 - `interactive_console`
 - `task_spawn`, `task_join`, `signal_set`, `signal_wait`, `call_chain`

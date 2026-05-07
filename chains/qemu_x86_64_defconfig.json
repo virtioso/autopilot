@@ -5,6 +5,10 @@
       "type": "map_command_source",
       "source": "tty0",
       "log": "console/tty0.raw",
+      "env": {
+        "VIRTIOSO_CONSOLE_ROUTER_USE_VM_PREFIX_DEMUX": "1",
+        "VIRTIOSO_QEMU_SPLIT_MONITOR": "1"
+      },
       "command": [
         "python3",
         "-u",

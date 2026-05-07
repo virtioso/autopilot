@@ -104,3 +104,8 @@ When started in tmux:
 - status is rendered via `runtime/ui/state.json`.
 
 `map_window` maps logical sources to tmux windows at runtime.
+`map_router_session_panes` maps muxer-discovered router sessions into one tmux
+window and can prepend an Autopilot status pane. The router sessions remain
+runtime truth; tmux panes are only a presentation of `console-runtime/sessions.json`
+plus Autopilot status/log state from `runtime/ui/state.json` and
+`runtime/autopilot.log`.

@@ -27,8 +27,20 @@ def send_tx(control_socket: Path, source: str, payload: bytes) -> None:
         _ = sock.recv(65536)
 
 
+def terminal_safe_bytes(data: bytes, previous_was_cr: bool) -> tuple[bytes, bool]:
+    out = bytearray()
+    prev_cr = previous_was_cr
+    for byte in data:
+        if byte == 0x0a and not prev_cr:
+            out.append(0x0d)
+        out.append(byte)
+        prev_cr = byte == 0x0d
+    return bytes(out), prev_cr
+
+
 def tail_live_file(stop: threading.Event, live_path: Path) -> None:
     offset = 0
+    previous_was_cr = False
     while not stop.is_set():
         if not live_path.exists():
             time.sleep(0.1)
@@ -44,7 +56,8 @@ def tail_live_file(stop: threading.Event, live_path: Path) -> None:
                 f.seek(offset)
                 data = f.read(8192)
             if data:
-                os.write(sys.stdout.fileno(), data)
+                display_data, previous_was_cr = terminal_safe_bytes(data, previous_was_cr)
+                os.write(sys.stdout.fileno(), display_data)
                 offset += len(data)
         except Exception:
             time.sleep(0.1)
@@ -54,16 +67,26 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="tmux pane client for Autopilot source console")
     parser.add_argument("--autopilot-dir", required=True)
     parser.add_argument("--source", required=True)
+    parser.add_argument("--log-path", default=None)
+    parser.add_argument("--read-only", action="store_true")
     args = parser.parse_args()
 
     autopilot_dir = Path(args.autopilot_dir)
     source = args.source
     control_socket = autopilot_dir / "runtime" / "ui" / "control.sock"
-    live_path = autopilot_dir / "runtime" / "ui" / "live" / f"{source}.log"
+    live_path = Path(args.log_path) if args.log_path else autopilot_dir / "runtime" / "ui" / "live" / f"{source}.log"
 
     stop = threading.Event()
     tail_thread = threading.Thread(target=tail_live_file, args=(stop, live_path), daemon=True)
     tail_thread.start()
+
+    if args.read_only:
+        try:
+            while True:
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            stop.set()
+            return 0
 
     stdin_fd = sys.stdin.fileno()
     old = termios.tcgetattr(stdin_fd)

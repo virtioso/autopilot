@@ -122,6 +122,27 @@
       "outcomes": [
         {
           "label": "ok",
+          "next": "open_guest_console_panes"
+        }
+      ],
+      "on_timeout": "filter_logs_fail"
+    },
+    "open_guest_console_panes": {
+      "type": "map_router_session_panes",
+      "window": 3,
+      "title": "Autopilot + Guest Consoles",
+      "include_status_pane": true,
+      "status_title": "Autopilot",
+      "layout": "status-top",
+      "status_rows": 12,
+      "include_patterns": [
+        "vm[0-9]*"
+      ],
+      "only_interactive": true,
+      "max_panes": 8,
+      "outcomes": [
+        {
+          "label": "ok",
           "next": "parallel_vm_boot_split"
         }
       ],

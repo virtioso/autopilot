@@ -1825,10 +1825,14 @@ def main() -> None:
 
     def _on_tx(source: str, data: bytes) -> None:
         binding = source_manager.get(source)
-        if not binding:
-            return
         if data:
-            binding.write_bytes(data)
+            if binding:
+                binding.write_bytes(data)
+                return
+            try:
+                source_manager.write_router_source(source, data)
+            except Exception:
+                return
 
     control = TmuxControlServer(
         socket_path=ui_state.control_socket_path,

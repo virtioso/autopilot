@@ -8,7 +8,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 
 
 class TmuxUIState:
@@ -180,6 +180,36 @@ class TmuxWindowManager:
         subprocess.run(["tmux", "rename-window", "-t", target, title], check=False)
         subprocess.run(["tmux", "respawn-pane", "-k", "-t", target, command], check=False)
 
+    def ensure_pane_window(
+        self,
+        window: int,
+        title: str,
+        panes: List[dict],
+        layout: str = "tiled",
+        status_rows: int = 0,
+    ) -> None:
+        if not panes:
+            return
+        target = f"{self.session}:{window}"
+        if self._window_exists(window):
+            subprocess.run(["tmux", "kill-window", "-t", target], check=False)
+        subprocess.run(
+            ["tmux", "new-window", "-d", "-t", target, "-n", title, panes[0]["command"]],
+            check=False,
+        )
+        subprocess.run(["tmux", "rename-window", "-t", target, title], check=False)
+        subprocess.run(["tmux", "select-pane", "-t", f"{target}.0", "-T", panes[0]["title"]], check=False)
+        for index, pane in enumerate(panes[1:], start=1):
+            subprocess.run(["tmux", "split-window", "-t", target, "-v", pane["command"]], check=False)
+            subprocess.run(["tmux", "select-pane", "-t", f"{target}.{index}", "-T", pane["title"]], check=False)
+        if layout == "status-top":
+            subprocess.run(["tmux", "select-layout", "-t", target, "even-vertical"], check=False)
+            if status_rows > 0:
+                subprocess.run(["tmux", "resize-pane", "-t", f"{target}.0", "-y", str(status_rows)], check=False)
+        else:
+            subprocess.run(["tmux", "select-layout", "-t", target, "tiled"], check=False)
+        subprocess.run(["tmux", "set-window-option", "-t", target, "pane-border-status", "top"], check=False)
+
     def bind_status_command(self, command: str) -> None:
         subprocess.run(["tmux", "set-option", "-t", self.session, "status", "on"], check=False)
         subprocess.run(["tmux", "set-option", "-t", self.session, "status-right", command], check=False)
@@ -242,6 +272,36 @@ class TmuxUICompat:
         self.interactive_enabled = False
         self.status_text = ""
 
+    def _console_command(self, source: str, log_path: Optional[str] = None, read_only: bool = False) -> str:
+        script = Path(__file__).resolve().parent / "scripts" / "autopilot_tmux_console.py"
+        cmd = (
+            f"python3 {shlex.quote(str(script))} "
+            f"--autopilot-dir {shlex.quote(str(self.state.autopilot_dir))} "
+            f"--source {shlex.quote(source)}"
+        )
+        if log_path:
+            cmd += f" --log-path {shlex.quote(str(log_path))}"
+        if read_only:
+            cmd += " --read-only"
+        return cmd
+
+    def _status_command(self) -> str:
+        script = Path(__file__).resolve().parent / "scripts" / "autopilot_tmux_status.py"
+        log_path = self.state.autopilot_dir / "runtime" / "autopilot.log"
+        autopilot_dir = shlex.quote(str(self.state.autopilot_dir))
+        script_path = shlex.quote(str(script))
+        log_path_arg = shlex.quote(str(log_path))
+        return (
+            "while true; do "
+            "printf '\\033[2J\\033[H'; "
+            f"python3 {script_path} --autopilot-dir {autopilot_dir}; "
+            "printf '\\n\\n--- autopilot.log ---\\n'; "
+            f"if test -f {log_path_arg}; then tail -n 18 {log_path_arg}; "
+            "else printf 'autopilot.log not available\\n'; fi; "
+            "sleep 1; "
+            "done"
+        )
+
     def start(self, event_queue) -> None:
         _ = event_queue
 
@@ -263,17 +323,57 @@ class TmuxUICompat:
         self.window_map[window] = source
         self.state.map_window(window, source, title=title)
         if self.windows:
-            script = Path(__file__).resolve().parent / "scripts" / "autopilot_tmux_console.py"
-            cmd = (
-                f"python3 {shlex.quote(str(script))} "
-                f"--autopilot-dir {shlex.quote(str(self.state.autopilot_dir))} "
-                f"--source {shlex.quote(source)}"
-            )
             try:
-                self.windows.ensure_window(window, title or source, cmd)
+                self.windows.ensure_window(window, title or source, self._console_command(source))
             except Exception:
                 # Preserve chain compatibility even if tmux window operations fail.
                 pass
+
+    def bind_source_panes(
+        self,
+        window: int,
+        title: str,
+        panes: List[dict],
+        include_status_pane: bool = False,
+        status_title: str = "Autopilot",
+        layout: str = "tiled",
+        status_rows: int = 0,
+    ) -> None:
+        self.state.map_window(window, "router_sessions", title=title)
+        if not self.windows:
+            return
+        commands = []
+        if include_status_pane:
+            commands.append({
+                "source": "autopilot",
+                "title": status_title,
+                "command": self._status_command(),
+            })
+        for pane in panes:
+            source = str(pane.get("source", ""))
+            if not source:
+                continue
+            commands.append({
+                "source": source,
+                "title": str(pane.get("title") or source),
+                "command": self._console_command(
+                    source,
+                    log_path=pane.get("log_path"),
+                    read_only=bool(pane.get("read_only", False)),
+                ),
+            })
+        if not commands:
+            return
+        try:
+            self.windows.ensure_pane_window(
+                window,
+                title,
+                commands,
+                layout=layout,
+                status_rows=status_rows,
+            )
+        except Exception:
+            pass
 
     def set_status(self, text: str) -> None:
         self.status_text = text

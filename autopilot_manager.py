@@ -163,23 +163,40 @@ def _configure_tmux_ui(session: str, autopilot_dir: Path) -> None:
     )
 
 
-def _tmux_pane_pid(session: str) -> Optional[int]:
+def _tmux_pane_pids(session: str) -> list[int]:
     result = subprocess.run(
-        ["tmux", "list-panes", "-t", session, "-F", "#{pane_pid}"],
+        ["tmux", "list-panes", "-a", "-t", session, "-F", "#{pane_pid}"],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
         check=False,
     )
     if result.returncode != 0:
+        return []
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        try:
+            pids.append(int(line.strip()))
+        except Exception:
+            continue
+    return pids
+
+
+def _tmux_pane_pid(session: str) -> Optional[int]:
+    pids = _tmux_pane_pids(session)
+    if not pids:
         return None
-    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    if not lines:
-        return None
-    try:
-        return int(lines[0])
-    except Exception:
-        return None
+    return pids[0]
+
+
+def _tmux_worker_pane_and_pid(session: str, marker: str) -> tuple[Optional[int], Optional[int]]:
+    for pane_pid in _tmux_pane_pids(session):
+        if _is_running(pane_pid, marker):
+            return pane_pid, pane_pid
+        child_pid = _find_child_pid(pane_pid, marker)
+        if child_pid:
+            return pane_pid, child_pid
+    return None, None
 
 
 def _child_pids(parent_pid: int) -> list[int]:
@@ -217,21 +234,15 @@ def _find_child_pid(parent_pid: int, marker: str) -> Optional[int]:
 
 
 def _resolve_pid_from_tmux(session: str, marker: str) -> Optional[int]:
-    pane_pid = _tmux_pane_pid(session)
-    if pane_pid is None:
-        return None
-    if _is_running(pane_pid, marker):
-        return pane_pid
-    child_pid = _find_child_pid(pane_pid, marker)
-    if child_pid:
-        return child_pid
-    return None
+    _, worker_pid = _tmux_worker_pane_and_pid(session, marker)
+    return worker_pid
 
 
 def _tmux_session_status(session: str, marker: str) -> dict:
     exists = _tmux_has_session(session)
-    pane_pid = _tmux_pane_pid(session) if exists else None
-    worker_pid = _resolve_pid_from_tmux(session, marker) if exists else None
+    pane_pid, worker_pid = _tmux_worker_pane_and_pid(session, marker) if exists else (None, None)
+    if pane_pid is None and exists:
+        pane_pid = _tmux_pane_pid(session)
     return {
         "name": session,
         "exists": exists,

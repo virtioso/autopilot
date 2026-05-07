@@ -80,6 +80,7 @@ Action steps:
 - `ssh_wait_ready`
 - `map_source`
 - `map_window`
+- `map_router_session_panes`
 - `send_cmd`
 - `interactive_console`
 - `analyze_logs`
@@ -96,6 +97,35 @@ Action steps:
 Terminal steps:
 - `pass`
 - `fail`
+
+## Example: map_router_session_panes
+
+```json
+{
+  "type": "map_router_session_panes",
+  "window": 3,
+  "title": "Autopilot + Guest Consoles",
+  "include_status_pane": true,
+  "status_title": "Autopilot",
+  "layout": "status-top",
+  "status_rows": 12,
+  "include_patterns": ["vm[0-9]*"],
+  "only_interactive": true,
+  "max_panes": 8,
+  "outcomes": [
+    { "label": "ok", "next": "wait_vm_boot" }
+  ],
+  "on_timeout": "fail"
+}
+```
+
+`map_router_session_panes` presents router sessions already discovered by the
+runtime muxer in one tmux window. It filters `console-runtime/sessions.json` by
+name and interactivity, then opens panes whose console helpers tail each
+session log and send input back through the runtime UI control socket. With
+`include_status_pane`, the first pane renders Autopilot state from
+`runtime/ui/state.json` and tails `runtime/autopilot.log`; this is presentation
+only and does not become a stream source.
 
 ## Example: boot_efi
 
