@@ -1517,36 +1517,53 @@ class ChainRunner:
             )
             logs_dir = result_dir / "console" / "console-runtime" / "tcu_muxer_logs"
 
-        pane_specs = []
+        uart_window: Optional[int] = None
         for i, pane in enumerate(all_panes):
             pane_id = pane.get("id", str(i))
             source_spec = pane.get("source", "")
             title = pane.get("title", pane_id)
-            pane_windows[pane_id] = 1  # all demo panes share window 1
 
             if source_spec.startswith("uart:"):
                 source = source_spec[len("uart:"):]
-                if ui and hasattr(ui, "state"):
-                    ui.state.map_window(1, source, title=title)
-                if ui and hasattr(ui, "_console_command"):
-                    pane_specs.append({"title": title, "command": ui._console_command(source)})
+                window = i + 1
+                pane_windows[pane_id] = window
+                if uart_window is None:
+                    uart_window = window
+                if ui and hasattr(ui, "bind_window"):
+                    ui.bind_window(window, source, title=title)
 
             elif source_spec.startswith("mux:"):
                 stream_name = source_spec[len("mux:"):]
+                target_window = uart_window if uart_window is not None else 1
+                pane_windows[pane_id] = target_window
                 if ui and hasattr(ui, "state"):
-                    ui.state.map_window(1, stream_name, title=title)
-                if logs_dir:
+                    ui.state.map_window(target_window, stream_name, title=title)
+                if logs_dir and ui and hasattr(ui, "windows") and ui.windows:
                     log_file = logs_dir / f"{stream_name}.txt"
-                    # tail -F: follows across creation; stays live before the
-                    # stream connects (CTRL_CONNECTED may arrive much later).
+                    # tail -F: follows across creation; stays live before
+                    # CTRL_CONNECTED arrives and the stream file is created.
                     cmd = f"exec tail -F {shlex.quote(str(log_file))}"
-                    pane_specs.append({"title": title, "command": cmd})
-
-        if pane_specs and ui and hasattr(ui, "windows") and ui.windows:
-            try:
-                ui.windows.ensure_pane_window(1, layout_name, pane_specs)
-            except Exception:
-                pass
+                    session = ui.windows.session
+                    target_pane = f"{session}:{target_window}.0"
+                    try:
+                        subprocess.run(
+                            ["tmux", "split-window", "-h", "-t", target_pane, cmd],
+                            check=False,
+                        )
+                        subprocess.run(
+                            ["tmux", "select-pane", "-t", f"{session}:{target_window}.1", "-T", title],
+                            check=False,
+                        )
+                        subprocess.run(
+                            ["tmux", "set-window-option", "-t", f"{session}:{target_window}", "pane-border-status", "top"],
+                            check=False,
+                        )
+                        subprocess.run(
+                            ["tmux", "select-layout", "-t", f"{session}:{target_window}", "even-horizontal"],
+                            check=False,
+                        )
+                    except Exception:
+                        pass
 
         self.ctx["_demo_pane_windows"] = pane_windows
         self.ctx["_demo_layout_name"] = layout_name
