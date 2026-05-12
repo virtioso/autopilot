@@ -15,8 +15,8 @@ from config import get_code_root
 from startup_queue import clear_startup_requests, read_startup_cleanup
 
 DEFAULT_COMMAND = f"python3 {shlex.quote(str(get_code_root() / 'orin_kernel_autopilot.py'))}"
-ORIN_TCU_MUXER_COMMAND = (
-    f"python3 {shlex.quote(str(get_code_root() / 'tools' / 'orin_tcu_muxer_autopilot_wrapper.py'))}"
+ORIN_VCMUXER_COMMAND = (
+    f"python3 {shlex.quote(str(get_code_root() / 'tools' / 'orin_vcmuxer_autopilot_wrapper.py'))}"
 )
 DEFAULT_TMUX_SESSION = "autopilot"
 DEFAULT_PLATFORM = "orin-agx-uefi-netboot"
@@ -32,7 +32,7 @@ def platform_requires_ttys(platform: str) -> bool:
 
 def default_command_for_platform(platform: str) -> str:
     if (platform or "").strip() == "orin-agx-uefi-netboot":
-        return ORIN_TCU_MUXER_COMMAND
+        return ORIN_VCMUXER_COMMAND
     return DEFAULT_COMMAND
 
 
@@ -55,7 +55,7 @@ def _log_path(runtime_dir: Path) -> Path:
 
 
 def _console_router_status_path(runtime_dir: Path) -> Path:
-    return runtime_dir / "tcu_muxer_wrapper" / "status.json"
+    return runtime_dir / "vcmuxer_wrapper" / "status.json"
 
 
 def _read_console_router_status(runtime_dir: Path) -> dict | None:
@@ -100,8 +100,8 @@ def _cmdline_matches(cmdline: list[str], marker: str) -> bool:
 def _command_marker(command: str) -> str:
     tokens = shlex.split(command)
     for token in tokens:
-        if token.endswith("orin_tcu_muxer_autopilot_wrapper.py"):
-            return "orin_tcu_muxer_autopilot_wrapper.py"
+        if token.endswith("orin_vcmuxer_autopilot_wrapper.py"):
+            return "orin_vcmuxer_autopilot_wrapper.py"
         if token.endswith("orin_kernel_autopilot.py"):
             return "orin_kernel_autopilot.py"
     if tokens:
@@ -481,7 +481,7 @@ def start_autopilot(
         pid_file.write_text(str(pid))
 
     console_router = None
-    if marker == "orin_tcu_muxer_autopilot_wrapper.py":
+    if marker == "orin_vcmuxer_autopilot_wrapper.py":
         deadline = time.time() + 3.0
         while time.time() < deadline:
             console_router = _read_console_router_status(runtime)

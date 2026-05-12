@@ -27,7 +27,7 @@ def main() -> int:
         print("AUTOPILOT_FAIL: AUTOPILOT_TTY1 is required", flush=True)
         return 2
 
-    runtime_dir = autopilot_dir / "runtime" / "tcu_muxer_wrapper"
+    runtime_dir = autopilot_dir / "runtime" / "vcmuxer_wrapper"
     status_path = runtime_dir / "status.json"
     runtime_dir.mkdir(parents=True, exist_ok=True)
     status_path.write_text(json.dumps({

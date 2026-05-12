@@ -73,7 +73,7 @@
       "outcomes": [
         {
           "label": "pass",
-          "next": "start_tcu_muxer"
+          "next": "start_vcmuxer"
         },
         {
           "label": "fail",
@@ -82,12 +82,12 @@
       ],
       "on_timeout": "filter_logs_fail"
     },
-    "start_tcu_muxer": {
-      "type": "map_tcu_mux_source",
-      "source": "tcu_muxer",
+    "start_vcmuxer": {
+      "type": "map_vcmux_source",
+      "source": "vcmuxer",
       "tty": "env:AUTOPILOT_TTY0",
-      "log": "console/tcu_muxer.stdout.log",
-      "tcu_muxer_path": "/home/hlyytine/tii-sel4/sources/tcu_muxer/tcu_muxer",
+      "log": "console/vcmuxer.stdout.log",
+      "vcmuxer_path": "/home/hlyytine/tii-sel4/sources/tcu_muxer/vcmuxer",
       "outer_mode": "nvidia-tcu",
       "outer_tag": "CCPLEX",
       "replace_sources": [
@@ -122,7 +122,7 @@
       "command": [
         "bash",
         "-lc",
-        "vm0_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm0_guest_console_sink.txt\"; vm1_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm1_guest_console_sink.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; else : > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1_guest_console_sink.log\"; else : > \"{result_dir}/console/vm1_guest_console_sink.log\"; fi"
+        "vm0_log=\"{result_dir}/console/console-runtime/vcmuxer_logs/vm0_guest_console_sink.txt\"; vm1_log=\"{result_dir}/console/console-runtime/vcmuxer_logs/vm1_guest_console_sink.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; else : > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1_guest_console_sink.log\"; else : > \"{result_dir}/console/vm1_guest_console_sink.log\"; fi"
       ],
       "outcomes": [
         {
@@ -137,7 +137,7 @@
       "command": [
         "bash",
         "-lc",
-        "vm0_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm0_guest_console_sink.txt\"; vm1_log=\"{result_dir}/console/console-runtime/tcu_muxer_logs/vm1_guest_console_sink.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; else : > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1_guest_console_sink.log\"; else : > \"{result_dir}/console/vm1_guest_console_sink.log\"; fi; if [ ! -f \"$vm0_log\" ] || ! grep -a -q \"ELF-loader started on CPU\" \"$vm0_log\"; then printf \"\\nAUTOPILOT_FAIL: ELFLOADER_NOT_REACHED (missing ELF-loader start marker within timeout)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"$vm0_log\" && { [ ! -f \"$vm1_log\" ] || ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"$vm1_log\"; }; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; fi"
+        "vm0_log=\"{result_dir}/console/console-runtime/vcmuxer_logs/vm0_guest_console_sink.txt\"; vm1_log=\"{result_dir}/console/console-runtime/vcmuxer_logs/vm1_guest_console_sink.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; else : > \"{result_dir}/console/vm0_guest_console_sink.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1_guest_console_sink.log\"; else : > \"{result_dir}/console/vm1_guest_console_sink.log\"; fi; if [ ! -f \"$vm0_log\" ] || ! grep -a -q \"ELF-loader started on CPU\" \"$vm0_log\"; then printf \"\\nAUTOPILOT_FAIL: ELFLOADER_NOT_REACHED (missing ELF-loader start marker within timeout)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"$vm0_log\" && { [ ! -f \"$vm1_log\" ] || ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"$vm1_log\"; }; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; fi"
       ],
       "outcomes": [
         {

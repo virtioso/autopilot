@@ -6,7 +6,7 @@
       "overrides": {
         "chain_aliases": {
           "post_test_fallback_relay": "post_test_fallback_noop",
-          "vm_common": "vm_common_orin_tcu_muxer"
+          "vm_common": "vm_common_orin_vcmuxer"
         },
         "lifecycle": {
           "prepare": {

@@ -497,11 +497,11 @@ class SourceManager:
         if sessions_path:
             self._ensure_symlink(runtime_dir / "sessions.json", Path(sessions_path))
         if logs_dir:
-            self._ensure_symlink(runtime_dir / "tcu_muxer_logs", Path(logs_dir))
+            self._ensure_symlink(runtime_dir / "vcmuxer_logs", Path(logs_dir))
         if raw_log:
-            self._ensure_symlink(runtime_dir / "tcu_muxer.raw.log", Path(raw_log))
+            self._ensure_symlink(runtime_dir / "vcmuxer.raw.log", Path(raw_log))
         else:
-            stale_raw_log = runtime_dir / "tcu_muxer.raw.log"
+            stale_raw_log = runtime_dir / "vcmuxer.raw.log"
             try:
                 if stale_raw_log.is_symlink():
                     stale_raw_log.unlink()
@@ -569,13 +569,13 @@ class SourceManager:
         binding.set_write_path_resolver(lambda source_name=source: self._resolve_router_write_tty(source_name))
         self.sources[source] = binding
 
-    def map_tcu_mux_source(
+    def map_vcmux_source(
         self,
         source: str,
         tty: str,
         log_rel: str,
         *,
-        tcu_muxer_path: str,
+        vcmuxer_path: str,
         outer_mode: str = "raw",
         outer_tag: str = "CCPLEX",
         replace_sources: Optional[List[str]] = None,
@@ -587,11 +587,11 @@ class SourceManager:
 
         console_dir = self.result_dir / "console"
         runtime_dir = console_dir / "console-runtime"
-        logs_dir = runtime_dir / "tcu_muxer_logs"
+        logs_dir = runtime_dir / "vcmuxer_logs"
         runtime_dir.mkdir(parents=True, exist_ok=True)
         logs_dir.mkdir(parents=True, exist_ok=True)
         stdout_log = self.result_dir / log_rel
-        raw_log = runtime_dir / "tcu_muxer.raw.log"
+        raw_log = runtime_dir / "vcmuxer.raw.log"
         sessions_path = runtime_dir / "sessions.json"
         registry_copy_path = runtime_dir / "console-stream-registry.json"
         sessions: Dict[str, dict] = {}
@@ -684,7 +684,7 @@ class SourceManager:
                     self._router_session_cache.clear()
 
         command = [
-            tcu_muxer_path,
+            vcmuxer_path,
             "-A",
             "-O",
             outer_mode,
@@ -940,13 +940,13 @@ def validate_chain(chain: dict) -> None:
                 raise ChainValidationError(
                     f"step {name} call_chain requires outcomes for labels 'pass' and 'fail'"
                 )
-        if step.get("type") == "map_tcu_mux_source":
+        if step.get("type") == "map_vcmux_source":
             if not step.get("source"):
-                raise ChainValidationError(f"step {name} map_tcu_mux_source requires source")
+                raise ChainValidationError(f"step {name} map_vcmux_source requires source")
             if not step.get("tty"):
-                raise ChainValidationError(f"step {name} map_tcu_mux_source requires tty")
-            if not step.get("tcu_muxer_path"):
-                raise ChainValidationError(f"step {name} map_tcu_mux_source requires tcu_muxer_path")
+                raise ChainValidationError(f"step {name} map_vcmux_source requires tty")
+            if not step.get("vcmuxer_path"):
+                raise ChainValidationError(f"step {name} map_vcmux_source requires vcmuxer_path")
         if step.get("type") == "wait_router_session":
             if not step.get("source"):
                 raise ChainValidationError(f"step {name} wait_router_session requires source")
@@ -1242,8 +1242,8 @@ class ChainRunner:
                 return self._simple_outcome(step)
             if step_type == "map_source":
                 return self._step_map_source(step)
-            if step_type == "map_tcu_mux_source":
-                return self._step_map_tcu_mux_source(step)
+            if step_type == "map_vcmux_source":
+                return self._step_map_vcmux_source(step)
             if step_type == "wait_router_session":
                 return self._step_wait_router_session(step)
             if step_type == "map_router_session_panes":
@@ -1365,33 +1365,33 @@ class ChainRunner:
             ui.state.map_source(source, shlex.join(resolved_command), str(self.ctx["result_dir"] / log_rel))
         return self._simple_outcome(step)
 
-    def _step_map_tcu_mux_source(self, step: dict) -> Tuple[str, OutcomeMatch]:
+    def _step_map_vcmux_source(self, step: dict) -> Tuple[str, OutcomeMatch]:
         source = step["source"]
         tty = self._resolve_value(step.get("tty"))
         if isinstance(tty, str) and tty.startswith("env:"):
             env_key = tty.split("env:", 1)[1]
             tty = (os.environ.get(env_key, "") or "").strip()
         if not tty:
-            raise ValueError("map_tcu_mux_source requires tty")
-        tcu_muxer_path = str(self._resolve_value(step.get("tcu_muxer_path")))
+            raise ValueError("map_vcmux_source requires tty")
+        vcmuxer_path = str(self._resolve_value(step.get("vcmuxer_path")))
         outer_mode = str(self._resolve_value(step.get("outer_mode", "raw")))
         outer_tag = str(self._resolve_value(step.get("outer_tag", "CCPLEX")))
         log_rel = step.get("log", f"console/{source}.raw")
         replace_sources = step.get("replace_sources", []) or []
         if not isinstance(replace_sources, list):
-            raise ValueError("map_tcu_mux_source replace_sources must be a list")
-        self.ctx["sources"].map_tcu_mux_source(
+            raise ValueError("map_vcmux_source replace_sources must be a list")
+        self.ctx["sources"].map_vcmux_source(
             source,
             str(tty),
             log_rel,
-            tcu_muxer_path=tcu_muxer_path,
+            vcmuxer_path=vcmuxer_path,
             outer_mode=outer_mode,
             outer_tag=outer_tag,
             replace_sources=[str(item) for item in replace_sources],
         )
         ui = self.ctx.get("ui")
         if ui and hasattr(ui, "state"):
-            ui.state.map_source(source, f"{tcu_muxer_path} -d {tty}", str(self.ctx["result_dir"] / log_rel))
+            ui.state.map_source(source, f"{vcmuxer_path} -d {tty}", str(self.ctx["result_dir"] / log_rel))
         return self._simple_outcome(step)
 
     def _step_wait_router_session(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -1496,10 +1496,10 @@ class ChainRunner:
 
         logs_dir: Optional[Path] = None
         if has_mux and sources and result_dir:
-            tcu_muxer_path = str(self._resolve_value(step.get("tcu_muxer_path", "")))
-            if not tcu_muxer_path:
+            vcmuxer_path = str(self._resolve_value(step.get("vcmuxer_path", "")))
+            if not vcmuxer_path:
                 raise ChainValidationError(
-                    f"setup_demo step '{layout_name}' has mux: sources but no tcu_muxer_path"
+                    f"setup_demo step '{layout_name}' has mux: sources but no vcmuxer_path"
                 )
             tty1_binding = sources.get("tty1")
             if not tty1_binding or not tty1_binding.tty:
@@ -1507,15 +1507,15 @@ class ChainRunner:
                     "setup_demo: mux: sources require tty1 to be mapped to a serial device"
                 )
             outer_mode = str(self._resolve_value(step.get("outer_mode", "raw")))
-            sources.map_tcu_mux_source(
-                "tcu_mux_router",
+            sources.map_vcmux_source(
+                "vcmux_router",
                 tty1_binding.tty,
-                "console/tcu_mux_router.raw",
-                tcu_muxer_path=tcu_muxer_path,
+                "console/vcmux_router.raw",
+                vcmuxer_path=vcmuxer_path,
                 outer_mode=outer_mode,
                 replace_sources=["tty1"],
             )
-            logs_dir = result_dir / "console" / "console-runtime" / "tcu_muxer_logs"
+            logs_dir = result_dir / "console" / "console-runtime" / "vcmuxer_logs"
 
         uart_window: Optional[int] = None
         for i, pane in enumerate(all_panes):
