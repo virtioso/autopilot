@@ -1,0 +1,91 @@
+{
+  "_comment": "Draft chain — two open items before use: (1) confirm ROS 2 startup log pattern from an actual ros2 launch run; (2) provision x86 test target in Autopilot platform registry",
+  "entry": "import_vc_image",
+  "steps": {
+    "import_vc_image": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "docker import {workspace}/vm-images/build/tmp/deploy/images/isengard-x86-64/isengard-image-vehicle-control-isengard-x86-64.rootfs.tar.bz2 isengard-vehicle-control 2>&1 && echo 'import ok'",
+      "timeout_s": 120,
+      "outcomes": [
+        { "label": "ok", "next": "import_auto_image" }
+      ],
+      "on_timeout": "fail"
+    },
+    "import_auto_image": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "docker import {workspace}/vm-images/build/tmp/deploy/images/isengard-x86-64/isengard-image-autonomy-isengard-x86-64.rootfs.tar.bz2 isengard-autonomy 2>&1 && echo 'import ok'",
+      "timeout_s": 120,
+      "outcomes": [
+        { "label": "ok", "next": "cleanup_old_container" }
+      ],
+      "on_timeout": "fail"
+    },
+    "cleanup_old_container": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "docker rm -f autonomy-test 2>/dev/null; echo 'clean'",
+      "timeout_s": 10,
+      "outcomes": [
+        { "label": "ok", "next": "start_ros_container" }
+      ],
+      "on_timeout": "fail"
+    },
+    "start_ros_container": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "docker run --name autonomy-test --rm --network=host --detach isengard-autonomy ros2 launch nav2_bringup bringup_launch.py 2>&1 && echo 'started'",
+      "timeout_s": 30,
+      "outcomes": [
+        { "label": "ok", "next": "watch_ros_output" }
+      ],
+      "on_timeout": "fail"
+    },
+    "watch_ros_output": {
+      "type": "map_command_source",
+      "source": "ros_log",
+      "log": "console/ros-docker.log",
+      "command": [
+        "ssh", "-o", "StrictHostKeyChecking=no",
+        "root@{target_ip}",
+        "docker logs -f autonomy-test"
+      ],
+      "outcomes": [
+        { "label": "ok", "next": "wait_ros_ready" }
+      ],
+      "on_timeout": "fail"
+    },
+    "wait_ros_ready": {
+      "type": "wait_pattern",
+      "timeout_s": 90,
+      "start_from": "tail",
+      "outcomes": [
+        {
+          "label": "ros_started",
+          "pattern": "TODO_CONFIRM_PATTERN",
+          "source": "ros_log",
+          "next": "stop_container"
+        }
+      ],
+      "on_timeout": "fail"
+    },
+    "stop_container": {
+      "type": "ssh_cmd",
+      "target_user": "root",
+      "target_ip": "{target_ip}",
+      "cmd": "docker rm -f autonomy-test 2>/dev/null; echo 'stopped'",
+      "timeout_s": 10,
+      "outcomes": [
+        { "label": "ok", "next": "pass" }
+      ],
+      "on_timeout": "pass"
+    },
+    "pass": { "type": "pass" },
+    "fail": { "type": "fail" }
+  }
+}
