@@ -530,6 +530,52 @@ The `model_rebuild()` calls resolve forward references after all models are defi
 
 *Secondary problem:* The Unix socket IPC means `client.py` and `daemon.py` must agree on the socket path. Add `AUTOPILOT_SOCKET` to the layered config (Structural Problem 4 mitigation) with a default of `/tmp/autopilot.sock`. The daemon creates the socket at startup and removes it at shutdown (in the `try/finally`).
 
+**W19 — VCMux Option B queue full drops bytes silently, unlike vcmuxer's OS-level backpressure.**  
+In `VCMuxParser._enqueue()`, `put_nowait()` raises `asyncio.QueueFull` if the per-stream queue is at capacity (`maxsize=65536`). The current code silently drops those bytes. This differs from vcmuxer's behaviour: vcmuxer uses OS PTY buffering, which applies backpressure to the UART read rather than dropping. Silent byte drop means pattern oracles can miss expected text — `wait_pattern("login:")` might never match because the key bytes were dropped. In a hardware test, this appears as a spurious timeout, not a visible error.  
+*Mitigation:* The pump loop must never silently drop bytes. Use `await queue.put(data)` instead of `put_nowait` in the pump task — this suspends the pump until the consumer drains the queue, applying backpressure to UART reads. If a slow consumer fills its queue, the pump suspends and the UART driver's kernel buffer absorbs the backpressure. Document the queue size (65536 bytes) as a tunable per-stream parameter in the StreamContext stream metadata, not a hardcoded constant. Add a structlog warning when a queue approaches capacity (>80% full) so slow-consumer bugs surface in logs before they cause silent drops.
+
+**W20 — `Race` cancels losing branch contexts but not the branch tasks themselves.**  
+The mitigation for W1 says `Race` calls `ctx.cleanup()` on every losing branch before discarding it. But `asyncio.wait(return_when=FIRST_COMPLETED)` leaves the losing branch tasks in the "pending" set — they are still running. `cleanup()` releases resources (closes connections, deregisters hooks) but does not cancel the asyncio tasks. The losing tasks will continue running until their oracle naturally returns, blocking on stream reads that may never produce data. They consume event loop resources and may produce spurious log output. In the worst case, a losing branch that has applied backpressure to a shared resource (like a UART buffer via W19's `await queue.put`) prevents other activity from proceeding.  
+*Mitigation:* After `asyncio.wait(return_when=FIRST_COMPLETED)` returns, `Race` must explicitly cancel all tasks in the `pending` set and await their cancellation before returning:
+
+```python
+winner_task = next(iter(done))
+for task in pending:
+    task.cancel()
+await asyncio.gather(*pending, return_exceptions=True)  # await cancellation
+# then run cleanup on losing branch contexts
+```
+
+The `return_exceptions=True` on the gather prevents a cancelled task's CancelledError from propagating to Race's own caller. This is the standard asyncio task cleanup pattern. Document it as a required pattern in the combinators module.
+
+**W21 — `Parallel` with `asyncio.gather()` default: one buggy branch kills all branches.**  
+`asyncio.gather()` without `return_exceptions=True` cancels all other tasks if any one task raises an unhandled exception. In `Parallel(A, B, C)`, if branch B has a bug that raises `RuntimeError`, branches A and C are cancelled mid-execution. Their cleanup_hooks may or may not run (depending on whether the cancellation propagates cleanly through their code). The overall effect is: one oracle bug silently terminates the entire parallel group with no verdict from A or C.  
+*Mitigation:* `Parallel` must use `asyncio.gather(*tasks, return_exceptions=True)`. Any result that is an exception (not a `(Verdict, StreamContext)` tuple) is converted to `(Verdict.error(f"unhandled: {exc}"), forked_ctx)` before the reducer sees it. This ensures the reducer always receives verdicts, not raw exceptions. The reducer can then route on `error` verdicts as needed (e.g. `all_pass` would fail if any branch has an error, which is correct). This also means unhandled exceptions in branches are surfaced as error verdicts in logs/recording rather than being silently swallowed or unexpectedly crashing the engine.
+
+**W22 — Background asyncio tasks spawned inside oracle bodies hold stale `ctx` references after fork.**  
+Some oracles spawn background tasks (`asyncio.create_task(pump())`) that hold a reference to `ctx` and may mutate it (e.g. `VCMuxSourceOracle`'s pump registers new streams). If the oracle is called, spawns a background task, and then the engine forks `ctx` for a `Parallel` branch — the background task holds a reference to the *pre-fork* ctx, not the branch's copy. Any mutations the background task makes (adding streams, registering hooks) affect the original ctx rather than the branch copy. This violates the branch isolation guarantee.  
+*Mitigation:* The rule is: **oracle bodies must not retain a reference to `ctx` beyond their return.** Background tasks spawned inside an oracle must communicate via dedicated asyncio.Queue or Event objects stored in `ctx.streams` or `ctx.metadata` by the oracle *before* returning. The key invariant: **an oracle's background task must not hold a direct reference to the StreamContext dict** — only to the specific Queue/Event objects it needs. This prevents the stale-reference problem: the Queue/Event objects are in `ctx.streams` or `ctx.metadata`, and `ctx.fork()` creates a new dict pointing to the same Queue/Event objects (which is correct — the background task and the forked branch both see the same Queue, as they are operating on the same underlying stream).
+
+Document this as a coding rule in the oracle implementation guide: "Oracles that spawn background tasks must store all cross-task communication objects in `ctx.streams` or `ctx.metadata` before returning. Never capture `ctx` itself in a background task closure."
+
+**W23 — `asyncio.wait_for` cancellation has known bugs before Python 3.12.**  
+`Timeout(oracle, t)` wraps the oracle with `asyncio.wait_for(coro, t)`. In Python 3.10 and 3.11, there is a well-documented bug where cancelling the outer task while `asyncio.wait_for` is active can cause the inner task's `CancelledError` to "escape" and be re-raised in the outer context, corrupting the exception chain and potentially causing hangs. The bug was fixed in Python 3.12 (bpo-46707). In a hardware orchestrator where SIGTERM handling (W10) cancels tasks, this bug can cause silent deadlocks during shutdown.  
+*Mitigation:* Require Python 3.12+ as the minimum runtime. State this explicitly in `pyproject.toml`: `requires-python = ">=3.12"`. This is not an unusual requirement — Python 3.12 was released October 2023, and pyserial-asyncio-fast already requires it. All target deployment environments (Ubuntu 24.04, macOS 14+) ship Python 3.12 or later by default. Document the version requirement in the README with rationale: the asyncio.wait_for cancellation fix is a correctness requirement for the Timeout combinator.
+
+**W24 — Oracle return type `(Verdict, StreamContext)` is ambiguous with mutate-in-place semantics.**  
+With the W11 "mutate in place, return same object" model, the oracle signature still returns `StreamContext`. Callers MUST use the returned context (not the input reference) — this is the convention that enables the pure-functional framing in tests. But nothing enforces this. An oracle that returns a *different* ctx object would silently break the chain — the caller uses the returned new object while the original (with all its mutations) is discarded.  
+*Mitigation:* Define the oracle protocol with a `Protocol` class in `engine/oracle.py`:
+
+```python
+from typing import Protocol
+
+class Oracle(Protocol):
+    async def __call__(self, ctx: StreamContext, timeout: float) -> tuple[Verdict, StreamContext]:
+        ...
+```
+
+The engine asserts at each oracle call site: `assert result_ctx is ctx, "oracle must return the same StreamContext object"`. This assertion (disabled by `python -O` or at production) catches the most common mistake — returning a different object. Oracles that legitimately need to return a different context must do so via an explicit documented exception to this rule. In the `fork()` model, oracles within a branch always hold the branch's ctx and must return it.
+
 **W16 — Parallel branch "merge on join" contradicts "branches reference disjoint streams."**  
 W1's mitigation says "union of newly created streams across branches (new streams from any branch are visible after join)." But W11's mitigation (fork semantics) says branches each get their own forked context. These two interact: if branch A creates a new stream `vm0_console` and branch B creates a new stream `vm1_console`, the merge collects both. But if branch A *also* registers a cleanup_hook for its `vm0_console`, and the merge includes `vm0_console` in the joined context, then the cleanup_hook that was registered in branch A's local context must also be merged into the parent context — otherwise `vm0_console` will be leaked when the parent context is eventually cleaned up.  
 W1's mitigation says `cleanup_hooks` are on branch contexts only; but branch contexts are discarded after join. The cleanup_hooks for resources that ARE merged into the parent must migrate to the parent's `cleanup_hooks`. Resources for branches that are NOT merged (Parallel reducer rejects a branch) must be cleaned up immediately.  
