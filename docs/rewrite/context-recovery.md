@@ -129,13 +129,43 @@ autopilot-rewrite/
 
 Check `tracker.md` for current step. Then:
 
-1. Steps 3–6 are **complete**: all engine modules and all adapters implemented, 73 tests passing.
-   - `engine/`: oracle.py, combinators.py, recorder.py, primitives.py
+1. Steps 3–7 are **in progress**: all engine, adapter, schema, and runtime code is done. 100 tests pass.
+   - `engine/`: oracle.py, combinators.py, recorder.py, primitives.py, **runtime.py** (new)
    - `adapters/`: uart.py, ssh.py, process.py, docker.py, vcmux.py, robot.py, interactive.py
-2. **Hardware validation pending** (4 tests skip-marked in `tests/test_adapters.py`): UART loopback, SSH to target. Remove `@pytest.mark.skip` and run when hardware is available.
-3. **RF oracle tests** skip if `robot` is not installed (`pip install robotframework` to enable).
-4. **Next: Step 0** — pre-rewrite baselines on real hardware (verdict sequences for existing chains). Do this on next hardware access before starting step 7.
-5. **Then: Step 7** — chain migration. Start with simple linear chains (`boot_stock_linux`, `wait_for_elfloader`), complex last (`vm-qemu-virtio`).
+   - `model/chain.py`: Pydantic OracleDef (19 types) + OracleFactory
+   - `chains/`: post_test_fallback_noop.json, wait_for_elfloader.json, sel4test.json (simplified)
+2. **Hardware validation pending** (4 tests skip-marked in `tests/test_adapters.py`): UART loopback, SSH to target.
+3. **Next: Step 0** — pre-rewrite baselines on real hardware. Then finish migrating hardware-dependent chains (boot_stock_linux, sel4test full flow, vm chains).
+
+**Key new APIs:**
+```python
+# Load and run a chain file
+from engine.runtime import run_chain
+verdict, ctx = await run_chain(Path("chains/wait_for_elfloader.json"), ctx, timeout=300)
+
+# Parse + hydrate manually
+from model.chain import OracleFactory
+oracle_def = OracleFactory.parse({"oracle": "choice", "stream": "tty0", "options": [...]})
+oracle = OracleFactory.hydrate(oracle_def)
+verdict, ctx = await oracle(ctx, timeout)
+```
+
+**Chain JSON format:**
+```json
+{
+  "oracle": "sequence",
+  "steps": [
+    { "oracle": "uart_source", "stream": "tty0", "device": "$AUTOPILOT_TTY0" },
+    { "oracle": "timeout", "seconds": 300, "step": {
+        "oracle": "choice", "stream": "tty0",
+        "options": [
+          { "pattern": "ELF-loader started on CPU", "label": "pass" },
+          { "pattern": "not recognized", "label": "fail" }
+        ]
+    }}
+  ]
+}
+```
 
 **Key test to run on hardware (step 5/6 completion):**
 ```bash

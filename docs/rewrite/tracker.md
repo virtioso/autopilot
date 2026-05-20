@@ -5,9 +5,9 @@
 
 ## Current Step
 
-**Step 6 — All adapters: software complete, hardware validation pending**  
+**Step 7 — Chain migration: infrastructure complete, hardware chains pending**  
 Worktree: `~/autopilot-rewrite/` on orphan branch `rewrite`  
-All software-testable adapter code is implemented and passing (73/73). Hardware tests (UART loopback, SSH to target) are marked `@pytest.mark.skip`. RF oracle tests skip if `robot` not installed. Next: step 7 chain migration (needs step 0 hardware baselines first).
+Chain schema (Pydantic discriminated union, 19 oracle types), OracleFactory (hydrate), engine/runtime.py, and 3 migrated chains are implemented. 100/100 tests pass. Remaining: migrate chains that require hardware (seL4test full flow, boot_stock_linux, vm chains). Needs step 0 baselines first.
 
 ---
 
@@ -22,7 +22,7 @@ All software-testable adapter code is implemented and passing (73/73). Hardware 
 | 4 | Oracle unit test suite (mock StreamContexts, pytest-asyncio) | COMPLETE | `tests/test_engine.py` — built alongside step 3; all combinators covered |
 | 5 | Adapters: `uart.py`, `ssh.py`, `process.py` (+ `engine/primitives.py`) | SW DONE / HW PENDING | 50/50 software tests pass; 4 hardware tests skip-marked (UART, SSH to target) |
 | 6 | Remaining adapters: `docker.py`, `vcmux.py`, `robot.py`, `interactive.py` | SW DONE | 73/73 tests pass (6 skip: 4 HW, 2 RF not installed) |
-| 7 | Chain migration (simple → complex) | NOT STARTED | Needs step 0 baselines |
+| 7 | Chain migration (simple → complex) | IN PROGRESS | Schema+runtime+factory complete; 3 chains migrated; full HW migration needs step 0 baselines |
 | 8 | Swap engine; hardware smoke test (Orin AGX → seL4test) | NOT STARTED | |
 | 9 | Signal handling: SIGINT/SIGTERM → cancel → cleanup | NOT STARTED | |
 | 10 | Migrate daemon, client, MCP server | NOT STARTED | |
