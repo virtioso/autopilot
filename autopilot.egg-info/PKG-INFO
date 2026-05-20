@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: autopilot
+Version: 0.1.0
+Requires-Python: >=3.12
+Requires-Dist: structlog>=24.0
+Requires-Dist: pyserial-asyncio-fast>=0.12
+Requires-Dist: asyncssh>=2.14
+Requires-Dist: docker>=7.1.0
+Requires-Dist: pydantic>=2.0
+Requires-Dist: libtmux>=0.28
+Requires-Dist: ptyprocess>=0.7
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-asyncio<2,>=1.0; extra == "dev"
