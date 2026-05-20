@@ -16,14 +16,14 @@ ConsoleMux (CAmkES) → VCMux frames over UART → vcmuxer (C binary, host) → 
 - CAmkES side: `ConsoleMux` component multiplexes all component output; `GuestConsoleSink` bridges VM output to ConsoleMux
 - Bidirectional: partially — downlink ACK mechanism exists but write path is limited
 
-### Isengard/Docker Path (Linux-based)
+### Linux Target/Docker Path
 
 ```
-virtioso-muxd (Rust daemon on target) → Unix socket clients → [planned: Zenoh bridge] → Autopilot
+target mux daemon (Rust, on target Linux) → Unix socket clients → [planned: Zenoh bridge] → Autopilot
 ```
 
-- Transport: `virtioso-muxd` on target Linux allocates Unix socket per client, multiplexes onto UART
-- Stream discovery: CTRL_CONNECTED / CTRL_DISCONNECTED frames from virtioso-muxd; Zenoh bridge planned but not implemented
+- Transport: target mux daemon allocates a Unix socket per client, multiplexes streams onto UART
+- Stream discovery: CTRL_CONNECTED / CTRL_DISCONNECTED frames from the daemon; Zenoh bridge planned but not implemented
 - This is a Linux userspace daemon — cannot run on seL4 bare-metal
 
 **Zenoh is not applicable to the CAmkES/seL4 path.** seL4 bare-metal has no networking stack; there is nowhere to run a Zenoh router on the CAmkES side. Adding Zenoh here would require a host-side bridge after vcmuxer, adding a layer without removing the existing one.
@@ -75,9 +75,9 @@ class VcmuxerSourceOracle:
 
 ### Option B: Python VCMux frame parser (no subprocess)
 
-Port the `feed_virtioso_byte()` state machine from C to Python. The UART BiStream (pyserial-asyncio-fast) is the raw input; the parser routes bytes to per-stream `asyncio.Queue`s in-process.
+Port the C frame-parser state machine to Python. The UART BiStream (pyserial-asyncio-fast) is the raw input; the parser routes bytes to per-stream `asyncio.Queue`s in-process.
 
-The VCMux parser state machine (translating `tcu_com.c:feed_virtioso_byte()`):
+The VCMux parser state machine:
 
 ```python
 ESC = 0xfe
@@ -222,7 +222,7 @@ class VCMuxSourceOracle:
 
 Modify vcmuxer to publish each demuxed stream as a Zenoh topic instead of (or in addition to) creating PTYs. Autopilot subscribes via zenoh-python.
 
-**Not recommended.** Adds Zenoh infrastructure to a path that works fine without it. The UART transport and VCMux protocol already solve the multiplexing problem; Zenoh adds a network layer between vcmuxer and Autopilot without eliminating any existing complexity. The only benefit would be unifying the CAmkES and Isengard discovery interfaces under one Zenoh API — but the operational cost (running zenohd, maintaining a Zenoh bridge) is not justified for a two-author system.
+**Not recommended.** Adds Zenoh infrastructure to a path that works fine without it. The UART transport and VCMux protocol already solve the multiplexing problem; Zenoh adds a network layer between vcmuxer and Autopilot without eliminating any existing complexity. The only benefit would be unifying the CAmkES and Linux target discovery interfaces under one Zenoh API — but the operational cost (running zenohd, maintaining a Zenoh bridge) is not justified for a two-author system.
 
 ---
 
@@ -239,7 +239,7 @@ The reasons:
 
 **The one real loss** is that minicom/screen cannot attach to individual VM consoles directly. Mitigate by having the `VCMuxSourceOracle` optionally create PTYs as display targets (the same `pipe-pane -I` mechanism used for UART display), written to as a side-effect of the pump loop. This preserves human visibility without requiring vcmuxer.
 
-**For the Isengard/Docker path:** Zenoh-python is the right direction, but only once virtioso-muxd has an actual Zenoh publisher bridge. Until then, the Isengard path uses direct SSH + Docker SDK as covered by the other adapter studies. The vcmux adapter is only needed for seL4/CAmkES.
+**For the Linux target/Docker path:** Zenoh-python is the right direction, but only once the target mux daemon has an actual Zenoh publisher bridge. Until then, the Linux target path uses direct SSH + Docker SDK as covered by the other adapter studies. The vcmux adapter is only needed for seL4/CAmkES.
 
 ---
 
@@ -287,4 +287,4 @@ This composes cleanly: `NvidiaTCUFilter(tag=0xe1, inner=VCMuxParser())` for CCPL
 | Implementation effort | Low (wrap existing) | Medium (port state machine) |
 | Recommended | No | **Yes** |
 
-*Zenoh is not applicable to the CAmkES/seL4 UART path. It may be relevant to the Isengard/Docker path if virtioso-muxd gains a Zenoh publisher bridge.*
+*Zenoh is not applicable to the CAmkES/seL4 UART path. It may be relevant to the Linux target/Docker path if the target mux daemon gains a Zenoh publisher bridge.*

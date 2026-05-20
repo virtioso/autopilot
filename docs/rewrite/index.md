@@ -7,8 +7,8 @@ Autopilot is a **chain-based orchestration runtime** for heterogeneous embedded 
 - Physical hardware (Orin AGX with UEFI reset-line handshakes, USB relay power control)
 - seL4 hypervisor VMs (vcmuxer/VCMux multiplexing, dynamic VM console discovery)
 - QEMU (ARM64/x86-64, router-based console discovery)
-- Docker containers (Isengard vehicle-control + autonomy ROS 2 stacks)
-- Pub/sub middleware (Zenoh bridge, virtioso-muxd)
+- Docker containers (Linux-based target system running user services)
+- Pub/sub middleware (Zenoh bridge, target-side mux daemon)
 - AI-driven interactive debugging (MCP server exposing console sessions to Claude)
 
 The underlying ideas — structured workflow composition, parallel fork/join, async task coordination, signal-based synchronization — are right. The problems are that the flat JSON graph encoding is the wrong shape for expressing oracle composition, and that a single file has accreted all of the implementation.
@@ -21,7 +21,7 @@ The underlying ideas — structured workflow composition, parallel fork/join, as
 
 The system has an unresolved identity: it was designed as a **transport and orchestration layer** but pattern matching on streams has gradually made it a de-facto oracle — it decides whether tests passed by watching for regex patterns.
 
-With Robot Framework (or DTC) in the picture, RF *is* the oracle. Autopilot's role should be to carry RF to the hardware and carry results back — not to re-interpret RF's output via regex.
+With Robot Framework in the picture, RF *is* the oracle. Autopilot's role should be to carry RF to the hardware and carry results back — not to re-interpret RF's output via regex.
 
 Yet removing all pattern matching is impossible: Autopilot *must* match patterns to navigate hardware state (boot menu acquired, EFI prompt visible, login succeeded, VM console alive). Pattern matching for navigation is inherent to hardware orchestration.
 
@@ -101,8 +101,8 @@ All existing step types map to oracle classes. No step type requires a mechanism
 | **Race** | `wait_pattern` with multi-source outcomes | `Race` combinator: each sub-oracle reads a different named stream; first verdict wins |
 | **Command** | `ssh_cmd`, `send_cmd`, `reboot` | Write to named stream, read response; side effects allowed. **PTY echo:** when using a PTY-backed BiStream, the line discipline echoes the sent command back into the read stream before the response arrives. The Command oracle must either disable echo via ptyprocess (`p.setecho(False)`) or account for the echo in its response pattern. |
 | **Poll** | `ssh_wait_ready` | `Repeat(Command(...))` with retry interval and total timeout |
-| **Source** | `map_source`, `map_command_source`, `map_vcmux_source`, `spawn_process` | Add/replace named streams in StreamContext; PTY display attachment is a side effect of stream creation, not a separate step. `spawn_process` is the variant for long-lived background processes (e.g. `virtual-exertus.py`, `isengard-can-bridge`): spawns the process, creates a stdout BiStream, applies a Pattern oracle to detect a readiness signal, then registers a kill as a cleanup_hook. This is `map_command_source` extended with a readiness gate. **Transition atomicity:** the in-process VCMux parser (Option B) ensures no bytes are dropped during the UART→multiplexed-streams transition — the pump loop runs continuously before and after stream registration, buffering bytes per-stream from the moment they arrive. |
-| **Infrastructure** | `vcan_setup`, `vcan_teardown` | Host-side environment setup with no target hardware involved (e.g. `ip link add vcan0 type vcan`). Teardown is registered as a cleanup_hook at setup time so it runs even when a later oracle fails — matching Robot Framework's suite teardown guarantee. Modelled as a Command oracle that writes nothing to a BiStream and whose sole output is a cleanup_hook side-effect. |
+| **Source** | `map_source`, `map_command_source`, `map_vcmux_source`, `spawn_process` | Add/replace named streams in StreamContext; PTY display attachment is a side effect of stream creation, not a separate step. `spawn_process` is the variant for long-lived background processes (simulator daemons, services under test): spawns the process, creates a stdout BiStream, applies a Pattern oracle to detect a readiness signal, then registers a kill as a cleanup_hook. This is `map_command_source` extended with a readiness gate. **Transition atomicity:** the in-process VCMux parser (Option B) ensures no bytes are dropped during the UART→multiplexed-streams transition — the pump loop runs continuously before and after stream registration, buffering bytes per-stream from the moment they arrive. |
+| **Infrastructure** | `vcan_setup`, `vcan_teardown` | Host-side environment setup with no target hardware involved (e.g. virtual network interfaces via `ip link`). Teardown is registered as a cleanup_hook at setup time so it runs even when a later oracle fails — matching Robot Framework's suite teardown guarantee. Modelled as a Command oracle that writes nothing to a BiStream and whose sole output is a cleanup_hook side-effect. |
 | **Upload** | `upload_efi`, `upload_file`, `upload_kernel` | SCP side effect; verdict on completion or checksum match |
 | **Process** | `analyze_logs`, `run_robot` | Run subprocess; verdict on exit code or structured result; no stream consumed during the oracle call itself. For Robot Framework: runs `robot --outputdir <dir> <suite>`, awaits exit, reads `output.xml` via the RF result adapter, writes `results/<id>/robot/verdict.json` as a structured artifact side-effect, then returns `Verdict.matched("rf_pass")` or `Verdict.matched("rf_fail")`. The chain routes on the label; the structured per-test failure data lives in the artifact file and is retrieved separately by the MCP server or CI consumer. |
 | **Interactive** | `interactive_console` | Expose named `BiStream` to human/AI; yield on completion signal |
@@ -158,20 +158,7 @@ The seam between navigation and interaction is explicit: navigation oracles brin
 
 ### Robot Framework as a Process Oracle
 
-Robot Framework is the **test oracle for CAN bus behaviour** in the Isengard/Normet chains. It runs `.robot` keyword suites that encode domain-expert acceptance criteria and produces binary pass/fail with precise per-test failure messages. Autopilot orchestrates the environment; RF decides what the evidence means.
-
-The integration maps cleanly onto the oracle model. A complete `isengard-cp-arbitration` chain looks like:
-
-```
-Sequence(
-    InfrastructureOracle("vcan_setup", interfaces=["vcan0","vcan1"]),
-    SpawnProcessOracle("virtual-exertus", cmd=..., ready="virtual-exertus: ready"),
-    SpawnProcessOracle("virtual-mid",     cmd=..., ready="virtual-mid: ready"),
-    SpawnProcessOracle("can-bridge",      cmd=..., ready="ready — poll loop active"),
-    RobotFrameworkOracle(suite=..., output_dir=...),
-)
-# cleanup_hooks registered during setup kill processes and tear down vcan on any exit path
-```
+Robot Framework is a domain-specific **test oracle**: it runs `.robot` keyword suites that encode acceptance criteria and produces binary pass/fail with precise per-test failure messages. Autopilot orchestrates the environment; RF decides what the evidence means.
 
 The `RobotFrameworkOracle` (a Process oracle in `adapters/robot.py`) does:
 1. Runs `robot --outputdir <dir> <suite>` as a subprocess
@@ -182,13 +169,11 @@ The `RobotFrameworkOracle` (a Process oracle in `adapters/robot.py`) does:
 
 The chain routes on the label. The structured per-test failure detail (`{pass: 11, fail: 1, failures: [{suite, test, message}]}`) lives in the artifact file and is retrieved by the MCP server or CI consumer after the chain completes. This is the standard oracle pattern: labels route the chain, artifacts carry the evidence.
 
-**Host-only chains.** The isengard-cp-arbitration chain runs entirely on the Linux host — `vcan` interfaces are kernel features, all processes are local, no target hardware is involved. The oracle model handles this without special casing: oracles that reference no UART or SSH BiStream simply do not add them to StreamContext. The engine is indifferent to whether any given chain targets hardware.
+**Host-only chains.** RF-based chains typically run entirely on the Linux host — virtual network interfaces are kernel features, simulator processes are local, no target hardware is involved. The oracle model handles this without special casing: oracles that reference no UART or SSH BiStream simply do not add them to StreamContext. The engine is indifferent to whether a chain targets hardware.
 
-**Teardown guarantee.** `InfrastructureOracle` registers its teardown (`ip link del vcanN`) and `SpawnProcessOracle` registers its kill as `cleanup_hooks` at creation time. Because the engine calls `ctx.cleanup()` on the final context regardless of how the chain exits (pass, fail, timeout, error, SIGTERM), teardown always runs. This matches Robot Framework's own suite teardown guarantee: a failing RF test does not leave stale vcan interfaces or zombie processes for the next run.
+**Teardown guarantee.** `InfrastructureOracle` and `SpawnProcessOracle` register their teardown actions as `cleanup_hooks` at creation time. Because the engine calls `ctx.cleanup()` on the final context regardless of how the chain exits (pass, fail, timeout, error, SIGTERM), teardown always runs — no zombie processes or stale interfaces survive a failing RF test.
 
-**Scope.** RF applies to Isengard/Normet CAN bus validation only (`isengard-cp-arbitration` and related chains). The seL4 VM boot chains, QEMU smoke tests, and Orin AGX hardware chains do not invoke RF — they use Pattern and Command oracles against console streams.
-
-→ See `docs/testing/autopilot-rf-integration.md` and `docs/reference/robot-framework-role.md` in `tii-sel4/sources/isengard-core` for the full RF test suite architecture.
+→ For the concrete chain shape, process names, interface layout, and RF test suite details specific to a given project, see that project's Autopilot integration notes.
 
 ### Relation to pexpect
 
@@ -218,8 +203,8 @@ These replace current ad-hoc implementations in the rewrite:
 | **ptyprocess** | Ad-hoc PTY handling scattered across modules | Raw PTY fd access used by PTY-based adapters to back their `BiStream` instances |
 | **pyserial-asyncio-fast** | Synchronous `pyserial` thread loops | Async UART adapter — `asyncio.StreamReader/StreamWriter` over serial. Use `pyserial-asyncio-fast`, NOT the original `pyserial-asyncio` (original blocks the event loop and is being deprecated by Home Assistant 2026-07) |
 | **asyncssh** | Synchronous paramiko / subprocess ssh calls | Asyncio-native SSH — command execution, SFTP upload, interactive PTY sessions. Paramiko is synchronous and thread-based; incompatible with the asyncio commitment. |
-| **docker SDK (docker-py 7.1.0)** | Ad-hoc subprocess docker calls | Container lifecycle + log stream tailing for Isengard Docker adapter. Log stream framing uses an 8-byte Docker multiplexing header (stdout/stderr + length). Use docker-py; aiodocker is inactive (last release 12+ months ago). |
-| **zenoh-python** | Ad-hoc Zenoh calls in vcmuxer integration | Pub/sub for the Isengard/Docker path only — NOT applicable to the CAmkES/seL4 UART path (seL4 has no networking). For seL4: in-process VCMux parser (see below). |
+| **docker SDK (docker-py 7.1.0)** | Ad-hoc subprocess docker calls | Container lifecycle + log stream tailing for the Docker adapter. Log stream framing uses an 8-byte Docker multiplexing header (stdout/stderr + length). Use docker-py; aiodocker is inactive (last release 12+ months ago). |
+| **zenoh-python** | Ad-hoc Zenoh calls in vcmuxer integration | Pub/sub for the Linux target/Docker path only — NOT applicable to the CAmkES/seL4 UART path (seL4 has no networking). For seL4: in-process VCMux parser (see below). |
 | **structlog** | Direct `print()` and unstructured logging | Structured context logging (request_id, oracle_type, stream_name) with asyncio `contextvars` propagation across tasks. Significantly better than stdlib `logging` for correlated multi-stream orchestration logs. |
 | **pytest-asyncio** | — (no tests currently) | Asyncio-native test infrastructure for oracle unit tests with mock StreamContexts. Use `asyncio_mode = "auto"` for a test suite built from scratch. |
 | **labgrid power backends** (selective import) | — | `labgrid/driver/power/` contains standalone HTTP/SNMP clients for 25+ PDU models, importable without adopting labgrid's architecture. Reuse specific backends (e.g., `labgrid.driver.power.gude`) directly as power control adapters. |
@@ -246,7 +231,7 @@ Handles serial UART I/O, ANSI stripping, SSH, SCP, Docker log tailing, vcmuxer p
 
 ### 2. Naming Is Frozen in the seL4 Era
 
-`sel4_client.py`, `sel4_mcp_server.py`, `orin_kernel_autopilot.py`, MCP tools `test_sel4_efi` / `check_sel4_test` — all reflect what the project was. They now serve Docker, Zenoh, QEMU, and Isengard workloads.
+`sel4_client.py`, `sel4_mcp_server.py`, `orin_kernel_autopilot.py`, MCP tools `test_sel4_efi` / `check_sel4_test` — all reflect what the project was. They now serve Docker, Zenoh, QEMU, and Linux target workloads.
 
 **Rewrite direction:** `autopilot_client.py`, `autopilot_mcp_server.py`, `autopilot_daemon.py`. MCP tools: `submit_chain`, `check_test`, `get_logs`.
 
@@ -314,7 +299,7 @@ autopilot/
 │   ├── process.py         # Subprocess / map_command_source oracles
 │   ├── docker.py          # Docker log tailing oracles (docker-py 7.1.0; 8-byte mux header aware)
 │   ├── vcmux.py           # VCMux: in-process 0xfe frame parser on UART BiStream (seL4/CAmkES);
-│   │                      #   Zenoh bridge possible for Isengard path once virtioso-muxd gains publisher
+│   │                      #   Zenoh bridge possible for Linux target path once target mux daemon gains publisher
 │   ├── robot.py           # RobotFrameworkOracle + rf_xml adapter; host-only, no BiStream consumed
 │   └── interactive.py     # InteractiveOracle: PTY/tmux + MCP handoff; completion via Unix socket signal channel
 ├── model/
