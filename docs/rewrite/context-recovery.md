@@ -129,17 +129,20 @@ autopilot-rewrite/
 
 Check `tracker.md` for current step. Then:
 
-1. Steps 3–9 are **complete** (steps 7 and 8 have hardware validation pending). 121 tests pass.
-   - `engine/`: oracle.py, combinators.py, recorder.py, primitives.py, **runtime.py** (new)
+1. Steps 3–10 are **complete** (steps 7 and 8 have hardware validation pending). 161 tests pass.
+   - `engine/`: oracle.py, combinators.py, recorder.py, primitives.py, runtime.py
    - `adapters/`: uart.py, ssh.py, process.py, docker.py, vcmux.py, robot.py, interactive.py
-   - `model/chain.py`: Pydantic OracleDef (19 types) + OracleFactory
+   - `model/chain.py`: Pydantic OracleDef (20 types) + OracleFactory
    - `model/config.py`: layered Config (defaults → platform YAML → env → request)
    - `engine/runtime.py`: ChainRunner + run_chain / load_chain / hydrate_chain / execute_chain
    - `autopilot.py`: CLI — `run` (SIGINT/SIGTERM → cancel → cleanup) + `list`
+   - `daemon.py`: asyncio daemon — RunRegistry, worker queue, Unix socket + MCP co-tasks
+   - `client.py`: AutopilotClient (async) + SyncAutopilotClient + CLI (submit/status/cancel/list/logs)
+   - `mcp_server.py`: MCPServer — 10 domain-neutral tools via JSON-RPC 2.0 / Content-Length framing
    - `platforms/`: orin-agx.yaml, qemu-generic.yaml
-   - `chains/`: post_test_fallback_noop.json, wait_for_elfloader.json, sel4test.json (simplified)
-2. **Hardware validation pending** (4 tests skip-marked in `tests/test_adapters.py`): UART loopback, SSH to target. Hardware smoke test: `python autopilot.py run --chain chains/sel4test.json --platform orin-agx`
-3. **Next: Step 10** — migrate daemon, client, MCP server (thin wrappers over new engine).
+   - `chains/`: post_test_fallback_noop.json, wait_for_elfloader.json, sel4test.json
+2. **Hardware validation pending** (4 tests skip-marked in `tests/test_adapters.py`): UART loopback, SSH to target.
+3. **All software steps complete.** Next work: hardware smoke test, then migrate more complex chains (step 7 continuation — needs step 0 baselines).
 
 **Key new APIs:**
 ```python

@@ -5,13 +5,19 @@
 
 ## Current Step
 
-**Steps 8+9 — Engine swap and signal handling: software complete, hardware smoke test pending**  
+**Step 10 — Daemon, client, MCP server: COMPLETE**  
 Worktree: `~/autopilot-rewrite/` on orphan branch `rewrite`  
-ChainRunner (full lifecycle), layered Config, CLI entry point (`autopilot.py run/list`), and SIGINT/SIGTERM → cancel → cleanup are all implemented and tested. 121/121 tests pass.
+161/161 tests pass (6 hardware/RF skipped). All software steps complete.
 
 Hardware smoke test command (run on Orin AGX with board connected):
 ```bash
 cd ~/autopilot-rewrite
+python daemon.py --platform orin-agx &
+python client.py submit --chain chains/sel4test.json --platform orin-agx --wait
+```
+
+Or without the daemon (direct CLI):
+```bash
 python autopilot.py run --chain chains/sel4test.json --platform orin-agx --timeout 1200
 ```
 
@@ -31,7 +37,7 @@ python autopilot.py run --chain chains/sel4test.json --platform orin-agx --timeo
 | 7 | Chain migration (simple → complex) | IN PROGRESS | Schema+runtime+factory complete; 3 chains migrated; full HW migration needs step 0 baselines |
 | 8 | Swap engine; hardware smoke test (Orin AGX → seL4test) | SW DONE / HW PENDING | ChainRunner, Config, CLI+signal handling built; 121 tests pass; `python autopilot.py run --chain chains/sel4test.json --platform orin-agx` |
 | 9 | Signal handling: SIGINT/SIGTERM → cancel → cleanup | COMPLETE | Integrated in step 8: CLI wires SIGINT/SIGTERM → task.cancel(); cleanup tested |
-| 10 | Migrate daemon, client, MCP server | NOT STARTED | |
+| 10 | Migrate daemon, client, MCP server | COMPLETE | daemon.py + client.py + mcp_server.py + 40 tests; 161 tests pass |
 
 ---
 
