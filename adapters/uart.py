@@ -28,7 +28,7 @@ import asyncio
 import serial_asyncio_fast
 import structlog
 
-from engine.oracle import StreamContext
+from engine.oracle import Error, Matched, StreamContext, Verdict
 
 log = structlog.get_logger()
 
@@ -73,6 +73,48 @@ class UARTBiStream:
     @property
     def device(self) -> str:
         return self._device
+
+
+class UARTSourceOracle:
+    """
+    Open a UART device and register it as a named stream in ctx.
+
+    Maps to the old chain 'map_source' step type.
+    Registers a cleanup hook that closes the UART on chain teardown.
+    """
+
+    def __init__(
+        self,
+        stream_name: str,
+        device: str,
+        baudrate: int = 115200,
+    ) -> None:
+        self._stream_name = stream_name
+        self._device = device
+        self._baudrate = baudrate
+
+    async def __call__(
+        self, ctx: StreamContext, timeout: float
+    ) -> tuple[Verdict, StreamContext]:
+        try:
+            stream = await open_uart(self._device, self._baudrate)
+        except Exception as exc:
+            log.warning(
+                "uart_source.open_failed",
+                stream=self._stream_name,
+                device=self._device,
+                error=repr(exc),
+            )
+            return Error(f"uart_open_failed: {exc}"), ctx
+
+        ctx.streams[self._stream_name] = stream
+        ctx.register_cleanup(self._stream_name, stream.close)
+        log.info(
+            "uart_source.ready",
+            stream=self._stream_name,
+            device=self._device,
+        )
+        return Matched("ok"), ctx
 
 
 async def open_uart(device: str, baudrate: int = 115200) -> UARTBiStream:

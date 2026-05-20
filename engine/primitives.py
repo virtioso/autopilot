@@ -86,6 +86,23 @@ class PatternOracle:
                 return Matched(self._label), ctx
 
 
+class VerdictOracle:
+    """
+    Return an immediate Matched(label) verdict without reading any stream.
+
+    Maps to the old chain 'pass'/'fail' terminal step types, and to
+    'set_test_verdict' when the verdict is known without pattern matching.
+    """
+
+    def __init__(self, label: str = "ok") -> None:
+        self._label = label
+
+    async def __call__(
+        self, ctx: StreamContext, timeout: float
+    ) -> tuple[Verdict, StreamContext]:
+        return Matched(self._label), ctx
+
+
 class CommandOracle:
     """
     Write a command to a stream, then wait for a response pattern.

@@ -1,0 +1,18 @@
+{
+  "oracle": "timeout",
+  "seconds": 300,
+  "step": {
+    "oracle": "choice",
+    "stream": "tty0",
+    "options": [
+      {
+        "pattern": "ELF-loader started on CPU",
+        "label": "pass"
+      },
+      {
+        "pattern": "is not recognized as an internal or external command",
+        "label": "fail"
+      }
+    ]
+  }
+}

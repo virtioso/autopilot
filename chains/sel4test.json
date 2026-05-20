@@ -1,0 +1,37 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "uart_source",
+      "stream": "tty0",
+      "device": "$AUTOPILOT_TTY0",
+      "baudrate": 115200
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 300,
+      "step": {
+        "oracle": "chain_ref",
+        "path": "chains/wait_for_elfloader.json"
+      }
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 420,
+      "step": {
+        "oracle": "choice",
+        "stream": "tty0",
+        "options": [
+          {
+            "pattern": "All is well in the universe",
+            "label": "pass"
+          },
+          {
+            "pattern": "\\*\\*\\* FAILURES DETECTED \\*\\*\\*|Halting on fatal assertion\\.\\.\\.|Halting on first test failure|\\*\\*\\* ALL tests not run \\*\\*\\*",
+            "label": "fail"
+          }
+        ]
+      }
+    }
+  ]
+}
