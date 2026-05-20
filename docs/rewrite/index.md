@@ -101,9 +101,10 @@ All existing step types map to oracle classes. No step type requires a mechanism
 | **Race** | `wait_pattern` with multi-source outcomes | `Race` combinator: each sub-oracle reads a different named stream; first verdict wins |
 | **Command** | `ssh_cmd`, `send_cmd`, `reboot` | Write to named stream, read response; side effects allowed. **PTY echo:** when using a PTY-backed BiStream, the line discipline echoes the sent command back into the read stream before the response arrives. The Command oracle must either disable echo via ptyprocess (`p.setecho(False)`) or account for the echo in its response pattern. |
 | **Poll** | `ssh_wait_ready` | `Repeat(Command(...))` with retry interval and total timeout |
-| **Source** | `map_source`, `map_command_source`, `map_vcmux_source` | Add/replace named streams in StreamContext; PTY display attachment is a side effect of stream creation, not a separate step. **Transition atomicity:** the in-process VCMux parser (Option B) ensures no bytes are dropped during the UART→multiplexed-streams transition — the pump loop runs continuously before and after stream registration, buffering bytes per-stream from the moment they arrive. |
+| **Source** | `map_source`, `map_command_source`, `map_vcmux_source`, `spawn_process` | Add/replace named streams in StreamContext; PTY display attachment is a side effect of stream creation, not a separate step. `spawn_process` is the variant for long-lived background processes (e.g. `virtual-exertus.py`, `isengard-can-bridge`): spawns the process, creates a stdout BiStream, applies a Pattern oracle to detect a readiness signal, then registers a kill as a cleanup_hook. This is `map_command_source` extended with a readiness gate. **Transition atomicity:** the in-process VCMux parser (Option B) ensures no bytes are dropped during the UART→multiplexed-streams transition — the pump loop runs continuously before and after stream registration, buffering bytes per-stream from the moment they arrive. |
+| **Infrastructure** | `vcan_setup`, `vcan_teardown` | Host-side environment setup with no target hardware involved (e.g. `ip link add vcan0 type vcan`). Teardown is registered as a cleanup_hook at setup time so it runs even when a later oracle fails — matching Robot Framework's suite teardown guarantee. Modelled as a Command oracle that writes nothing to a BiStream and whose sole output is a cleanup_hook side-effect. |
 | **Upload** | `upload_efi`, `upload_file`, `upload_kernel` | SCP side effect; verdict on completion or checksum match |
-| **Process** | `analyze_logs` | Run subprocess; verdict on exit code; no stream consumed |
+| **Process** | `analyze_logs`, `run_robot` | Run subprocess; verdict on exit code or structured result; no stream consumed during the oracle call itself. For Robot Framework: runs `robot --outputdir <dir> <suite>`, awaits exit, reads `output.xml` via the RF result adapter, writes `results/<id>/robot/verdict.json` as a structured artifact side-effect, then returns `Verdict.matched("rf_pass")` or `Verdict.matched("rf_fail")`. The chain routes on the label; the structured per-test failure data lives in the artifact file and is retrieved separately by the MCP server or CI consumer. |
 | **Interactive** | `interactive_console` | Expose named `BiStream` to human/AI; yield on completion signal |
 | **Sync** | `signal_wait`, `wait_router_session`, `relay`, `purge_sources` | Synchronization primitives; advance StreamContext state |
 | **Meta** | `set_overrides` | Modify StreamContext config (chain aliases, lifecycle); immediate verdict |
@@ -115,7 +116,7 @@ All existing step types map to oracle classes. No step type requires a mechanism
 All oracles are the same type; their verdict semantics differ by intent:
 - **Navigation oracles** (`wait_pattern` for "Shell>") — verdict means "we reached this hardware state"
 - **Lightweight verdict oracles** (`wait_pattern` for "Tests passed") — verdict means "we saw the pass/fail banner"
-- **Proper verdict oracles** (RF oracle, exit code oracle) — verdict carries structured test results
+- **Proper verdict oracles** (RF oracle, exit code oracle) — verdict carries a label (`rf_pass`/`rf_fail`); structured test results are written to disk as artifact side-effects and retrieved separately
 
 The chain author decides which intent applies; the engine is indifferent.
 
@@ -154,6 +155,40 @@ Sequence(
 The seam between navigation and interaction is explicit: navigation oracles bring the system to a ready state; the interactive oracle is the handoff point where control moves from Autopilot's pattern-matching to a human or AI actor. After the session closes, the enclosing `Sequence` continues — Autopilot proceeds to artifact collection, teardown, or the next oracle.
 
 `InteractiveOracle` is an oracle (not a combinator) and belongs in `adapters/interactive.py`. The core engine is unaffected.
+
+### Robot Framework as a Process Oracle
+
+Robot Framework is the **test oracle for CAN bus behaviour** in the Isengard/Normet chains. It runs `.robot` keyword suites that encode domain-expert acceptance criteria and produces binary pass/fail with precise per-test failure messages. Autopilot orchestrates the environment; RF decides what the evidence means.
+
+The integration maps cleanly onto the oracle model. A complete `isengard-cp-arbitration` chain looks like:
+
+```
+Sequence(
+    InfrastructureOracle("vcan_setup", interfaces=["vcan0","vcan1"]),
+    SpawnProcessOracle("virtual-exertus", cmd=..., ready="virtual-exertus: ready"),
+    SpawnProcessOracle("virtual-mid",     cmd=..., ready="virtual-mid: ready"),
+    SpawnProcessOracle("can-bridge",      cmd=..., ready="ready — poll loop active"),
+    RobotFrameworkOracle(suite=..., output_dir=...),
+)
+# cleanup_hooks registered during setup kill processes and tear down vcan on any exit path
+```
+
+The `RobotFrameworkOracle` (a Process oracle in `adapters/robot.py`) does:
+1. Runs `robot --outputdir <dir> <suite>` as a subprocess
+2. Awaits exit (within timeout)
+3. Reads `output.xml` via `adapters/rf_xml.py` (thin adapter, ~30 lines)
+4. Writes `results/<run_id>/robot/verdict.json` as a structured artifact
+5. Returns `Verdict.matched("rf_pass")` or `Verdict.matched("rf_fail")`
+
+The chain routes on the label. The structured per-test failure detail (`{pass: 11, fail: 1, failures: [{suite, test, message}]}`) lives in the artifact file and is retrieved by the MCP server or CI consumer after the chain completes. This is the standard oracle pattern: labels route the chain, artifacts carry the evidence.
+
+**Host-only chains.** The isengard-cp-arbitration chain runs entirely on the Linux host — `vcan` interfaces are kernel features, all processes are local, no target hardware is involved. The oracle model handles this without special casing: oracles that reference no UART or SSH BiStream simply do not add them to StreamContext. The engine is indifferent to whether any given chain targets hardware.
+
+**Teardown guarantee.** `InfrastructureOracle` registers its teardown (`ip link del vcanN`) and `SpawnProcessOracle` registers its kill as `cleanup_hooks` at creation time. Because the engine calls `ctx.cleanup()` on the final context regardless of how the chain exits (pass, fail, timeout, error, SIGTERM), teardown always runs. This matches Robot Framework's own suite teardown guarantee: a failing RF test does not leave stale vcan interfaces or zombie processes for the next run.
+
+**Scope.** RF applies to Isengard/Normet CAN bus validation only (`isengard-cp-arbitration` and related chains). The seL4 VM boot chains, QEMU smoke tests, and Orin AGX hardware chains do not invoke RF — they use Pattern and Command oracles against console streams.
+
+→ See `docs/testing/autopilot-rf-integration.md` and `docs/reference/robot-framework-role.md` in `tii-sel4/sources/isengard-core` for the full RF test suite architecture.
 
 ### Relation to pexpect
 
@@ -280,6 +315,7 @@ autopilot/
 │   ├── docker.py          # Docker log tailing oracles (docker-py 7.1.0; 8-byte mux header aware)
 │   ├── vcmux.py           # VCMux: in-process 0xfe frame parser on UART BiStream (seL4/CAmkES);
 │   │                      #   Zenoh bridge possible for Isengard path once virtioso-muxd gains publisher
+│   ├── robot.py           # RobotFrameworkOracle + rf_xml adapter; host-only, no BiStream consumed
 │   └── interactive.py     # InteractiveOracle: PTY/tmux + MCP handoff; completion via Unix socket signal channel
 ├── model/
 │   ├── chain.py           # Pydantic: OracleDef, SequenceDef, ChoiceDef, RaceDef, ParallelDef, RepeatDef
