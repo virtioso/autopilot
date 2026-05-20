@@ -108,10 +108,10 @@ autopilot-rewrite/
 │   ├── uart.py            # pyserial-asyncio-fast
 │   ├── ssh.py             # asyncssh
 │   ├── process.py         # subprocess / spawn_process
-│   ├── docker.py          # docker-py 7.1.0
-│   ├── vcmux.py           # in-process VCMux 0xfe parser (seL4/CAmkES path)
-│   ├── robot.py           # RobotFrameworkOracle + rf_xml adapter
-│   └── interactive.py     # ConsoleBridge + session registry + MCP handoff
+│   ├── docker.py          # docker-py 7.1.0; DockerLogBiStream + DockerContainerOracle
+│   ├── vcmux.py           # in-process VCMux 0xfe parser; VCMuxParser, NvidiaTCUFilter, VCMuxSourceOracle
+│   ├── robot.py           # RobotFrameworkOracle + parse_rf_output (output.xml)
+│   └── interactive.py     # ConsoleBridge + _session_registry + InteractiveOracle
 ├── model/
 │   ├── chain.py           # Pydantic OracleDef discriminated union + OracleFactory
 │   └── config.py          # Layered config (defaults → platform → env → request)
@@ -129,10 +129,21 @@ autopilot-rewrite/
 
 Check `tracker.md` for current step. Then:
 
-1. Steps 3 and 4 are **complete**: `engine/oracle.py`, `engine/combinators.py`, `engine/recorder.py`, `engine/primitives.py` — 50 tests passing.
-2. Step 5 is **software complete**: `adapters/uart.py` (pyserial-asyncio-fast), `adapters/ssh.py` (asyncssh), `adapters/process.py` (asyncio subprocess + SpawnProcessOracle). Hardware-dependent tests in `tests/test_adapters.py` are `@pytest.mark.skip` — remove the marker and run when hardware is available.
-3. **Next: Step 6** — `adapters/docker.py` (docker-py 7.1.0), `adapters/vcmux.py` (in-process VCMux frame parser), `adapters/robot.py` (RF oracle). Then `adapters/interactive.py` (ConsoleBridge + session registry).
-4. Step 0 (hardware baselines) must be done before step 7 (chain migration). Do it on next hardware access.
+1. Steps 3–6 are **complete**: all engine modules and all adapters implemented, 73 tests passing.
+   - `engine/`: oracle.py, combinators.py, recorder.py, primitives.py
+   - `adapters/`: uart.py, ssh.py, process.py, docker.py, vcmux.py, robot.py, interactive.py
+2. **Hardware validation pending** (4 tests skip-marked in `tests/test_adapters.py`): UART loopback, SSH to target. Remove `@pytest.mark.skip` and run when hardware is available.
+3. **RF oracle tests** skip if `robot` is not installed (`pip install robotframework` to enable).
+4. **Next: Step 0** — pre-rewrite baselines on real hardware (verdict sequences for existing chains). Do this on next hardware access before starting step 7.
+5. **Then: Step 7** — chain migration. Start with simple linear chains (`boot_stock_linux`, `wait_for_elfloader`), complex last (`vm-qemu-virtio`).
+
+**Key test to run on hardware (step 5/6 completion):**
+```bash
+cd ~/autopilot-rewrite
+# Remove @pytest.mark.skip from test_uart_open_and_read in tests/test_adapters.py
+# Set TARGET_IP env var, remove skip from SSH tests
+TARGET_IP=<board-ip> python3 -m pytest tests/test_adapters.py -v -k "uart or ssh"
+```
 
 **Key test to run on hardware (step 5 completion):**
 ```bash
