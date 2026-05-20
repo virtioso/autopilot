@@ -703,6 +703,31 @@ Verdict = Matched | Timeout | Error
 
 Pattern matching in the engine uses `match verdict: case Matched(label=l): ... case Timeout(): ... case Error(reason=r): ...` — using Python 3.10+ structural pattern matching, which is available in Python 3.12 (W23). `frozen=True` makes verdicts hashable and prevents mutation after creation. The `Matched.is_matched(label)` helper allows `Sequence`'s short-circuit check to be `if not verdict.is_matched(): return (verdict, ctx)`. Note: `Timeout` is also the name used for the `Timeout(oracle, t)` combinator — use `TimeoutVerdict` as the class name for the verdict variant to avoid the name collision in `engine/oracle.py`.
 
+**W29 — `SpawnProcessOracle` cleanup_hook registration order: timeout during readiness detection leaves zombie process.**  
+The oracle taxonomy describes `SpawnProcessOracle` as: "spawns the process, creates a stdout BiStream, applies a Pattern oracle to detect a readiness signal, then registers a kill as a cleanup_hook." If the readiness Pattern oracle times out (process never prints its readiness banner), the cleanup_hook for the kill has not yet been registered (it's registered *after* readiness). With the W11 model, Timeout fires and returns the current ctx — but the kill hook is not in ctx.cleanup_hooks. The process is now running with no registered cleanup. When ctx.cleanup() is eventually called at chain end, the process is not killed. In a hardware test, simulator processes left running after a failed chain are a known operational hazard — they hold port bindings, consume resources, and interfere with subsequent runs.  
+*Mitigation:* Register the kill cleanup_hook **immediately after spawning the process**, before applying the readiness Pattern oracle:
+
+```python
+class SpawnProcessOracle:
+    async def __call__(self, ctx: StreamContext, timeout: float):
+        proc = await asyncio.create_subprocess_exec(...)
+        stdout_stream = AsyncioStreamBiStream(proc.stdout)
+
+        # Register kill BEFORE readiness check — timeout during readiness still cleans up
+        ctx.cleanup_hooks.append((self.stream_name, lambda: proc.terminate()))
+        ctx.streams[self.stream_name] = stdout_stream
+
+        # Now apply readiness gate — if this times out, kill hook is already registered
+        readiness = PatternOracle(pattern=self.ready_pattern, stream=self.stream_name)
+        verdict, ctx = await Timeout(readiness, timeout)(ctx, timeout)
+        if not isinstance(verdict, Matched):
+            return verdict, ctx  # cleanup_hook already registered; ctx.cleanup() will kill
+
+        return Matched(self.ready_label), ctx
+```
+
+This is the correct order: resource acquired → cleanup registered → readiness checked. This pattern must be stated as a coding rule in the oracle implementation guide: "Register cleanup_hooks for external processes and connections immediately upon creation, before any condition check that might time out."
+
 ---
 
 ## Tactical Improvements (Pre-Rewrite, Low Risk)
