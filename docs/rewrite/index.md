@@ -617,6 +617,92 @@ The MCP server currently provides tools like `check_test` and `get_logs`. In the
 
 The run registry must be bounded (keep last N runs) to prevent unbounded memory growth. A limit of 100 runs is sufficient for a two-author system.
 
+**W25 — Oracle hydration from chain JSON (OracleDef → Oracle callable) has no factory design.**  
+The W14 mitigation defines Pydantic models for chain JSON deserialization. But `SequenceDef` is a data class — it must be "hydrated" into a real `Sequence(oracle_a, oracle_b)` callable before execution. The plan has no factory layer: who reads a `SequenceDef` and produces a `Sequence` instance? How does `{"oracle": "uart_pattern", "pattern": "Shell>"}` become a `UARTPatternOracle(pattern="Shell>")` instance? How do adapter-specific oracle types (defined in `adapters/uart.py`) get registered so the factory can instantiate them by name? If the discriminated union in `model/chain.py` is closed (W14 mitigation), the factory is also closed — new adapters require modifying `model/chain.py`, which breaks the "adapters add oracle types without touching the engine" design goal.  
+*Mitigation:* Implement a two-phase chain loading pipeline:  
+1. **Deserialize**: `chain.py`'s Pydantic models parse JSON into typed `OracleDef` objects. The discriminated union uses a string `oracle` field.  
+2. **Hydrate**: an `OracleFactory` class maps oracle type names to constructor callables. Each adapter registers its oracle types at import time via `OracleFactory.register("uart_pattern", UARTPatternOracle)`. The factory recursively hydrates the `OracleDef` tree into live Oracle instances.  
+
+```python
+class OracleFactory:
+    _registry: dict[str, type] = {}
+
+    @classmethod
+    def register(cls, name: str, oracle_class: type) -> None:
+        cls._registry[name] = oracle_class
+
+    @classmethod
+    def hydrate(cls, defn: AnyOracleDef) -> Oracle:
+        match defn:
+            case SequenceDef(steps=steps):
+                return Sequence([cls.hydrate(s) for s in steps])
+            case ChoiceDef(options=options, max_buf=mb):
+                return Choice(options, max_buf=mb)
+            case _:
+                oracle_class = cls._registry[defn.oracle]
+                return oracle_class(**defn.model_dump(exclude={"oracle"}))
+```
+
+For the discriminated union to be open to adapter-defined types, use an `UnknownOracleDef` fallback in the Pydantic union that stores raw fields as a dict; the factory then resolves it against the registry. This keeps `model/chain.py` closed for the core combinators (which it must validate strictly) while allowing adapter-registered oracles to be loaded without modifying `model/chain.py`. Adapter modules are imported at daemon startup, registering their types before any chain is hydrated.
+
+**W26 — `Sequence` timeout threading: W12's "reduced remaining" mitigation conflicts with W2 and asyncio cancellation.**  
+W12's mitigation adds logic where `Sequence` tracks elapsed time and passes `remaining = deadline - loop.time()` to each step. This is actually redundant with — and potentially conflicts with — the asyncio cancellation model from W2. If `Timeout(Sequence(A, B), T)` wraps the whole sequence, `asyncio.wait_for(sequence_coro, T)` will cancel the entire sequence (and whichever step is running) when T expires. The inner step does not need to know the remaining time — the outer Timeout combinator handles the deadline. Adding "remaining" threading inside Sequence introduces complexity with no benefit: steps that have their own `Timeout(oracle, t)` combinator will run for `t` seconds regardless of what Sequence passes, because `asyncio.wait_for` uses the parameter passed to it, not any external signal.  
+*Correction to W12 mitigation:* Remove the "reduced remaining" logic from Sequence. Sequence's job is sequential composition with short-circuit on non-matched verdicts. Deadline enforcement is the sole responsibility of the `Timeout` combinator. The `timeout` parameter in the oracle signature `(StreamContext, Timeout) → ...` represents the individual oracle's budget set by its own `Timeout` wrapper, not a cascading parent budget. For a sequence where each step must share a global budget, the chain author writes `Timeout(Sequence(A, B, C), 60)` — the outer Timeout cancels the sequence at 60 seconds regardless of which step is active. This is correct. The "wall-clock budget" concern is real but is handled by the outer Timeout, not inside Sequence.
+
+**W27 — `asyncio.TaskGroup` is available in Python 3.11+ (required by W23) and is strictly safer than manual `asyncio.gather` + cancel loops for `Parallel` and `Race`.**  
+W20 and W21 propose manual task cancellation patterns (`cancel() + gather(return_exceptions=True)`). In Python 3.12 (required by W23), `asyncio.TaskGroup` provides structured concurrency: all tasks in the group are cancelled when the group exits (normally or via exception), and the group awaits all cancellations before propagating. This eliminates the need for the manual cancel loops in W20 and W21 mitigations.  
+*Mitigation:* Use `asyncio.TaskGroup` for `Parallel` and `Race`:
+
+```python
+# Race using TaskGroup
+results: dict[int, tuple[Verdict, StreamContext]] = {}
+winner_idx: int | None = None
+
+async def run_branch(idx: int, oracle: Oracle, ctx: StreamContext):
+    nonlocal winner_idx
+    result = await oracle(ctx, timeout)
+    if winner_idx is None:
+        winner_idx = idx
+        results[idx] = result
+        # cancel the group — raises ExceptionGroup in other tasks
+        raise asyncio.CancelledError  # or use a different cancellation mechanism
+
+try:
+    async with asyncio.TaskGroup() as tg:
+        for i, (oracle, ctx) in enumerate(branches):
+            tg.create_task(run_branch(i, oracle, ctx))
+except* asyncio.CancelledError:
+    pass
+```
+
+The `TaskGroup` pattern requires Python 3.11+ (`except*` syntax) and is cleaner than manual gather. The exception group semantics of TaskGroup are slightly complex — cancellation of one task raises `ExceptionGroup` — but the pattern is well-established and documented. Use this instead of the manual cancel loops specified in W20/W21. Update the combinators implementation spec to use TaskGroup explicitly.
+
+**W28 — The `Verdict` type is underspecified: no definition of its structure or how to pattern-match on it.**  
+The plan uses `matched(label)`, `timeout`, `error(reason)` throughout but never defines the Python type. The combinators (`Sequence`, `Race`, `Repeat`) all branch on verdict type. Without a concrete type definition, implementations will use ad-hoc string comparisons (`verdict == "timeout"`) or tuple checks (`verdict[0] == "matched"`), producing inconsistent code and losing type safety.  
+*Mitigation:* Define `Verdict` as a `dataclass`-based tagged union in `engine/oracle.py`:
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Matched:
+    label: str
+    def is_matched(self, label: str | None = None) -> bool:
+        return label is None or self.label == label
+
+@dataclass(frozen=True)
+class Timeout:
+    pass
+
+@dataclass(frozen=True)
+class Error:
+    reason: str
+
+Verdict = Matched | Timeout | Error
+```
+
+Pattern matching in the engine uses `match verdict: case Matched(label=l): ... case Timeout(): ... case Error(reason=r): ...` — using Python 3.10+ structural pattern matching, which is available in Python 3.12 (W23). `frozen=True` makes verdicts hashable and prevents mutation after creation. The `Matched.is_matched(label)` helper allows `Sequence`'s short-circuit check to be `if not verdict.is_matched(): return (verdict, ctx)`. Note: `Timeout` is also the name used for the `Timeout(oracle, t)` combinator — use `TimeoutVerdict` as the class name for the verdict variant to avoid the name collision in `engine/oracle.py`.
+
 ---
 
 ## Tactical Improvements (Pre-Rewrite, Low Risk)
