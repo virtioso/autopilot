@@ -5,9 +5,9 @@
 
 ## Current Step
 
-**Step 5 — Adapters on real hardware** (NEXT)  
+**Step 5 — Adapters: software complete, hardware validation pending**  
 Worktree: `~/autopilot-rewrite/` on orphan branch `rewrite`  
-Steps 3 and 4 complete. Next: implement `adapters/uart.py`, `adapters/ssh.py`, `adapters/process.py` against real BiStream/StreamContext types.
+All software-testable adapter code is implemented and passing. Hardware tests (UART loopback, SSH to target) are marked `@pytest.mark.skip` — remove the marker and run when hardware is available.
 
 ---
 
@@ -20,7 +20,7 @@ Steps 3 and 4 complete. Next: implement `adapters/uart.py`, `adapters/ssh.py`, `
 | 2 | Read `setup_demo` / `check_verdict` — finalise Verdict oracle | COMPLETE | See findings below |
 | 3 | Core engine: BiStream, StreamContext, Verdict, combinators | COMPLETE | `engine/oracle.py`, `engine/combinators.py`, `engine/recorder.py` — 34/34 tests pass |
 | 4 | Oracle unit test suite (mock StreamContexts, pytest-asyncio) | COMPLETE | `tests/test_engine.py` — built alongside step 3; all combinators covered |
-| 5 | Adapters on real hardware: `uart.py`, `ssh.py`, `process.py` | NOT STARTED | Keep old engine during this step |
+| 5 | Adapters: `uart.py`, `ssh.py`, `process.py` (+ `engine/primitives.py`) | SW DONE / HW PENDING | 50/50 software tests pass; 4 hardware tests skip-marked (UART, SSH to target) |
 | 6 | Remaining adapters: `docker.py`, `vcmux.py`, `interactive.py` | NOT STARTED | |
 | 7 | Chain migration (simple → complex) | NOT STARTED | Needs step 0 baselines |
 | 8 | Swap engine; hardware smoke test (Orin AGX → seL4test) | NOT STARTED | |
