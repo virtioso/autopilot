@@ -296,6 +296,80 @@ autopilot/
 
 ---
 
+## Version Control Strategy
+
+### Goals
+
+Three things must hold simultaneously during the rewrite:
+1. Old code stays accessible and runnable as a reference (and to capture pre-rewrite baselines — see W4)
+2. Rewrite development can be messy — WIP commits, wrong turns, mid-step states are fine
+3. The final result has a clean history that reads as if it was built from scratch in logical steps
+
+No single git workflow gives all three automatically. The combination of an **orphan branch** and a **git worktree** does.
+
+### Setup: orphan branch + worktree
+
+```bash
+cd ~/autopilot
+git switch --orphan rewrite
+git commit --allow-empty -m "rewrite: root"
+git switch backup                          # return to current code
+git worktree add ../autopilot-rewrite rewrite
+```
+
+This produces two live checkouts sharing one `.git` object store:
+
+| Path | Branch | Purpose |
+|---|---|---|
+| `~/autopilot/` | `backup` | Old code — runnable, referenceable, untouched |
+| `~/autopilot-rewrite/` | `rewrite` | New code — developed freely |
+
+The `rewrite` branch is an **orphan**: it has no shared commits with `backup` or any other branch. The rewrite history never contaminates the old tree.
+
+During development, both codebases are simultaneously accessible:
+- Run the old Autopilot from one terminal, the new one from another
+- `git diff backup:chain_runtime.py rewrite:engine/runtime.py` works natively across the two trees — no copying needed
+
+### Development: commit freely
+
+Commit as messily as needed on the `rewrite` branch. WIP commits, typo fixes, reverts — none of it matters because the history is cleaned up before shipping.
+
+### End: squash and replay
+
+When the rewrite is stable, clean the commit history with an interactive rebase from the orphan root:
+
+```bash
+cd ~/autopilot-rewrite
+git rebase -i --root
+```
+
+This squashes WIP commits, reorders, and edits messages into a sequence of logical steps — without affecting any other branch, since the orphan has no shared history. The result reads as if the rewrite was built cleanly from day one.
+
+Verify it is self-contained and portable by replaying on a fresh repo:
+
+```bash
+git format-patch --root rewrite -o /tmp/rewrite-patches
+mkdir /tmp/autopilot-clean && cd /tmp/autopilot-clean
+git init
+git am /tmp/rewrite-patches/*.patch
+```
+
+If `git am` applies cleanly, the history is ready to publish as a standalone repo.
+
+### Properties
+
+| Property | Mechanism |
+|---|---|
+| Old code stays runnable | `git worktree` — two checkouts, one object store, no disk duplication |
+| Old code referenceable | `git diff backup:file rewrite:file` works natively |
+| Messy WIP commits allowed | Orphan branch — no shared history to protect |
+| Final history is clean | `git rebase -i --root` before shipping |
+| Replay on empty repo | `git format-patch --root` + `git am` on fresh `git init` |
+
+**Known trade-off:** `git log --all` shows two disconnected root commits. Some git GUIs and `git describe` assume a single root and may behave oddly. No impact on CLI use.
+
+---
+
 ## Plan Strengths and Known Weaknesses
 
 ### Strengths
