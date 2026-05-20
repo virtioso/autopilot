@@ -8,7 +8,7 @@ Autopilot is a **chain-based orchestration runtime** for heterogeneous embedded 
 - seL4 hypervisor VMs (vcmuxer/VCMux multiplexing, dynamic VM console discovery)
 - QEMU (ARM64/x86-64, router-based console discovery)
 - Docker containers (Linux-based target system running user services)
-- Pub/sub middleware (Zenoh bridge, target-side mux daemon)
+- Pub/sub middleware (Zenoh bridge, virtioso-muxd)
 - AI-driven interactive debugging (MCP server exposing console sessions to Claude)
 
 The underlying ideas — structured workflow composition, parallel fork/join, async task coordination, signal-based synchronization — are right. The problems are that the flat JSON graph encoding is the wrong shape for expressing oracle composition, and that a single file has accreted all of the implementation.
@@ -299,7 +299,7 @@ autopilot/
 │   ├── process.py         # Subprocess / map_command_source oracles
 │   ├── docker.py          # Docker log tailing oracles (docker-py 7.1.0; 8-byte mux header aware)
 │   ├── vcmux.py           # VCMux: in-process 0xfe frame parser on UART BiStream (seL4/CAmkES);
-│   │                      #   Zenoh bridge possible for Linux target path once target mux daemon gains publisher
+│   │                      #   Zenoh bridge possible for Linux target path once virtioso-muxd gains publisher
 │   ├── robot.py           # RobotFrameworkOracle + rf_xml adapter; host-only, no BiStream consumed
 │   └── interactive.py     # InteractiveOracle: PTY/tmux + MCP handoff; completion via Unix socket signal channel
 ├── model/

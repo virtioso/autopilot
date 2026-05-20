@@ -19,10 +19,10 @@ ConsoleMux (CAmkES) → VCMux frames over UART → vcmuxer (C binary, host) → 
 ### Linux Target/Docker Path
 
 ```
-target mux daemon (Rust, on target Linux) → Unix socket clients → [planned: Zenoh bridge] → Autopilot
+virtioso-muxd (Rust, on target Linux) → Unix socket clients → [planned: Zenoh bridge] → Autopilot
 ```
 
-- Transport: target mux daemon allocates a Unix socket per client, multiplexes streams onto UART
+- Transport: virtioso-muxd allocates a Unix socket per client, multiplexes streams onto UART
 - Stream discovery: CTRL_CONNECTED / CTRL_DISCONNECTED frames from the daemon; Zenoh bridge planned but not implemented
 - This is a Linux userspace daemon — cannot run on seL4 bare-metal
 
@@ -239,7 +239,7 @@ The reasons:
 
 **The one real loss** is that minicom/screen cannot attach to individual VM consoles directly. Mitigate by having the `VCMuxSourceOracle` optionally create PTYs as display targets (the same `pipe-pane -I` mechanism used for UART display), written to as a side-effect of the pump loop. This preserves human visibility without requiring vcmuxer.
 
-**For the Linux target/Docker path:** Zenoh-python is the right direction, but only once the target mux daemon has an actual Zenoh publisher bridge. Until then, the Linux target path uses direct SSH + Docker SDK as covered by the other adapter studies. The vcmux adapter is only needed for seL4/CAmkES.
+**For the Linux target/Docker path:** Zenoh-python is the right direction, but only once virtioso-muxd has an actual Zenoh publisher bridge. Until then, the Linux target path uses direct SSH + Docker SDK as covered by the other adapter studies. The vcmux adapter is only needed for seL4/CAmkES.
 
 ---
 
@@ -287,4 +287,4 @@ This composes cleanly: `NvidiaTCUFilter(tag=0xe1, inner=VCMuxParser())` for CCPL
 | Implementation effort | Low (wrap existing) | Medium (port state machine) |
 | Recommended | No | **Yes** |
 
-*Zenoh is not applicable to the CAmkES/seL4 UART path. It may be relevant to the Linux target/Docker path if the target mux daemon gains a Zenoh publisher bridge.*
+*Zenoh is not applicable to the CAmkES/seL4 UART path. It may be relevant to the Linux target/Docker path if virtioso-muxd gains a Zenoh publisher bridge.*

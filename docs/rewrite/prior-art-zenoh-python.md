@@ -18,9 +18,9 @@ Zenoh is a unified data-in-motion protocol built on a **key/expression tree**. E
 - **Subscriber**: receives samples from any key matching its key expression (exact or wildcard)
 - **Queryable / Get**: request-reply on the same key tree
 
-Zenoh is not broker-mandatory. Autopilot operates in **client mode**, connecting to a `zenohd` router running on the target side (the Zenoh bridge to the target mux daemon).
+Zenoh is not broker-mandatory. Autopilot operates in **client mode**, connecting to a `zenohd` router running on the target side (the Zenoh bridge to `virtioso-muxd`).
 
-Zenoh is **message-boundary-preserving**: each `publisher.put(payload)` results in exactly one `Sample` at every subscriber. Bytes from the target mux daemon arrive chunked at pty-read granularity (~line or read-buffer size). Concatenate chunks in order to reconstruct the byte stream — no special framing needed beyond that.
+Zenoh is **message-boundary-preserving**: each `publisher.put(payload)` results in exactly one `Sample` at every subscriber. Bytes from the virtioso-muxd arrive chunked at pty-read granularity (~line or read-buffer size). Concatenate chunks in order to reconstruct the byte stream — no special framing needed beyond that.
 
 ---
 
@@ -203,7 +203,7 @@ async def vcmux_source_oracle(
 
 ## Throughput at Console Scale
 
-At 115200 bps (~11.5 KB/s), a serial console is roughly 0.0001% of Zenoh's measured throughput ceiling (67 Gbps on loopback). There are no throughput concerns at this data rate. The main practical consideration: if the target mux daemon calls `put()` per byte or per character, sample overhead dominates. Better to publish per pty read-buffer (~64+ bytes). At 115200 bps this naturally produces ~12 bytes/ms per read — negligible.
+At 115200 bps (~11.5 KB/s), a serial console is roughly 0.0001% of Zenoh's measured throughput ceiling (67 Gbps on loopback). There are no throughput concerns at this data rate. The main practical consideration: if the virtioso-muxd calls `put()` per byte or per character, sample overhead dominates. Better to publish per pty read-buffer (~64+ bytes). At 115200 bps this naturally produces ~12 bytes/ms per read — negligible.
 
 ---
 
