@@ -5,9 +5,15 @@
 
 ## Current Step
 
-**Step 7 — Chain migration: infrastructure complete, hardware chains pending**  
+**Steps 8+9 — Engine swap and signal handling: software complete, hardware smoke test pending**  
 Worktree: `~/autopilot-rewrite/` on orphan branch `rewrite`  
-Chain schema (Pydantic discriminated union, 19 oracle types), OracleFactory (hydrate), engine/runtime.py, and 3 migrated chains are implemented. 100/100 tests pass. Remaining: migrate chains that require hardware (seL4test full flow, boot_stock_linux, vm chains). Needs step 0 baselines first.
+ChainRunner (full lifecycle), layered Config, CLI entry point (`autopilot.py run/list`), and SIGINT/SIGTERM → cancel → cleanup are all implemented and tested. 121/121 tests pass.
+
+Hardware smoke test command (run on Orin AGX with board connected):
+```bash
+cd ~/autopilot-rewrite
+python autopilot.py run --chain chains/sel4test.json --platform orin-agx --timeout 1200
+```
 
 ---
 
@@ -23,8 +29,8 @@ Chain schema (Pydantic discriminated union, 19 oracle types), OracleFactory (hyd
 | 5 | Adapters: `uart.py`, `ssh.py`, `process.py` (+ `engine/primitives.py`) | SW DONE / HW PENDING | 50/50 software tests pass; 4 hardware tests skip-marked (UART, SSH to target) |
 | 6 | Remaining adapters: `docker.py`, `vcmux.py`, `robot.py`, `interactive.py` | SW DONE | 73/73 tests pass (6 skip: 4 HW, 2 RF not installed) |
 | 7 | Chain migration (simple → complex) | IN PROGRESS | Schema+runtime+factory complete; 3 chains migrated; full HW migration needs step 0 baselines |
-| 8 | Swap engine; hardware smoke test (Orin AGX → seL4test) | NOT STARTED | |
-| 9 | Signal handling: SIGINT/SIGTERM → cancel → cleanup | NOT STARTED | |
+| 8 | Swap engine; hardware smoke test (Orin AGX → seL4test) | SW DONE / HW PENDING | ChainRunner, Config, CLI+signal handling built; 121 tests pass; `python autopilot.py run --chain chains/sel4test.json --platform orin-agx` |
+| 9 | Signal handling: SIGINT/SIGTERM → cancel → cleanup | COMPLETE | Integrated in step 8: CLI wires SIGINT/SIGTERM → task.cancel(); cleanup tested |
 | 10 | Migrate daemon, client, MCP server | NOT STARTED | |
 
 ---

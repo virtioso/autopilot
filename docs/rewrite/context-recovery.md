@@ -129,13 +129,17 @@ autopilot-rewrite/
 
 Check `tracker.md` for current step. Then:
 
-1. Steps 3–7 are **in progress**: all engine, adapter, schema, and runtime code is done. 100 tests pass.
+1. Steps 3–9 are **complete** (steps 7 and 8 have hardware validation pending). 121 tests pass.
    - `engine/`: oracle.py, combinators.py, recorder.py, primitives.py, **runtime.py** (new)
    - `adapters/`: uart.py, ssh.py, process.py, docker.py, vcmux.py, robot.py, interactive.py
    - `model/chain.py`: Pydantic OracleDef (19 types) + OracleFactory
+   - `model/config.py`: layered Config (defaults → platform YAML → env → request)
+   - `engine/runtime.py`: ChainRunner + run_chain / load_chain / hydrate_chain / execute_chain
+   - `autopilot.py`: CLI — `run` (SIGINT/SIGTERM → cancel → cleanup) + `list`
+   - `platforms/`: orin-agx.yaml, qemu-generic.yaml
    - `chains/`: post_test_fallback_noop.json, wait_for_elfloader.json, sel4test.json (simplified)
-2. **Hardware validation pending** (4 tests skip-marked in `tests/test_adapters.py`): UART loopback, SSH to target.
-3. **Next: Step 0** — pre-rewrite baselines on real hardware. Then finish migrating hardware-dependent chains (boot_stock_linux, sel4test full flow, vm chains).
+2. **Hardware validation pending** (4 tests skip-marked in `tests/test_adapters.py`): UART loopback, SSH to target. Hardware smoke test: `python autopilot.py run --chain chains/sel4test.json --platform orin-agx`
+3. **Next: Step 10** — migrate daemon, client, MCP server (thin wrappers over new engine).
 
 **Key new APIs:**
 ```python
