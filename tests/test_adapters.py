@@ -4,6 +4,9 @@ Adapter unit tests.
 Tests that require no hardware:
   - engine/primitives.py: PatternOracle, CommandOracle (via MockBiStream)
   - adapters/process.py: SpawnProcessOracle, RunProcessOracle (via real subprocesses)
+  - adapters/vcmux.py: VCMuxParser, NvidiaTCUFilter, VCMuxBiStream
+  - adapters/robot.py: parse_rf_output, RobotFrameworkOracle (via real subprocess)
+  - adapters/interactive.py: ConsoleBridge, InteractiveOracle
   - adapters/ssh.py: SSHCommandOracle (marked skip if no SSH to localhost)
 
 Tests that require hardware (marked skip):
@@ -18,7 +21,10 @@ Remove the skip marker when running on the board or with a UART loopback.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
+import textwrap
+from pathlib import Path
 
 import pytest
 
@@ -356,3 +362,507 @@ async def test_ssh_upload_oracle():
     ctx = make_ctx()
     verdict, _ = await oracle(ctx, 10.0)
     assert verdict == Matched("uploaded")
+
+
+# ---------------------------------------------------------------------------
+# VCMuxParser
+# ---------------------------------------------------------------------------
+
+async def test_vcmux_parser_routes_to_channel():
+    from adapters.vcmux import VCMuxParser
+
+    parser = VCMuxParser()
+    q = parser.add_channel(2)
+
+    # 0xfe 0x02 switches to channel 2; "hello" is payload; 0xfe 0x00 clears
+    raw = bytes([0xFE, 0x02]) + b"hello" + bytes([0xFE, 0x00])
+    for b in raw:
+        parser.feed(b)
+
+    # All five bytes should be in the queue
+    chunks = []
+    while not q.empty():
+        chunks.append(await q.get())
+    assert b"".join(chunks) == b"hello"
+
+
+async def test_vcmux_parser_escapes_literal_0xfe():
+    from adapters.vcmux import VCMuxParser
+
+    parser = VCMuxParser()
+    q = parser.add_channel(1)
+
+    # 0xfe 0x01 → channel 1; 0xfe 0xfe → literal 0xfe; 0xfe 0x00 → clear
+    raw = bytes([0xFE, 0x01, 0xFE, 0xFE, 0xFE, 0x00])
+    for b in raw:
+        parser.feed(b)
+
+    chunks = []
+    while not q.empty():
+        chunks.append(await q.get())
+    assert b"".join(chunks) == b"\xfe"
+
+
+async def test_vcmux_parser_routes_to_default():
+    from adapters.vcmux import VCMuxParser
+
+    parser = VCMuxParser()
+    q = parser.add_default_channel()
+
+    # Bytes with no prior stream switch go to default
+    for b in b"raw":
+        parser.feed(b)
+
+    chunks = []
+    while not q.empty():
+        chunks.append(await q.get())
+    assert b"".join(chunks) == b"raw"
+
+
+async def test_vcmux_parser_stream_registry_callback():
+    from adapters.vcmux import VCMuxParser
+
+    received = []
+    parser = VCMuxParser(on_registry=received.append)
+
+    registry_json = json.dumps({
+        "streams": [
+            {"component": "vm0_console", "stream_id": 2, "direction": "output"},
+        ]
+    }).encode()
+    length = len(registry_json)
+    ctrl_frame = bytes([
+        0xFE, 0xFD,          # escape + control
+        0x02,                # STREAM_REGISTRY
+        (length >> 8) & 0xFF,
+        length & 0xFF,
+    ]) + registry_json
+
+    for b in ctrl_frame:
+        parser.feed(b)
+
+    assert len(received) == 1
+    assert received[0]["streams"][0]["component"] == "vm0_console"
+
+
+async def test_vcmux_parser_eof_signals_all_channels():
+    from adapters.vcmux import VCMuxParser
+
+    parser = VCMuxParser()
+    q1 = parser.add_channel(1)
+    q2 = parser.add_channel(2)
+    parser.eof()
+
+    assert await q1.get() is None
+    assert await q2.get() is None
+
+
+async def test_vcmux_parser_unregistered_channel_discarded():
+    """Bytes for an unregistered channel ID are silently dropped."""
+    from adapters.vcmux import VCMuxParser
+
+    parser = VCMuxParser()
+    # Only channel 1 registered; bytes for channel 2 should be dropped
+    q = parser.add_channel(1)
+
+    raw = bytes([0xFE, 0x02]) + b"ignored" + bytes([0xFE, 0x01]) + b"kept" + bytes([0xFE, 0x00])
+    for b in raw:
+        parser.feed(b)
+
+    chunks = []
+    while not q.empty():
+        chunks.append(await q.get())
+    assert b"".join(chunks) == b"kept"
+
+
+# ---------------------------------------------------------------------------
+# NvidiaTCUFilter
+# ---------------------------------------------------------------------------
+
+async def test_nvidia_tcu_filter_passes_ccplex_bytes():
+    from adapters.vcmux import NvidiaTCUFilter, VCMuxParser
+
+    parser = VCMuxParser()
+    q = parser.add_channel(3)
+    filt = NvidiaTCUFilter(parser, ccplex_tag=0xE1)
+
+    # 0xff 0xe1 → CCPLEX tag; then inner VCMux: 0xfe 0x03 + "hi" + 0xfe 0x00
+    outer = bytes([0xFF, 0xE1, 0xFE, 0x03]) + b"hi" + bytes([0xFE, 0x00])
+    for b in outer:
+        filt.feed(b)
+
+    chunks = []
+    while not q.empty():
+        chunks.append(await q.get())
+    assert b"".join(chunks) == b"hi"
+
+
+async def test_nvidia_tcu_filter_discards_other_tags():
+    from adapters.vcmux import NvidiaTCUFilter, VCMuxParser
+
+    parser = VCMuxParser()
+    default_q = parser.add_default_channel()
+    filt = NvidiaTCUFilter(parser, ccplex_tag=0xE1)
+
+    # 0xff 0xE2 → non-CCPLEX tag; bytes should be discarded
+    outer = bytes([0xFF, 0xE2]) + b"garbage" + bytes([0xFF, 0xE1]) + b"ok"
+    for b in outer:
+        filt.feed(b)
+
+    # Default queue should only have "ok"
+    chunks = []
+    while not default_q.empty():
+        chunks.append(await default_q.get())
+    assert b"".join(chunks) == b"ok"
+
+
+# ---------------------------------------------------------------------------
+# VCMuxBiStream write encoding
+# ---------------------------------------------------------------------------
+
+async def test_vcmux_bistream_write_encodes_frame():
+    from adapters.vcmux import VCMuxBiStream, _encode_frame
+
+    frame = _encode_frame(stream_id=2, data=b"hello")
+    # [0xfe 0x02] [h e l l o] [0xfe 0x00]
+    assert frame == bytes([0xFE, 0x02]) + b"hello" + bytes([0xFE, 0x00])
+
+
+async def test_vcmux_bistream_write_escapes_0xfe_in_payload():
+    from adapters.vcmux import _encode_frame
+
+    frame = _encode_frame(stream_id=1, data=b"\xfe")
+    # [0xfe 0x01] [0xfe 0xfe] [0xfe 0x00]
+    assert frame == bytes([0xFE, 0x01, 0xFE, 0xFE, 0xFE, 0x00])
+
+
+async def test_vcmux_bistream_write_sends_to_raw():
+    from adapters.vcmux import VCMuxBiStream
+
+    sent = []
+
+    class FakeRaw:
+        async def read(self, n=4096): return b""
+        async def write(self, data): sent.append(data)
+
+    lock = asyncio.Lock()
+    q: asyncio.Queue[bytes | None] = asyncio.Queue()
+    bio = VCMuxBiStream(stream_id=3, queue=q, raw=FakeRaw(), write_lock=lock)
+    await bio.write(b"test")
+
+    assert len(sent) == 1
+    # Frame: 0xfe 0x03 "test" 0xfe 0x00
+    assert sent[0] == bytes([0xFE, 0x03]) + b"test" + bytes([0xFE, 0x00])
+
+
+# ---------------------------------------------------------------------------
+# VCMuxSourceOracle (integration)
+# ---------------------------------------------------------------------------
+
+async def test_vcmux_source_oracle_registers_streams():
+    """VCMuxSourceOracle: parse registry frame from raw stream, register channels in ctx."""
+    from adapters.vcmux import VCMuxSourceOracle
+
+    registry = {
+        "streams": [
+            {"component": "vm0_console", "stream_id": 2, "direction": "output"},
+            {"component": "vm1_console", "stream_id": 3, "direction": "output"},
+        ]
+    }
+    registry_json = json.dumps(registry).encode()
+    length = len(registry_json)
+    ctrl_frame = bytes([0xFE, 0xFD, 0x02, (length >> 8) & 0xFF, length & 0xFF]) + registry_json
+
+    class OneShotRaw:
+        def __init__(self, data: bytes):
+            self._data = data
+            self._sent = False
+        async def read(self, n=4096):
+            if not self._sent:
+                self._sent = True
+                return self._data
+            await asyncio.sleep(100)  # stall after sending all data
+            return b""
+        async def write(self, data): pass
+
+    ctx = make_ctx(uart=OneShotRaw(ctrl_frame))
+    oracle = VCMuxSourceOracle("uart", registry_timeout=5.0)
+    verdict, out = await oracle(ctx, 5.0)
+
+    assert verdict == Matched("vcmux_ready")
+    assert "vm0_console" in out.streams
+    assert "vm1_console" in out.streams
+    # pump task cleanup hook registered
+    assert any(name == "uart" for name, _ in out.cleanup_hooks)
+    out.cleanup()
+
+
+async def test_vcmux_source_oracle_timeout_on_no_registry():
+    """VCMuxSourceOracle returns Error if registry never arrives."""
+    from adapters.vcmux import VCMuxSourceOracle
+
+    class SilentRaw:
+        async def read(self, n=4096):
+            await asyncio.sleep(10)
+            return b""
+        async def write(self, data): pass
+
+    ctx = make_ctx(uart=SilentRaw())
+    oracle = VCMuxSourceOracle("uart", registry_timeout=0.1)
+    verdict, out = await oracle(ctx, 5.0)
+
+    assert isinstance(verdict, Error)
+    assert "registry" in verdict.reason
+    out.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# parse_rf_output
+# ---------------------------------------------------------------------------
+
+async def test_parse_rf_output_pass(tmp_path):
+    from adapters.robot import parse_rf_output
+
+    xml = tmp_path / "output.xml"
+    xml.write_text(textwrap.dedent("""\
+        <?xml version="1.0" encoding="UTF-8"?>
+        <robot>
+          <suite name="MySuite">
+            <status status="PASS"/>
+          </suite>
+          <statistics>
+            <total>
+              <stat pass="3" fail="0">All Tests</stat>
+            </total>
+          </statistics>
+        </robot>
+    """))
+
+    label, summary = parse_rf_output(xml)
+    assert label == "rf_pass"
+    assert summary["tests_passed"] == 3
+    assert summary["tests_failed"] == 0
+
+
+async def test_parse_rf_output_fail(tmp_path):
+    from adapters.robot import parse_rf_output
+
+    xml = tmp_path / "output.xml"
+    xml.write_text(textwrap.dedent("""\
+        <?xml version="1.0" encoding="UTF-8"?>
+        <robot>
+          <suite name="MySuite">
+            <status status="FAIL"/>
+          </suite>
+          <statistics>
+            <total>
+              <stat pass="1" fail="2">All Tests</stat>
+            </total>
+          </statistics>
+        </robot>
+    """))
+
+    label, summary = parse_rf_output(xml)
+    assert label == "rf_fail"
+    assert summary["tests_failed"] == 2
+
+
+async def test_parse_rf_output_bad_xml(tmp_path):
+    from adapters.robot import parse_rf_output
+
+    xml = tmp_path / "output.xml"
+    xml.write_text("not xml at all")
+
+    with pytest.raises(ValueError, match="xml_parse_error"):
+        parse_rf_output(xml)
+
+
+# ---------------------------------------------------------------------------
+# RobotFrameworkOracle
+# ---------------------------------------------------------------------------
+
+async def test_rf_oracle_pass(tmp_path):
+    """RobotFrameworkOracle: run a trivial .robot file that passes."""
+    pytest.importorskip("robot")
+
+    suite = tmp_path / "pass.robot"
+    suite.write_text(textwrap.dedent("""\
+        *** Test Cases ***
+        Always Pass
+            Log    hello
+    """))
+
+    from adapters.robot import RobotFrameworkOracle
+
+    oracle = RobotFrameworkOracle(suite, outputdir=tmp_path / "results")
+    ctx = make_ctx()
+    verdict, out = await oracle(ctx, 30.0)
+
+    assert verdict == Matched("rf_pass")
+    assert out.metadata["rf_verdict"]["tests_passed"] >= 1
+
+
+async def test_rf_oracle_fail(tmp_path):
+    """RobotFrameworkOracle: run a .robot file that fails."""
+    pytest.importorskip("robot")
+
+    suite = tmp_path / "fail.robot"
+    suite.write_text(textwrap.dedent("""\
+        *** Test Cases ***
+        Always Fail
+            Fail    intentional failure
+    """))
+
+    from adapters.robot import RobotFrameworkOracle
+
+    oracle = RobotFrameworkOracle(suite, outputdir=tmp_path / "results")
+    ctx = make_ctx()
+    verdict, out = await oracle(ctx, 30.0)
+
+    assert verdict == Matched("rf_fail")
+    assert out.metadata["rf_verdict"]["tests_failed"] >= 1
+
+
+async def test_rf_oracle_no_robot_binary():
+    """RobotFrameworkOracle with a nonexistent binary returns Error."""
+    from adapters.robot import RobotFrameworkOracle
+
+    oracle = RobotFrameworkOracle(
+        "/nonexistent/suite.robot",
+        robot_cmd="/no/such/robot",
+    )
+    ctx = make_ctx()
+    verdict, _ = await oracle(ctx, 5.0)
+
+    assert isinstance(verdict, Error)
+    assert "spawn_failed" in verdict.reason
+
+
+# ---------------------------------------------------------------------------
+# ConsoleBridge
+# ---------------------------------------------------------------------------
+
+async def test_console_bridge_send_recv():
+    from adapters.interactive import ConsoleBridge
+
+    bridge = ConsoleBridge(session_id="test")
+    await bridge.write_q.put(b"hello")
+    item = await bridge.write_q.get()
+    assert item == b"hello"
+
+
+async def test_console_bridge_signal_done():
+    from adapters.interactive import ConsoleBridge
+
+    bridge = ConsoleBridge(session_id="test")
+    assert not bridge.done.is_set()
+    bridge.signal_done()
+    assert bridge.done.is_set()
+
+
+# ---------------------------------------------------------------------------
+# InteractiveOracle
+# ---------------------------------------------------------------------------
+
+async def test_interactive_oracle_completes_on_done_signal():
+    """InteractiveOracle returns Matched when done.set() is called externally."""
+    from adapters.interactive import InteractiveOracle, get_session
+
+    class BlockingStream:
+        async def read(self, n=4096):
+            await asyncio.sleep(100)
+            return b""
+        async def write(self, data): pass
+
+    ctx = make_ctx(tty0=BlockingStream())
+    oracle = InteractiveOracle("tty0", session_id="test_session")
+
+    async def signal_after_short_delay():
+        await asyncio.sleep(0.05)
+        session = get_session("test_session")
+        assert session is not None
+        session.signal_done()
+
+    trigger = asyncio.create_task(signal_after_short_delay())
+    verdict, out = await oracle(ctx, 10.0)
+    await trigger
+
+    assert verdict == Matched("interactive_done")
+    # Session cleaned up from registry
+    assert get_session("test_session") is None
+
+
+async def test_interactive_oracle_relays_output_to_read_q():
+    """InteractiveOracle pump_out relays target→read_q before session ends."""
+    from adapters.interactive import InteractiveOracle, get_session
+
+    output = [b"line1\n", b"line2\n"]
+
+    class SequencedStream:
+        def __init__(self):
+            self._idx = 0
+        async def read(self, n=4096):
+            if self._idx < len(output):
+                chunk = output[self._idx]
+                self._idx += 1
+                return chunk
+            await asyncio.sleep(100)
+            return b""
+        async def write(self, data): pass
+
+    ctx = make_ctx(tty0=SequencedStream())
+    oracle = InteractiveOracle("tty0", session_id="test_relay")
+
+    received = []
+
+    async def consumer():
+        await asyncio.sleep(0.02)
+        session = get_session("test_relay")
+        assert session is not None
+        # Drain up to 2 items then signal done
+        for _ in range(2):
+            item = await asyncio.wait_for(session.read_q.get(), timeout=1.0)
+            if item is not None:
+                received.append(item)
+        session.signal_done()
+
+    consumer_task = asyncio.create_task(consumer())
+    verdict, _ = await oracle(ctx, 5.0)
+    await consumer_task
+
+    assert b"".join(received) == b"line1\nline2\n"
+
+
+async def test_interactive_oracle_missing_stream_returns_error():
+    from adapters.interactive import InteractiveOracle
+
+    ctx = make_ctx()  # no streams
+    oracle = InteractiveOracle("tty0")
+    verdict, _ = await oracle(ctx, 5.0)
+
+    assert isinstance(verdict, Error)
+    assert "tty0" in verdict.reason
+
+
+async def test_session_registry_populated_and_cleared():
+    from adapters.interactive import InteractiveOracle, list_sessions, get_session
+
+    class BlockingStream:
+        async def read(self, n=4096):
+            await asyncio.sleep(100)
+            return b""
+        async def write(self, data): pass
+
+    ctx = make_ctx(tty0=BlockingStream())
+    oracle = InteractiveOracle("tty0", session_id="reg_test")
+
+    async def check_and_close():
+        await asyncio.sleep(0.02)
+        assert "reg_test" in list_sessions()
+        get_session("reg_test").signal_done()
+
+    task = asyncio.create_task(check_and_close())
+    await oracle(ctx, 5.0)
+    await task
+
+    assert "reg_test" not in list_sessions()
