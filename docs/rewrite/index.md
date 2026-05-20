@@ -444,6 +444,133 @@ The rewrite plan has no mention of SIGINT or SIGTERM. In hardware orchestration,
 *Mitigation for SIGINT/SIGTERM:* Install asyncio signal handlers in `daemon.py`; on shutdown, cancel all running oracle tasks with `CancelledError` (which propagates correctly through `except Exception` clauses — see Structural Problem 5 for the `CancelledError` coding rule); each adapter's branch-local `cleanup_hooks` releases hardware resources. The standard pattern is `asyncio.run(main())` with a `try/finally` that awaits an explicit `shutdown()` coroutine. Hardware-critical cleanup (relay release) should be structured to run synchronously as a last resort if the event loop has already exited.  
 *Known limitation — SIGKILL:* `kill -9` bypasses all signal handlers and `finally` blocks; no software mitigation is possible. A USB relay left asserted or a serial lock file held after SIGKILL requires a manual recovery procedure. Document the procedure (toggle relay via CLI, remove lock file) in the operational runbook rather than pretending it can be prevented in code.
 
+**W11 — StreamContext mutation semantics are ambiguous: mutable shared object vs. pure functional threading.**  
+The plan says StreamContext is "a mutable map" and is "threaded through oracle execution," but also that `Sequence` passes the "updated StreamContext" from A to B, and that `Timeout` wraps an oracle that "returns" a new StreamContext. These two framings are in tension. If oracles mutate the context in-place (like a mutable dict), then: (a) `Timeout` cannot roll back a partially-mutated context when it cancels the inner oracle — the outer code sees a half-modified object with inconsistent state; (b) `Parallel` branch isolation is broken — two tasks sharing a reference to the same StreamContext object will see each other's mutations even though they are supposed to be isolated. If oracles return a new context (pure functional), then: (c) the mutable `cleanup_hooks` list can't be appended to by sub-oracles without returning a new context from every intermediate step. The plan cannot have it both ways.  
+*Mitigation:* Pick one model and state it explicitly. The correct choice for the combinator model is **copy-on-fork, mutate-in-place within a task**:
+- Within a single sequential execution (one asyncio task), oracles may mutate the StreamContext in-place — they hold the only reference.
+- At a fork point (`Parallel`, `Race`), the engine calls `ctx.fork()` which produces a shallow copy of the stream registry and an empty `cleanup_hooks` list. Each branch receives its own forked copy and mutates it freely.
+- The `Timeout` combinator wraps its oracle in `asyncio.wait_for`. On cancellation, the inner oracle's task is cancelled. Any mutations the inner oracle made to `ctx` before cancellation are **visible** to the outer Timeout — there is no rollback. This is acceptable: when Timeout fires, it returns `(Verdict.timeout, ctx)` where `ctx` may have partial mutations (e.g. a stream was added mid-way). The chain terminates at that point; the final `ctx.cleanup()` call handles all registered hooks regardless. The key invariant: **a Timeout verdict is always terminal** — no subsequent oracle receives a partially-mutated context and tries to continue as if the timed-out oracle had succeeded.
+- Explicitly document in the engine that `ctx` received by an oracle is "owned by this task for the duration of the call" — callers must not retain a reference to the same object after passing it to an oracle.
+
+*Secondary problem created:* If `ctx` is mutated in-place and `Parallel` uses `asyncio.gather()`, both branch tasks share the pre-fork object until `ctx.fork()` is called. The engine implementation must call `fork()` before spawning branch tasks, not after. This is an implementation constraint that must be stated explicitly. Also: `ctx.fork()` must deep-copy the stream registry dict (not just the reference) but may shallow-copy the BiStream objects themselves (BiStreams are not duplicated — each branch holds a reference to the same underlying transport, which is valid because the disjoint-stream constraint prevents two branches from reading the same stream).
+
+**W12 — Sequence error propagation is undefined: does oracle B run after oracle A returns `error(reason)`?**  
+The plan says "fatal errors propagate to oracle verdict" (Structural Problem 5) and implies that `error` verdicts cause routing to an `on_error` handler, but `Sequence(A, B)` has no on_error handler — it just chains A then B. If A returns `error(reason)`, the plan gives no specification for whether B runs, whether the error verdict is returned immediately, or whether B receives the error-state context. In the current system, a `fail` verdict on a step terminates the chain — this is the expected behaviour that must be preserved. If Sequence does not short-circuit on error, then every oracle B in `Sequence(A, B)` must defensively check for an error context, which is not the combinator model's intent.  
+*Mitigation:* `Sequence` short-circuits on any non-`matched` verdict from A: if A returns `timeout` or `error(reason)`, Sequence immediately returns that same verdict without running B. Only a `matched(label)` verdict from A triggers B. This matches the existing system's behaviour (a failed step stops the chain) and is the natural semantics for sequential composition. Document this as a first-class invariant of `Sequence`:
+
+```
+Sequence(A, B):
+  (v, ctx) = await A(ctx, timeout)
+  if v is not matched(_): return (v, ctx)   # short-circuit
+  return await B(ctx, timeout)
+```
+
+*Secondary problem:* `Sequence` has a single timeout budget that it passes unchanged to each step. A chain with 10 steps and a 60-second Sequence timeout gives each step 60 seconds individually — the total could be 600 seconds. This is almost certainly not the intent. The natural expectation is that the timeout is a wall-clock deadline shared across all steps. Mitigation: `Sequence` tracks elapsed time and reduces the timeout passed to each subsequent step: `remaining = deadline - asyncio.get_event_loop().time(); await B(ctx, remaining)`. If `remaining <= 0` before B starts, Sequence returns `timeout` immediately. This makes Sequence's timeout a true wall-clock budget.
+
+**W13 — Sub-chain invocation is missing entirely from the oracle model.**  
+The current system has `call_chain` to invoke another chain as a sub-step. The plan mentions 36+ existing chains but gives no mechanism for one chain to call another. Without sub-chain invocation: (a) any shared hardware setup sequence (boot to EFI, mount filesystems) must be copy-pasted into every chain that needs it; (b) the existing `call_chain` steps in the migration corpus have no target representation in the new schema. This is not a detail — it is a fundamental modularity gap.  
+*Mitigation:* Add a `SubChain` oracle to the taxonomy. `SubChain(chain_id)` looks up `chain_id` in a chain registry (loaded from the `chains/` directory), instantiates the oracle tree for that chain from JSON, and executes it against the current StreamContext. The sub-chain inherits the caller's StreamContext (including all streams and metadata) and its cleanup_hooks are merged into the caller's context at return. This is analogous to a function call: the sub-chain can add streams, advance cursors, and register cleanup_hooks; all effects are visible in the parent context after return.
+
+`SubChain` must handle recursive invocation detection (a chain calling itself) to prevent infinite loops — a runtime check against a call stack in StreamContext metadata is sufficient. `schema_version` must be checked at sub-chain load time, not just at the top-level chain load.
+
+The chain registry is a flat directory of JSON files keyed by filename (without `.json` extension). The daemon loads all chains at startup and re-scans on `SIGHUP`. Chain references in `SubChain` are resolved from this registry at execution time (deferred resolution, consistent with the W5 mitigation).
+
+*Secondary problem created:* Sub-chain execution introduces the possibility that a sub-chain's timeout interacts badly with the parent chain's timeout. `SubChain(chain_id)` receives the parent's remaining timeout — if the sub-chain takes the full budget, the parent has no remaining time. This is correct behaviour: the parent's Timeout combinator will fire. Document that `Timeout(SubChain(...), t)` is the recommended idiom to bound sub-chain execution without consuming the parent's budget.
+
+**W14 — Chain JSON recursive Pydantic serialization is unspecified and non-trivial.**  
+The plan proposes Pydantic models (`OracleDef`, `SequenceDef`, `ChoiceDef`, `RaceDef`, `ParallelDef`, `RepeatDef`) for the chain JSON schema and shows a trivial example. It does not address how to express arbitrarily nested combinator trees, which is required for any real chain. `Sequence(Choice(...), Race(...))` requires recursive Pydantic models with forward references and a discriminated union on the `oracle` field — a pattern that works in Pydantic v2 but requires explicit handling. Without this, the schema cannot express the combinator trees the plan depends on.  
+*Mitigation:* Use Pydantic v2 discriminated unions with a string `oracle` discriminator field. Define a `OracleDef` as a `Union` of all oracle types, each with a `Literal` type tag:
+
+```python
+from __future__ import annotations
+from pydantic import BaseModel
+from typing import Annotated, Literal, Union
+from pydantic import Field
+
+class SequenceDef(BaseModel):
+    oracle: Literal["sequence"]
+    steps: list[AnyOracleDef]
+
+class ChoiceDef(BaseModel):
+    oracle: Literal["choice"]
+    options: list[PatternOptionDef]
+    max_buf: int = 1024 * 1024
+
+class RaceDef(BaseModel):
+    oracle: Literal["race"]
+    branches: list[AnyOracleDef]
+
+class SubChainDef(BaseModel):
+    oracle: Literal["sub_chain"]
+    chain_id: str
+
+# ... other defs ...
+
+AnyOracleDef = Annotated[
+    Union[SequenceDef, ChoiceDef, RaceDef, ParallelDef, RepeatDef,
+          TimeoutDef, PatternDef, CommandDef, SourceDef, SubChainDef, ...],
+    Field(discriminator="oracle")
+]
+
+# Required for Pydantic v2 forward references:
+SequenceDef.model_rebuild()
+RaceDef.model_rebuild()
+ParallelDef.model_rebuild()
+RepeatDef.model_rebuild()
+```
+
+The `model_rebuild()` calls resolve forward references after all models are defined. This pattern is the standard Pydantic v2 approach for recursive schemas and must be established before any chain JSON is written — retrofitting it later is painful. Also: every oracle definition must include `schema_version` only at the top level (not on every node), and the loader validates it before calling `model_validate`.
+
+**W15 — The daemon's request queue, event loop ownership, and result delivery are all unspecified.**  
+`daemon.py` is listed in the module structure with the comment "Queue polling, lifecycle, tmux UI (thin layer)" but is otherwise empty of design. Three specific problems: (a) **Simultaneous submissions**: two chains submitted at once — are they queued and serialized, or run in parallel? On shared hardware, parallel execution of two chains targeting the same UART is physically impossible and would produce corrupted results. (b) **Event loop ownership**: the daemon runs an asyncio event loop; the MCP server likely runs its own (FastMCP or similar). Who owns the loop and how do cross-component calls work? (c) **Result delivery**: `client.py` submits a chain — how does it learn the result? The plan is silent on the IPC protocol between client and daemon.  
+*Mitigation:*
+- **Serialized queue**: the daemon maintains an `asyncio.Queue` of pending chain requests. A single chain executor coroutine drains this queue one at a time. Parallel hardware access is prevented by serialization — not by locks. This matches the current system's behaviour and is the correct model for hardware with exclusive UART/relay ownership. If parallel chains targeting *different* hardware platforms are needed in future, the daemon can maintain one queue per hardware target.
+- **Event loop**: the daemon owns the single asyncio event loop. The MCP server runs as a coroutine within the same loop (`asyncio.create_task(mcp_server.run())`), not as a separate thread or process. FastMCP / `mcp[server]` supports `asyncio.run()` or being started as a task.
+- **Result delivery**: use a Unix domain socket for client/daemon IPC. The protocol is line-delimited JSON: client sends `{"chain_id": "...", "overrides": {...}}`, daemon responds with a stream of status events (`{"event": "started", "run_id": "..."}`, `{"event": "verdict", "verdict": "matched", "label": "pass"}`, `{"event": "done"}`). The client blocks on the socket until `done`. This replaces the current implicit stdout/file coupling.
+
+*Secondary problem:* The Unix socket IPC means `client.py` and `daemon.py` must agree on the socket path. Add `AUTOPILOT_SOCKET` to the layered config (Structural Problem 4 mitigation) with a default of `/tmp/autopilot.sock`. The daemon creates the socket at startup and removes it at shutdown (in the `try/finally`).
+
+**W16 — Parallel branch "merge on join" contradicts "branches reference disjoint streams."**  
+W1's mitigation says "union of newly created streams across branches (new streams from any branch are visible after join)." But W11's mitigation (fork semantics) says branches each get their own forked context. These two interact: if branch A creates a new stream `vm0_console` and branch B creates a new stream `vm1_console`, the merge collects both. But if branch A *also* registers a cleanup_hook for its `vm0_console`, and the merge includes `vm0_console` in the joined context, then the cleanup_hook that was registered in branch A's local context must also be merged into the parent context — otherwise `vm0_console` will be leaked when the parent context is eventually cleaned up.  
+W1's mitigation says `cleanup_hooks` are on branch contexts only; but branch contexts are discarded after join. The cleanup_hooks for resources that ARE merged into the parent must migrate to the parent's `cleanup_hooks`. Resources for branches that are NOT merged (Parallel reducer rejects a branch) must be cleaned up immediately.  
+*Mitigation:* `ctx.fork()` creates a child context. At join, `ctx.merge(child_ctx, include_streams: set[str])` does: (a) copies all streams named in `include_streams` from `child_ctx` into the parent; (b) migrates the `cleanup_hooks` for those streams into the parent's `cleanup_hooks`; (c) calls `child_ctx.cleanup_hooks_for(exclude_streams)` to clean up any resources in the child context that were NOT included. The Parallel combinator decides `include_streams` via its reducer (e.g. `all_pass` includes all streams from all branches; a custom reducer may exclude losing branches). This requires `cleanup_hooks` to be associated with named streams (not just a flat list), so the engine knows which hooks correspond to which streams. Alternatively: each Source oracle registers its cleanup_hook as `(stream_name, hook_fn)` tuples, and `ctx.cleanup_for(stream_name)` runs only the hooks for that stream.
+
+*Secondary problem:* This changes the `cleanup_hooks` data structure from `list[Callable]` to `list[tuple[str | None, Callable]]` — hooks associated with a stream name or `None` for hooks not tied to a specific stream. The API becomes `ctx.cleanup(stream_name: str | None = None)` where `None` cleans all hooks. This is a more complex API but is required for correct Parallel join semantics. All oracle implementations that register cleanup_hooks must be updated to pass the associated stream name.
+
+**W17 — The recorder is a module stub with no design.**  
+`recorder.py` is listed as `ChainRecorder (extracted from chain_runtime.py)` but no design is given: what events it records, what format, how it is wired into oracle execution, whether it runs as a hook, a wrapper combinator, or a side-channel. In the current system, recording is deeply entangled with chain execution. Without designing the recorder before implementing the engine, recording will be retrofitted as a side-channel and will miss events or duplicate the engine's state.  
+*Mitigation:* Define `ChainRecorder` as an event sink with a fixed event vocabulary, wired in via the engine's execution hooks rather than ad-hoc. The event vocabulary:
+
+```python
+@dataclass
+class OracleStarted:
+    oracle_type: str; stream_name: str | None; timestamp: float
+
+@dataclass
+class OracleVerdict:
+    oracle_type: str; verdict: Verdict; elapsed: float
+
+@dataclass
+class StreamBytesRead:
+    stream_name: str; byte_count: int; offset: int  # for cursor tracking
+
+@dataclass
+class CleanupHookRan:
+    stream_name: str | None; hook_name: str
+```
+
+The engine calls `recorder.emit(event)` at fixed points: before calling each oracle, after receiving a verdict, and after each cleanup_hook runs. The recorder writes events to `results/<run_id>/events.jsonl`. The `recorder` is passed to the engine at chain start and threaded via the StreamContext metadata (not as a global), so unit tests can pass a `NullRecorder` or `ListRecorder` for assertions. This design also provides the event sequence for the W4 regression baselines — the golden files are `events.jsonl` from real hardware runs, replayed against mock StreamContexts.
+
+**W18 — Daemon/client IPC protocol is undefined (see W15), but a second gap: how does `mcp_server.py` retrieve run results and logs?**  
+The MCP server currently provides tools like `check_test` and `get_logs`. In the rewrite, results are written to `results/<run_id>/` as artifacts. But the MCP server needs to know the `run_id` for the most recent chain, and needs to read structured verdict data (for `check_test`) and log data (for `get_logs`). The plan says "the MCP server or CI consumer retrieves artifacts after the chain completes" but gives no mechanism.  
+*Mitigation:* The daemon maintains a small in-memory registry of recent runs: `{run_id: RunRecord(chain_id, status, verdict, artifact_dir)}`. The MCP server (running in the same event loop as the daemon) reads this registry directly — no IPC needed since they share the same process. MCP tools:
+- `submit_chain(chain_id, overrides)` → `run_id` (submits to daemon queue, returns immediately)
+- `check_test(run_id)` → reads `results/<run_id>/robot/verdict.json` or equivalent artifact
+- `get_logs(run_id, stream_name)` → reads the recorder's `events.jsonl` filtered to a stream
+- `list_runs()` → returns the in-memory registry as a list
+
+The run registry must be bounded (keep last N runs) to prevent unbounded memory growth. A limit of 100 runs is sufficient for a two-author system.
+
 ---
 
 ## Tactical Improvements (Pre-Rewrite, Low Risk)
