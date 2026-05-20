@@ -1,0 +1,14 @@
+platform: qemu-generic
+description: "QEMU ARM64/x86-64 generic target (local or remote)"
+
+defaults:
+  # QEMU host
+  qemu_host: localhost
+  target_user: root
+
+  # Remote QEMU host SSH
+  target_ip: 192.168.101.110
+
+  # Timeouts (seconds)
+  boot_timeout: 120
+  test_timeout: 300

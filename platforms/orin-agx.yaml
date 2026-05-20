@@ -1,0 +1,21 @@
+platform: orin-agx
+description: "NVIDIA Orin AGX development board (seL4 / CAmkES / Isengard)"
+
+defaults:
+  # Physical UART connections
+  tty0: /dev/ttyACM0     # CCPLEX console (raw/VCMux muxed)
+  tty1: /dev/ttyACM1     # UARTI carrier (VCMux uplink)
+  baudrate: 115200
+
+  # Network
+  target_ip: 192.168.1.100
+  target_user: root
+
+  # VCMux
+  vcmuxer_path: /home/hlyytine/tii-sel4/sources/tcu_muxer/vcmuxer
+  vcmux_outer_mode: raw
+
+  # Timeouts (seconds)
+  boot_timeout: 180
+  elfloader_timeout: 300
+  test_timeout: 420
