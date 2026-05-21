@@ -181,6 +181,7 @@ class DockerContainerOracle:
         ready_pattern: bytes | str | None = None,
         ready_label: str = "container_ready",
         queue_maxsize: int = 256,
+        preprocess: bool = True,
     ) -> None:
         self._image = image
         self._stream_name = stream_name
@@ -192,6 +193,7 @@ class DockerContainerOracle:
         self._ready_pattern = ready_pattern
         self._ready_label = ready_label
         self._queue_maxsize = queue_maxsize
+        self._preprocess = preprocess
 
     async def __call__(
         self, ctx: StreamContext, timeout: float
@@ -248,7 +250,10 @@ class DockerContainerOracle:
 
         # Create BiStream and start log producer
         queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=self._queue_maxsize)
-        bio = DockerLogBiStream(queue, container)
+        bio: object = DockerLogBiStream(queue, container)
+        if self._preprocess:
+            from engine.primitives import FilterBiStream
+            bio = FilterBiStream(bio)
         ctx.streams[self._stream_name] = bio
 
         # Background task — W22: do not capture ctx in the task, only the queue

@@ -139,6 +139,7 @@ class UARTSourceDef(BaseModel):
     stream: str
     device: str
     baudrate: int = 115200
+    preprocess: bool = True
 
 
 class SSHCommandDef(BaseModel):
@@ -167,6 +168,7 @@ class SpawnProcessDef(BaseModel):
     ready_label: str = "ready"
     env_extra: dict[str, str] = Field(default_factory=dict)
     cwd: str | None = None
+    preprocess: bool = True
 
 
 class RunProcessDef(BaseModel):
@@ -189,6 +191,7 @@ class DockerContainerDef(BaseModel):
     network_mode: str = "host"
     ready_pattern: str | None = None
     ready_label: str = "container_ready"
+    preprocess: bool = True
 
 
 class VCMuxSourceDef(BaseModel):
@@ -197,6 +200,7 @@ class VCMuxSourceDef(BaseModel):
     nvidia_tcu: bool = False
     registry_streams: list[str] | None = None
     stream_prefix: str = ""
+    preprocess: bool = True
     registry_timeout: float = 30.0
 
 
@@ -445,6 +449,7 @@ def _build_uart_source(d: UARTSourceDef, f: OracleFactory):
         stream_name=d.stream,
         device=_resolve(d.device),
         baudrate=d.baudrate,
+        preprocess=d.preprocess,
     )
 
 
@@ -485,6 +490,7 @@ def _build_spawn_process(d: SpawnProcessDef, f: OracleFactory):
         ready_label=d.ready_label,
         env_extra={k: _resolve(v) for k, v in d.env_extra.items()},
         cwd=Path(d.cwd) if d.cwd else None,
+        preprocess=d.preprocess,
     )
 
 
@@ -512,6 +518,7 @@ def _build_docker_container(d: DockerContainerDef, f: OracleFactory):
         network_mode=d.network_mode,
         ready_pattern=d.ready_pattern,
         ready_label=d.ready_label,
+        preprocess=d.preprocess,
     )
 
 
@@ -523,6 +530,7 @@ def _build_vcmux_source(d: VCMuxSourceDef, f: OracleFactory):
         registry_streams=d.registry_streams,
         stream_prefix=d.stream_prefix,
         registry_timeout=d.registry_timeout,
+        preprocess=d.preprocess,
     )
 
 

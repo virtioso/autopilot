@@ -103,6 +103,102 @@ class VerdictOracle:
         return Matched(self._label), ctx
 
 
+class FilterBiStream:
+    """
+    Wraps any BiStream and preprocesses read() output.
+
+    Applies two transformations in a single stateful scan:
+
+    1. ANSI CSI stripping: ESC [ ... <final byte 0x40–0x7E> sequences are
+       removed. Non-CSI escapes (ESC M, ESC =, etc.) pass through unchanged.
+       Incomplete sequences split across read() calls are buffered and resolved
+       on the next call.
+
+    2. CRLF normalisation: DOS-style CR LF (0x0D 0x0A) is replaced by LF
+       (0x0A). A bare CR not followed by LF is passed through unchanged.
+       A CR at the very end of a chunk is buffered until the next chunk
+       determines whether it is part of a CRLF pair.
+
+    write() is passed through to the inner stream unchanged — only inbound
+    bytes (read direction) are filtered.
+
+    Both transformations are on by default. Pass strip_ansi=False or
+    normalize_crlf=False to disable either one.
+    """
+
+    def __init__(
+        self,
+        inner: object,
+        *,
+        strip_ansi: bool = True,
+        normalize_crlf: bool = True,
+    ) -> None:
+        self._inner = inner
+        self._strip_ansi = strip_ansi
+        self._normalize_crlf = normalize_crlf
+        self._pending = bytearray()
+
+    async def read(self, n: int = 4096) -> bytes:
+        data = await self._inner.read(n)
+        if not data:
+            # EOF: flush whatever is buffered (incomplete escape or lone CR)
+            tail = bytes(self._pending)
+            self._pending.clear()
+            return tail
+        return self._filter(data)
+
+    async def write(self, data: bytes) -> None:
+        await self._inner.write(data)
+
+    def __getattr__(self, name: str):
+        # Forward any attribute not defined on FilterBiStream to the inner stream.
+        # This lets callers use transport-specific methods (e.g. ProcessBiStream.wait(),
+        # UARTBiStream.close()) on the wrapper without needing to unwrap it.
+        return getattr(self._inner, name)
+
+    def _filter(self, data: bytes) -> bytes:
+        buf = bytes(self._pending) + data
+        self._pending.clear()
+        out = bytearray()
+        i = 0
+        n = len(buf)
+        while i < n:
+            b = buf[i]
+
+            if self._strip_ansi and b == 0x1B:
+                if i + 1 >= n:
+                    # ESC at end of chunk — can't determine type yet
+                    self._pending.extend(buf[i:])
+                    break
+                if buf[i + 1] == 0x5B:  # '[' — CSI sequence
+                    j = i + 2
+                    while j < n and not (0x40 <= buf[j] <= 0x7E):
+                        j += 1
+                    if j < n:
+                        i = j + 1   # complete CSI — skip it entirely
+                    else:
+                        self._pending.extend(buf[i:])  # incomplete — save for next chunk
+                        break
+                    continue
+                # Non-CSI escape (ESC M, ESC =, etc.) — fall through and emit ESC byte
+
+            if self._normalize_crlf and b == 0x0D:
+                if i + 1 >= n:
+                    # CR at end of chunk — buffer to check next byte
+                    self._pending.append(0x0D)
+                    i += 1
+                    break
+                if buf[i + 1] == 0x0A:
+                    # CR LF pair — skip CR, LF will be emitted on the next iteration
+                    i += 1
+                    continue
+                # bare CR (not followed by LF) — fall through and emit it
+
+            out.append(b)
+            i += 1
+        return bytes(out)
+
+
 class CommandOracle:
     """
     Write a command to a stream, then wait for a response pattern.

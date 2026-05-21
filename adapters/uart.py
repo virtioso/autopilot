@@ -88,10 +88,12 @@ class UARTSourceOracle:
         stream_name: str,
         device: str,
         baudrate: int = 115200,
+        preprocess: bool = True,
     ) -> None:
         self._stream_name = stream_name
         self._device = device
         self._baudrate = baudrate
+        self._preprocess = preprocess
 
     async def __call__(
         self, ctx: StreamContext, timeout: float
@@ -107,8 +109,11 @@ class UARTSourceOracle:
             )
             return Error(f"uart_open_failed: {exc}"), ctx
 
-        ctx.streams[self._stream_name] = stream
         ctx.register_cleanup(self._stream_name, stream.close)
+        if self._preprocess:
+            from engine.primitives import FilterBiStream
+            stream = FilterBiStream(stream)
+        ctx.streams[self._stream_name] = stream
         log.info(
             "uart_source.ready",
             stream=self._stream_name,

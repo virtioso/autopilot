@@ -508,3 +508,119 @@ def test_chain_recorder_writes_jsonl(tmp_path):
     obj = json.loads(lines[0])
     assert obj["event_type"] == "OracleStarted"
     assert obj["oracle_type"] == "PatternOracle"
+
+
+# ---------------------------------------------------------------------------
+# FilterBiStream
+# ---------------------------------------------------------------------------
+
+from engine.primitives import FilterBiStream
+
+
+class _MultiChunkStream:
+    """Feed multiple byte chunks in sequence; returns b'' (EOF) when exhausted."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = list(chunks)
+        self._written: list[bytes] = []
+
+    async def read(self, n: int = 4096) -> bytes:
+        if not self._chunks:
+            return b""
+        return self._chunks.pop(0)
+
+    async def write(self, data: bytes) -> None:
+        self._written.append(data)
+
+
+async def _read_all(stream) -> bytes:
+    """Drain a FilterBiStream until EOF."""
+    out = bytearray()
+    while True:
+        chunk = await stream.read(4096)
+        if not chunk:
+            break
+        out.extend(chunk)
+    return bytes(out)
+
+
+async def test_filter_ansi_stripped():
+    inner = MockBiStream(b"\x1b[32mShell>\x1b[0m")
+    f = FilterBiStream(inner)
+    assert await _read_all(f) == b"Shell>"
+
+
+async def test_filter_crlf_normalized():
+    inner = MockBiStream(b"hello\r\nworld\r\n")
+    f = FilterBiStream(inner)
+    assert await _read_all(f) == b"hello\nworld\n"
+
+
+async def test_filter_bare_cr_preserved():
+    inner = MockBiStream(b"foo\rbar")
+    f = FilterBiStream(inner)
+    assert await _read_all(f) == b"foo\rbar"
+
+
+async def test_filter_split_ansi_across_chunks():
+    inner = _MultiChunkStream([b"\x1b[", b"32mOK", b""])
+    f = FilterBiStream(inner)
+    chunk1 = await f.read()
+    chunk2 = await f.read()
+    assert chunk1 == b""
+    assert chunk2 == b"OK"
+
+
+async def test_filter_split_crlf_across_chunks():
+    inner = _MultiChunkStream([b"foo\r", b"\nbar", b""])
+    f = FilterBiStream(inner)
+    chunk1 = await f.read()
+    chunk2 = await f.read()
+    assert chunk1 == b"foo"
+    assert chunk2 == b"\nbar"
+
+
+async def test_filter_ansi_and_crlf_combined():
+    inner = MockBiStream(b"\x1b[1mDone\x1b[0m\r\n")
+    f = FilterBiStream(inner)
+    assert await _read_all(f) == b"Done\n"
+
+
+async def test_filter_eof_flushes_incomplete_ansi():
+    inner = _MultiChunkStream([b"\x1b[", b""])
+    f = FilterBiStream(inner)
+    chunk1 = await f.read()  # incomplete CSI — buffered, returns b""
+    chunk2 = await f.read()  # EOF — flushes pending b"\x1b["
+    assert chunk1 == b""
+    assert chunk2 == b"\x1b["
+
+
+async def test_filter_write_passthrough():
+    inner = _MultiChunkStream([b""])
+    f = FilterBiStream(inner)
+    await f.write(b"cmd\n")
+    assert inner._written == [b"cmd\n"]
+
+
+async def test_filter_strip_ansi_false():
+    inner = MockBiStream(b"\x1b[32mfoo")
+    f = FilterBiStream(inner, strip_ansi=False)
+    assert await _read_all(f) == b"\x1b[32mfoo"
+
+
+async def test_filter_normalize_crlf_false():
+    inner = MockBiStream(b"a\r\nb")
+    f = FilterBiStream(inner, normalize_crlf=False)
+    assert await _read_all(f) == b"a\r\nb"
+
+
+async def test_filter_non_csi_escape_preserved():
+    inner = MockBiStream(b"\x1bMfoo")  # ESC M (reverse index) — not CSI
+    f = FilterBiStream(inner)
+    assert await _read_all(f) == b"\x1bMfoo"
+
+
+async def test_filter_multiple_ansi_codes():
+    inner = MockBiStream(b"\x1b[1m\x1b[32mBOOT\x1b[0m OK\r\n")
+    f = FilterBiStream(inner)
+    assert await _read_all(f) == b"BOOT OK\n"

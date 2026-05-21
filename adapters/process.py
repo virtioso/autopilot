@@ -164,6 +164,7 @@ class SpawnProcessOracle:
         ready_label: str = "ready",
         env_extra: dict[str, str] | None = None,
         cwd: Path | str | None = None,
+        preprocess: bool = True,
     ) -> None:
         self._cmd = cmd
         self._stream_name = stream_name
@@ -171,6 +172,7 @@ class SpawnProcessOracle:
         self._ready_label = ready_label
         self._env_extra = env_extra or {}
         self._cwd = str(cwd) if cwd else None
+        self._preprocess = preprocess
 
     async def __call__(
         self, ctx: StreamContext, timeout: float
@@ -198,7 +200,6 @@ class SpawnProcessOracle:
         log.info("spawn.started", name=self._stream_name, pid=proc.pid)
 
         stream = ProcessBiStream(proc)
-        ctx.streams[self._stream_name] = stream
 
         # Register kill hook BEFORE readiness check (W29).
         # If readiness times out, ctx.cleanup() will kill the process.
@@ -206,6 +207,11 @@ class SpawnProcessOracle:
             self._stream_name,
             make_process_cleanup(proc, self._stream_name),
         )
+
+        if self._preprocess:
+            from engine.primitives import FilterBiStream
+            stream = FilterBiStream(stream)
+        ctx.streams[self._stream_name] = stream
 
         # Wait for readiness signal on the process stdout.
         readiness = PatternOracle(

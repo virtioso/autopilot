@@ -385,6 +385,7 @@ class VCMuxSourceOracle:
         registry_timeout: float = 30.0,
         include_default: bool = False,
         queue_maxsize: int = 8192,
+        preprocess: bool = True,
     ) -> None:
         self._raw_name = raw_stream_name
         self._nvidia_tcu = nvidia_tcu
@@ -394,6 +395,7 @@ class VCMuxSourceOracle:
         self._registry_timeout = registry_timeout
         self._include_default = include_default
         self._queue_maxsize = queue_maxsize
+        self._preprocess = preprocess
 
     async def __call__(
         self, ctx: StreamContext, timeout: float
@@ -457,22 +459,28 @@ class VCMuxSourceOracle:
                 continue
 
             q = parser.add_channel(stream_id)
-            bio = VCMuxBiStream(
+            bio: object = VCMuxBiStream(
                 stream_id, q, raw, write_lock,
                 nvidia_tcu=self._nvidia_tcu,
                 nvidia_tag=self._nvidia_tag,
             )
+            if self._preprocess:
+                from engine.primitives import FilterBiStream
+                bio = FilterBiStream(bio)
             ctx_name = f"{self._prefix}{name}"
             ctx.streams[ctx_name] = bio
             registered.append(ctx_name)
             log.info("vcmux.channel_registered", name=ctx_name, stream_id=stream_id)
 
         if self._include_default:
-            default_bio = VCMuxBiStream(
+            default_bio: object = VCMuxBiStream(
                 0, default_q, raw, write_lock,
                 nvidia_tcu=self._nvidia_tcu,
                 nvidia_tag=self._nvidia_tag,
             )
+            if self._preprocess:
+                from engine.primitives import FilterBiStream
+                default_bio = FilterBiStream(default_bio)
             ctx_name = f"{self._prefix}default"
             ctx.streams[ctx_name] = default_bio
             registered.append(ctx_name)
