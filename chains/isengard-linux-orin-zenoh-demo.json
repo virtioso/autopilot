@@ -82,7 +82,7 @@
     "setup_demo": {
       "type": "setup_demo",
       "layout": "zenoh-orin",
-      "vcmuxer_path": "/home/hlyytine/tii-sel4/sources/tcu_muxer/vcmuxer",
+      "virtioso_mux_path": "/home/hlyytine/tii-sel4/sources/virtioso-mux/host/virtioso-mux",
       "outer_mode": "raw",
       "outcomes": [
         { "label": "ok", "next": "verify_bridge_binary" }

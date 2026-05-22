@@ -88,7 +88,7 @@
       "outcomes": [
         {
           "label": "pass",
-          "next": "start_vcmuxer"
+          "next": "start_virtioso_mux"
         },
         {
           "label": "fail",
@@ -97,12 +97,12 @@
       ],
       "on_timeout": "filter_logs_fail"
     },
-    "start_vcmuxer": {
+    "start_virtioso_mux": {
       "type": "map_vcmux_source",
-      "source": "vcmuxer",
+      "source": "virtioso_mux",
       "tty": "env:AUTOPILOT_TTY1",
-      "log": "console/vcmuxer.stdout.log",
-      "vcmuxer_path": "/home/hlyytine/tii-sel4/sources/tcu_muxer/vcmuxer",
+      "log": "console/virtioso-mux.stdout.log",
+      "virtioso_mux_path": "/home/hlyytine/tii-sel4/sources/virtioso-mux/host/virtioso-mux",
       "outer_mode": "raw",
       "replace_sources": [
         "tty1"
@@ -168,7 +168,7 @@
       "command": [
         "bash",
         "-lc",
-        "vm0_log=\"{result_dir}/console/console-runtime/vcmuxer_logs/vm0.txt\"; vm1_log=\"{result_dir}/console/console-runtime/vcmuxer_logs/vm1.txt\"; raw_log=\"{result_dir}/console/raw_ccplex.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0.filtered.log\"; elif [ -f \"$raw_log\" ]; then {code_root}/filter_capdl_start.py < \"$raw_log\" > \"{result_dir}/console/raw_ccplex.filtered.log\"; else : > \"{result_dir}/console/raw_ccplex.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1.log\"; else : > \"{result_dir}/console/vm1.log\"; fi"
+        "vm0_log=\"{result_dir}/console/console-runtime/virtioso_mux_logs/vm0.txt\"; vm1_log=\"{result_dir}/console/console-runtime/virtioso_mux_logs/vm1.txt\"; raw_log=\"{result_dir}/console/raw_ccplex.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0.filtered.log\"; elif [ -f \"$raw_log\" ]; then {code_root}/filter_capdl_start.py < \"$raw_log\" > \"{result_dir}/console/raw_ccplex.filtered.log\"; else : > \"{result_dir}/console/raw_ccplex.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1.log\"; else : > \"{result_dir}/console/vm1.log\"; fi"
       ],
       "outcomes": [
         {
@@ -183,7 +183,7 @@
       "command": [
         "bash",
         "-lc",
-        "vm0_log=\"{result_dir}/console/console-runtime/vcmuxer_logs/vm0.txt\"; vm1_log=\"{result_dir}/console/console-runtime/vcmuxer_logs/vm1.txt\"; raw_log=\"{result_dir}/console/raw_ccplex.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0.filtered.log\"; elif [ -f \"$raw_log\" ]; then {code_root}/filter_capdl_start.py < \"$raw_log\" > \"{result_dir}/console/raw_ccplex.filtered.log\"; else : > \"{result_dir}/console/raw_ccplex.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1.log\"; else : > \"{result_dir}/console/vm1.log\"; fi; if [ ! -f \"$vm0_log\" ]; then printf \"\\nAUTOPILOT_FAIL: VM0_CONSOLE_PAYLOAD_MISSING (registry arrived but vm0 produced no bytes; see raw_ccplex.txt)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif ! grep -a -q \"ELF-loader started on CPU\" \"$vm0_log\"; then printf \"\\nAUTOPILOT_FAIL: VM0_CONSOLE_PAYLOAD_MISSING_ELFLOADER (generated VM0 stream lacks ELF-loader marker; see raw_ccplex.txt)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"$vm0_log\" && { [ ! -f \"$vm1_log\" ] || ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"$vm1_log\"; }; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; fi"
+        "vm0_log=\"{result_dir}/console/console-runtime/virtioso_mux_logs/vm0.txt\"; vm1_log=\"{result_dir}/console/console-runtime/virtioso_mux_logs/vm1.txt\"; raw_log=\"{result_dir}/console/raw_ccplex.txt\"; if [ -f \"$vm0_log\" ]; then {code_root}/filter_capdl_start.py < \"$vm0_log\" > \"{result_dir}/console/vm0.filtered.log\"; elif [ -f \"$raw_log\" ]; then {code_root}/filter_capdl_start.py < \"$raw_log\" > \"{result_dir}/console/raw_ccplex.filtered.log\"; else : > \"{result_dir}/console/raw_ccplex.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then {code_root}/filter_vm_console.py < \"$vm1_log\" > \"{result_dir}/console/vm1.log\"; else : > \"{result_dir}/console/vm1.log\"; fi; if [ ! -f \"$vm0_log\" ]; then printf \"\\nAUTOPILOT_FAIL: VM0_CONSOLE_PAYLOAD_MISSING (registry arrived but vm0 produced no bytes; see raw_ccplex.txt)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif ! grep -a -q \"ELF-loader started on CPU\" \"$vm0_log\"; then printf \"\\nAUTOPILOT_FAIL: VM0_CONSOLE_PAYLOAD_MISSING_ELFLOADER (generated VM0 stream lacks ELF-loader marker; see raw_ccplex.txt)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; elif grep -a -E -q \"KERNEL DATA ABORT!|Kernel entry via VCPUFault\" \"$vm0_log\" && { [ ! -f \"$vm1_log\" ] || ! grep -a -E -q \"Booting Linux|driver-vm login:|login:\" \"$vm1_log\"; }; then printf \"\\nAUTOPILOT_FAIL: VM0_KERNEL_ABORT_PRE_VM1 (data abort before VM1 boot evidence)\\n\" >> \"{result_dir}/console/autopilot.fail.log\"; fi"
       ],
       "outcomes": [
         {

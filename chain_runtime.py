@@ -497,11 +497,11 @@ class SourceManager:
         if sessions_path:
             self._ensure_symlink(runtime_dir / "sessions.json", Path(sessions_path))
         if logs_dir:
-            self._ensure_symlink(runtime_dir / "vcmuxer_logs", Path(logs_dir))
+            self._ensure_symlink(runtime_dir / "virtioso_mux_logs", Path(logs_dir))
         if raw_log:
-            self._ensure_symlink(runtime_dir / "vcmuxer.raw.log", Path(raw_log))
+            self._ensure_symlink(runtime_dir / "virtioso-mux.raw.log", Path(raw_log))
         else:
-            stale_raw_log = runtime_dir / "vcmuxer.raw.log"
+            stale_raw_log = runtime_dir / "virtioso-mux.raw.log"
             try:
                 if stale_raw_log.is_symlink():
                     stale_raw_log.unlink()
@@ -575,7 +575,7 @@ class SourceManager:
         tty: str,
         log_rel: str,
         *,
-        vcmuxer_path: str,
+        virtioso_mux_path: str,
         outer_mode: str = "raw",
         outer_tag: str = "CCPLEX",
         replace_sources: Optional[List[str]] = None,
@@ -587,11 +587,11 @@ class SourceManager:
 
         console_dir = self.result_dir / "console"
         runtime_dir = console_dir / "console-runtime"
-        logs_dir = runtime_dir / "vcmuxer_logs"
+        logs_dir = runtime_dir / "virtioso_mux_logs"
         runtime_dir.mkdir(parents=True, exist_ok=True)
         logs_dir.mkdir(parents=True, exist_ok=True)
         stdout_log = self.result_dir / log_rel
-        raw_log = runtime_dir / "vcmuxer.raw.log"
+        raw_log = runtime_dir / "virtioso-mux.raw.log"
         sessions_path = runtime_dir / "sessions.json"
         registry_copy_path = runtime_dir / "console-stream-registry.json"
         sessions: Dict[str, dict] = {}
@@ -684,7 +684,7 @@ class SourceManager:
                     self._router_session_cache.clear()
 
         command = [
-            vcmuxer_path,
+            virtioso_mux_path,
             "-A",
             "-O",
             outer_mode,
@@ -945,8 +945,8 @@ def validate_chain(chain: dict) -> None:
                 raise ChainValidationError(f"step {name} map_vcmux_source requires source")
             if not step.get("tty"):
                 raise ChainValidationError(f"step {name} map_vcmux_source requires tty")
-            if not step.get("vcmuxer_path"):
-                raise ChainValidationError(f"step {name} map_vcmux_source requires vcmuxer_path")
+            if not step.get("virtioso_mux_path"):
+                raise ChainValidationError(f"step {name} map_vcmux_source requires virtioso_mux_path")
         if step.get("type") == "wait_router_session":
             if not step.get("source"):
                 raise ChainValidationError(f"step {name} wait_router_session requires source")
@@ -1373,7 +1373,7 @@ class ChainRunner:
             tty = (os.environ.get(env_key, "") or "").strip()
         if not tty:
             raise ValueError("map_vcmux_source requires tty")
-        vcmuxer_path = str(self._resolve_value(step.get("vcmuxer_path")))
+        virtioso_mux_path = str(self._resolve_value(step.get("virtioso_mux_path")))
         outer_mode = str(self._resolve_value(step.get("outer_mode", "raw")))
         outer_tag = str(self._resolve_value(step.get("outer_tag", "CCPLEX")))
         log_rel = step.get("log", f"console/{source}.raw")
@@ -1384,14 +1384,14 @@ class ChainRunner:
             source,
             str(tty),
             log_rel,
-            vcmuxer_path=vcmuxer_path,
+            virtioso_mux_path=virtioso_mux_path,
             outer_mode=outer_mode,
             outer_tag=outer_tag,
             replace_sources=[str(item) for item in replace_sources],
         )
         ui = self.ctx.get("ui")
         if ui and hasattr(ui, "state"):
-            ui.state.map_source(source, f"{vcmuxer_path} -d {tty}", str(self.ctx["result_dir"] / log_rel))
+            ui.state.map_source(source, f"{virtioso_mux_path} -d {tty}", str(self.ctx["result_dir"] / log_rel))
         return self._simple_outcome(step)
 
     def _step_wait_router_session(self, step: dict) -> Tuple[str, OutcomeMatch]:
@@ -1496,10 +1496,10 @@ class ChainRunner:
 
         logs_dir: Optional[Path] = None
         if has_mux and sources and result_dir:
-            vcmuxer_path = str(self._resolve_value(step.get("vcmuxer_path", "")))
-            if not vcmuxer_path:
+            virtioso_mux_path = str(self._resolve_value(step.get("virtioso_mux_path", "")))
+            if not virtioso_mux_path:
                 raise ChainValidationError(
-                    f"setup_demo step '{layout_name}' has mux: sources but no vcmuxer_path"
+                    f"setup_demo step '{layout_name}' has mux: sources but no virtioso_mux_path"
                 )
             tty1_binding = sources.get("tty1")
             if not tty1_binding or not tty1_binding.tty:
@@ -1508,14 +1508,14 @@ class ChainRunner:
                 )
             outer_mode = str(self._resolve_value(step.get("outer_mode", "raw")))
             sources.map_vcmux_source(
-                "vcmux_router",
+                "virtioso_mux_router",
                 tty1_binding.tty,
-                "console/vcmux_router.raw",
-                vcmuxer_path=vcmuxer_path,
+                "console/virtioso-mux-router.raw",
+                virtioso_mux_path=virtioso_mux_path,
                 outer_mode=outer_mode,
                 replace_sources=["tty1"],
             )
-            logs_dir = result_dir / "console" / "console-runtime" / "vcmuxer_logs"
+            logs_dir = result_dir / "console" / "console-runtime" / "virtioso_mux_logs"
 
         uart_window: Optional[int] = None
         for i, pane in enumerate(all_panes):
