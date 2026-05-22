@@ -12,7 +12,7 @@ defaults:
   target_user: root
 
   # VCMux
-  vcmuxer_path: /home/hlyytine/tii-sel4/sources/tcu_muxer/vcmuxer
+  virtioso_mux_path: /home/hlyytine/tii-sel4/sources/virtioso-mux/host/virtioso-mux
   vcmux_outer_mode: raw
 
   # Timeouts (seconds)
