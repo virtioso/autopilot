@@ -5,7 +5,7 @@ VCMux is a byte-stream multiplexer. A single physical UART carries multiple
 named virtual channels (vm0_guest_console_sink, vm1_guest_console_sink, etc.)
 separated by 0xfe escape sequences.
 
-The old system runs an external C binary (vcmuxer) which handles parsing and
+The old system runs an external C binary (virtioso-mux) which handles parsing and
 creates PTY file descriptors. This adapter implements the same parser in Python,
 eliminating the subprocess dependency and enabling in-process demultiplexing.
 
