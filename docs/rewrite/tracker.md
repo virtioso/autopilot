@@ -45,7 +45,7 @@ python autopilot.py run --chain chains/sel4test.json --platform orin-agx --timeo
 
 Read `chain_runtime.py` `_step_setup_demo`, `_step_check_verdict`, `_step_set_test_verdict`:
 
-**`setup_demo`** — Compound step: (1) calls `map_vcmux_source` (VCMux BiStream creation); (2) splits tmux windows and runs `tail -F` on vcmuxer log files for display. In the rewrite: VCMux source creation = `VCMuxSourceOracle` with display as a side-effect via `pipe-pane -I` tee. The `tail -F` mechanism is replaced. No special oracle class needed for setup_demo — it decomposes into existing oracle types.
+**`setup_demo`** — Compound step: (1) calls `map_virtioso_mux_source` (VCMux BiStream creation); (2) splits tmux windows and runs `tail -F` on virtioso-mux log files for display. In the rewrite: VCMux source creation = `VCMuxSourceOracle` with display as a side-effect via `pipe-pane -I` tee. The `tail -F` mechanism is replaced. No special oracle class needed for setup_demo — it decomposes into existing oracle types.
 
 **`check_verdict`** — Two sub-modes:
 - `artifact_grep`: SSH to target, poll `grep -q <pattern> <file>` with 2s retry. Maps to `Poll(SSHCommandOracle(...))`.
