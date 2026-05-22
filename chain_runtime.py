@@ -569,7 +569,7 @@ class SourceManager:
         binding.set_write_path_resolver(lambda source_name=source: self._resolve_router_write_tty(source_name))
         self.sources[source] = binding
 
-    def map_vcmux_source(
+    def map_virtioso_mux_source(
         self,
         source: str,
         tty: str,
@@ -940,13 +940,13 @@ def validate_chain(chain: dict) -> None:
                 raise ChainValidationError(
                     f"step {name} call_chain requires outcomes for labels 'pass' and 'fail'"
                 )
-        if step.get("type") == "map_vcmux_source":
+        if step.get("type") == "map_virtioso_mux_source":
             if not step.get("source"):
-                raise ChainValidationError(f"step {name} map_vcmux_source requires source")
+                raise ChainValidationError(f"step {name} map_virtioso_mux_source requires source")
             if not step.get("tty"):
-                raise ChainValidationError(f"step {name} map_vcmux_source requires tty")
+                raise ChainValidationError(f"step {name} map_virtioso_mux_source requires tty")
             if not step.get("virtioso_mux_path"):
-                raise ChainValidationError(f"step {name} map_vcmux_source requires virtioso_mux_path")
+                raise ChainValidationError(f"step {name} map_virtioso_mux_source requires virtioso_mux_path")
         if step.get("type") == "wait_router_session":
             if not step.get("source"):
                 raise ChainValidationError(f"step {name} wait_router_session requires source")
@@ -1242,8 +1242,8 @@ class ChainRunner:
                 return self._simple_outcome(step)
             if step_type == "map_source":
                 return self._step_map_source(step)
-            if step_type == "map_vcmux_source":
-                return self._step_map_vcmux_source(step)
+            if step_type == "map_virtioso_mux_source":
+                return self._step_map_virtioso_mux_source(step)
             if step_type == "wait_router_session":
                 return self._step_wait_router_session(step)
             if step_type == "map_router_session_panes":
@@ -1365,22 +1365,22 @@ class ChainRunner:
             ui.state.map_source(source, shlex.join(resolved_command), str(self.ctx["result_dir"] / log_rel))
         return self._simple_outcome(step)
 
-    def _step_map_vcmux_source(self, step: dict) -> Tuple[str, OutcomeMatch]:
+    def _step_map_virtioso_mux_source(self, step: dict) -> Tuple[str, OutcomeMatch]:
         source = step["source"]
         tty = self._resolve_value(step.get("tty"))
         if isinstance(tty, str) and tty.startswith("env:"):
             env_key = tty.split("env:", 1)[1]
             tty = (os.environ.get(env_key, "") or "").strip()
         if not tty:
-            raise ValueError("map_vcmux_source requires tty")
+            raise ValueError("map_virtioso_mux_source requires tty")
         virtioso_mux_path = str(self._resolve_value(step.get("virtioso_mux_path")))
         outer_mode = str(self._resolve_value(step.get("outer_mode", "raw")))
         outer_tag = str(self._resolve_value(step.get("outer_tag", "CCPLEX")))
         log_rel = step.get("log", f"console/{source}.raw")
         replace_sources = step.get("replace_sources", []) or []
         if not isinstance(replace_sources, list):
-            raise ValueError("map_vcmux_source replace_sources must be a list")
-        self.ctx["sources"].map_vcmux_source(
+            raise ValueError("map_virtioso_mux_source replace_sources must be a list")
+        self.ctx["sources"].map_virtioso_mux_source(
             source,
             str(tty),
             log_rel,
@@ -1507,7 +1507,7 @@ class ChainRunner:
                     "setup_demo: mux: sources require tty1 to be mapped to a serial device"
                 )
             outer_mode = str(self._resolve_value(step.get("outer_mode", "raw")))
-            sources.map_vcmux_source(
+            sources.map_virtioso_mux_source(
                 "virtioso_mux_router",
                 tty1_binding.tty,
                 "console/virtioso-mux-router.raw",
