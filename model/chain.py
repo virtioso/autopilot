@@ -242,6 +242,7 @@ class UEFIShellRunDef(BaseModel):
     boot_manager_timeout_s: float = 30.0
     shell_timeout_s: float = 30.0
     fs_timeout_s: float = 10.0
+    skip_menu: bool = False
 
 
 class ExtlinuxBootDef(BaseModel):
@@ -363,6 +364,8 @@ class OracleFactory:
 
     @classmethod
     def hydrate(cls, oracle_def: OracleDef) -> object:
+        from engine.runtime import RecordedOracle
+
         name = oracle_def.oracle  # type: ignore[union-attr]
         builder = cls._registry.get(name)
         if builder is None:
@@ -370,7 +373,8 @@ class OracleFactory:
                 f"No builder registered for oracle type '{name}'. "
                 f"Known types: {sorted(cls._registry)}"
             )
-        return builder(oracle_def, cls)
+        oracle = builder(oracle_def, cls)
+        return RecordedOracle(oracle, name)
 
     @classmethod
     def parse(cls, data: dict) -> OracleDef:
@@ -611,13 +615,14 @@ def _build_uefi_shell_run(d: UEFIShellRunDef, f: OracleFactory):
     return UEFIShellRunOracle(
         stream=d.stream,
         binary=_resolve(d.binary),
-        fs=d.fs,
+        fs=_resolve(d.fs),
         success_pattern=d.success_pattern,
         prompt_timeout_s=d.prompt_timeout_s,
         select_timeout_s=d.select_timeout_s,
         boot_manager_timeout_s=d.boot_manager_timeout_s,
         shell_timeout_s=d.shell_timeout_s,
         fs_timeout_s=d.fs_timeout_s,
+        skip_menu=d.skip_menu,
     )
 
 

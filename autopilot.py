@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import signal
 import sys
 from pathlib import Path
@@ -32,6 +33,28 @@ from pathlib import Path
 import structlog
 
 log = structlog.get_logger()
+
+
+def _configure_logging() -> None:
+    """
+    Configure structlog to use stdlib logging as the backend so per-run
+    FileHandlers added in ChainRunner can capture all log output to run.log.
+    """
+    logging.basicConfig(format="%(message)s", level=logging.DEBUG, stream=sys.stderr)
+    structlog.configure(
+        processors=[
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.processors.JSONRenderer(),
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    _configure_logging()
     parser = build_parser()
     args = parser.parse_args()
 

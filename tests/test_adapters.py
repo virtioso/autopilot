@@ -914,6 +914,7 @@ async def test_relay_oracle_boot_sequence():
 
     calls = []
     fake_usbrelay = ModuleType("usbrelay_py")
+    fake_usbrelay.board_count = MagicMock(return_value=1)
     fake_usbrelay.board_details = MagicMock(return_value=[["BOARD1", None]])
     fake_usbrelay.board_control = MagicMock(side_effect=lambda *a: calls.append(a))
 
@@ -943,6 +944,7 @@ async def test_relay_oracle_boot_recovery_sequence():
 
     calls = []
     fake_usbrelay = ModuleType("usbrelay_py")
+    fake_usbrelay.board_count = MagicMock(return_value=1)
     fake_usbrelay.board_details = MagicMock(return_value=[["BOARD1", None]])
     fake_usbrelay.board_control = MagicMock(side_effect=lambda *a: calls.append(a))
 
@@ -965,7 +967,9 @@ async def test_relay_oracle_schema_roundtrip():
     d = OracleFactory.parse(data)
     oracle = OracleFactory.hydrate(d)
     from adapters.relay import RelayOracle
-    assert isinstance(oracle, RelayOracle)
+    from engine.runtime import RecordedOracle
+    assert isinstance(oracle, RecordedOracle)
+    assert isinstance(oracle._inner, RelayOracle)
 
 
 # ---------------------------------------------------------------------------
@@ -1137,7 +1141,9 @@ async def test_uefi_shell_run_schema_roundtrip():
     }
     d = OracleFactory.parse(data)
     oracle = OracleFactory.hydrate(d)
-    assert isinstance(oracle, UEFIShellRunOracle)
+    from engine.runtime import RecordedOracle
+    assert isinstance(oracle, RecordedOracle)
+    assert isinstance(oracle._inner, UEFIShellRunOracle)
 
 
 # ---------------------------------------------------------------------------
@@ -1220,4 +1226,6 @@ async def test_extlinux_boot_schema_roundtrip():
     }
     d = OracleFactory.parse(data)
     oracle = OracleFactory.hydrate(d)
-    assert isinstance(oracle, ExtlinuxBootOracle)
+    from engine.runtime import RecordedOracle
+    assert isinstance(oracle, RecordedOracle)
+    assert isinstance(oracle._inner, ExtlinuxBootOracle)

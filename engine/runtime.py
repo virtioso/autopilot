@@ -46,6 +46,7 @@ ChainRunner: full lifecycle manager — result dir setup, recorder wiring,
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,6 +57,59 @@ from engine.oracle import Error, Matched, StreamContext, TimeoutVerdict, Verdict
 from engine.recorder import ChainRecorder, NullRecorder
 
 log = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Per-oracle recording wrapper
+# ---------------------------------------------------------------------------
+
+class RecordedOracle:
+    """
+    Transparent wrapper that emits OracleStarted/OracleVerdict events for
+    any oracle. Applied at hydration time so every node in the oracle tree
+    is visible in events.jsonl — not just the top-level chain.
+
+    The recorder is accessed from ctx.metadata["recorder"] at call time (not
+    at hydration time), so no recorder reference is needed during construction.
+    """
+
+    __slots__ = ("_inner", "_oracle_type")
+
+    def __init__(self, inner: object, oracle_type: str) -> None:
+        self._inner = inner
+        self._oracle_type = oracle_type
+
+    async def __call__(
+        self, ctx: StreamContext, timeout: float
+    ) -> tuple[Verdict, StreamContext]:
+        from engine.recorder import OracleStarted, OracleVerdict
+
+        recorder = ctx.metadata.get("recorder")
+        stream_name: str | None = None
+        for attr in ("_stream", "_stream_name", "stream"):
+            v = getattr(self._inner, attr, None)
+            if isinstance(v, str):
+                stream_name = v
+                break
+
+        if recorder is not None:
+            recorder.emit(OracleStarted(oracle_type=self._oracle_type, stream_name=stream_name))
+
+        t0 = time.monotonic()
+        verdict, ctx = await self._inner(ctx, timeout)
+        elapsed = time.monotonic() - t0
+
+        if recorder is not None:
+            recorder.emit(
+                OracleVerdict(
+                    oracle_type=self._oracle_type,
+                    verdict_type=type(verdict).__name__,
+                    verdict_label=getattr(verdict, "label", None) or getattr(verdict, "reason", None),
+                    elapsed=elapsed,
+                )
+            )
+
+        return verdict, ctx
 
 
 def load_chain(path: Path) -> object:
@@ -256,10 +310,20 @@ class ChainRunner:
         self._result_dir.mkdir(parents=True, exist_ok=True)
         recorder = ChainRecorder(self._result_dir)
 
+        # Capture all structlog output to run.log for this run.
+        # Relies on structlog being configured to use stdlib logging (set up
+        # by _configure_logging() in autopilot.py before ChainRunner is created).
+        _log_handler = logging.FileHandler(self._result_dir / "run.log")
+        _log_handler.setFormatter(logging.Formatter("%(message)s"))
+        logging.getLogger().addHandler(_log_handler)
+
         config = Config.load(
             platform=self._platform,
             overrides=self._config_overrides,
         )
+        # Publish merged config to os.environ so $AUTOPILOT_* references
+        # in chain JSON files resolve correctly during hydration.
+        config.export_to_env()
 
         ctx = StreamContext()
         ctx.metadata["config"] = config.as_dict()
@@ -291,6 +355,8 @@ class ChainRunner:
         finally:
             ctx.cleanup()
             recorder.close()
+            logging.getLogger().removeHandler(_log_handler)
+            _log_handler.close()
 
         self._verdict = verdict
         self._write_verdict(verdict)
