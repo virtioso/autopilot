@@ -3,17 +3,15 @@
   "steps": [
     {
       "oracle": "timeout",
-      "seconds": 180,
+      "seconds": 360,
       "step": {
         "oracle": "uefi_shell_run",
         "stream": "tty0",
         "binary": "EFI\\BOOT\\BOOTAA64.EFI",
         "fs": "fs3",
         "success_pattern": "L4TLauncher: Attempting Direct Boot",
-        "prompt_timeout_s": 60.0,
-        "select_timeout_s": 30.0,
-        "boot_manager_timeout_s": 30.0,
-        "shell_timeout_s": 60.0,
+        "skip_menu": true,
+        "shell_timeout_s": 120.0,
         "fs_timeout_s": 10.0
       }
     },

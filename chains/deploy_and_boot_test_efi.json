@@ -25,16 +25,14 @@
     },
     {
       "oracle": "timeout",
-      "seconds": 180,
+      "seconds": 360,
       "step": {
         "oracle": "uefi_shell_run",
         "stream": "tty0",
         "binary": "$AUTOPILOT_EFI_BINARY",
-        "fs": "fs2",
-        "prompt_timeout_s": 60.0,
-        "select_timeout_s": 30.0,
-        "boot_manager_timeout_s": 30.0,
-        "shell_timeout_s": 60.0,
+        "fs": "$AUTOPILOT_EFI_FS",
+        "skip_menu": true,
+        "shell_timeout_s": 120.0,
         "fs_timeout_s": 10.0
       }
     },

@@ -227,7 +227,9 @@ class SSHUploadOracle:
             try:
                 async with conn.start_sftp_client() as sftp:
                     await asyncio.wait_for(
-                        sftp.put(str(self._src), self._dst),
+                        # Resolve symlinks locally so asyncssh uploads file
+                        # content rather than replicating the symlink remotely.
+                        sftp.put(str(self._src.resolve()), self._dst),
                         timeout=timeout,
                     )
             except asyncio.TimeoutError:

@@ -15,6 +15,12 @@ defaults:
   virtioso_mux_path: /home/hlyytine/tii-sel4/sources/virtioso-mux/host/virtioso-mux
   vcmux_outer_mode: raw
 
+  # EFI deploy — board-level constants (same for every user on this board type)
+  # local_efi_path is user-specific; set it in settings/local.yaml
+  remote_efi_path: /efiboot/test.efi
+  efi_binary: 'efiboot\test.efi'
+  efi_fs: fs2
+
   # Timeouts (seconds)
   boot_timeout: 180
   elfloader_timeout: 300

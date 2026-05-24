@@ -70,6 +70,17 @@ class Config:
         merged = {**self._data, **overrides}
         return Config(merged)
 
+    def export_to_env(self) -> None:
+        """
+        Write merged config values into os.environ with AUTOPILOT_ prefix.
+
+        Call this before chain hydration so that $AUTOPILOT_* variable
+        references in chain JSON files resolve correctly. Skips nested dicts.
+        """
+        for key, value in self._data.items():
+            if isinstance(value, (str, int, float)):
+                os.environ[f"{_ENV_PREFIX}{key.upper()}"] = str(value)
+
     @classmethod
     def load(
         cls,
@@ -77,7 +88,13 @@ class Config:
         overrides: dict[str, Any] | None = None,
     ) -> Config:
         """
-        Build a Config from all layers.
+        Build a Config from all layers (lowest to highest priority):
+
+          1. Hardcoded defaults
+          2. Platform YAML  (platforms/<platform>.yaml)
+          2.5. Local settings (settings/local.yaml, gitignored)
+          3. Environment variables (AUTOPILOT_* prefix)
+          4. Per-request overrides
 
         platform: name of a YAML file in platforms/ (without .yaml suffix).
             If None, uses AUTOPILOT_PLATFORM env var, then "generic".
@@ -96,10 +113,27 @@ class Config:
         data.update(platform_data)
         data["platform"] = resolved_platform
 
+        # Layer 2.5: local user settings (gitignored, machine-specific)
+        local_data = _load_local_settings()
+        data.update(local_data)
+
         # Layer 3: environment variables (AUTOPILOT_<KEY>=<value>)
+        # Coerce to the same type as the existing value (int/float → str in env,
+        # but we want to preserve numeric types from lower layers).
         for key, value in os.environ.items():
             if key.startswith(_ENV_PREFIX):
                 config_key = key[len(_ENV_PREFIX):].lower()
+                existing = data.get(config_key)
+                if isinstance(existing, int) and not isinstance(existing, bool):
+                    try:
+                        value = int(value)  # type: ignore[assignment]
+                    except (ValueError, TypeError):
+                        pass
+                elif isinstance(existing, float):
+                    try:
+                        value = float(value)  # type: ignore[assignment]
+                    except (ValueError, TypeError):
+                        pass
                 data[config_key] = value
 
         # Layer 4: per-request overrides
@@ -113,6 +147,23 @@ class Config:
             keys=sorted(data.keys()),
         )
         return cfg
+
+
+def _load_local_settings() -> dict[str, Any]:
+    """Load settings/local.yaml from the project root. Returns empty dict if absent."""
+    yaml_path = _PROJECT_ROOT / "settings" / "local.yaml"
+    if not yaml_path.exists():
+        return {}
+    try:
+        import yaml
+        with yaml_path.open() as f:
+            data = yaml.safe_load(f) or {}
+        return {k: v for k, v in data.items() if v is not None}
+    except ImportError:
+        return {}
+    except Exception as exc:
+        log.warning("config.local_settings_load_error", path=str(yaml_path), error=repr(exc))
+        return {}
 
 
 def _load_platform(platform: str) -> dict[str, Any]:

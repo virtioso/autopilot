@@ -84,6 +84,7 @@ class UEFIShellRunOracle:
         boot_manager_timeout_s: float = 30.0,
         shell_timeout_s: float = 30.0,
         fs_timeout_s: float = 10.0,
+        skip_menu: bool = False,
     ) -> None:
         self._stream = stream
         self._binary = binary.encode() if isinstance(binary, str) else binary
@@ -95,75 +96,76 @@ class UEFIShellRunOracle:
         self._boot_manager_timeout = boot_manager_timeout_s
         self._shell_timeout = shell_timeout_s
         self._fs_timeout = fs_timeout_s
+        self._skip_menu = skip_menu
 
     async def __call__(
         self, ctx: StreamContext, timeout: float
     ) -> tuple[Verdict, StreamContext]:
         bio = ctx.streams[self._stream]
 
-        # 1. Wait for UEFI interrupt prompt.
-        idx = await _wait_any(bio, _UEFI_INTERRUPT_PATTERNS, self._prompt_timeout)
-        if idx < 0:
-            log.warning("uefi.no_interrupt_prompt", stream=self._stream)
-            return Error("uefi_no_interrupt_prompt"), ctx
-
-        log.debug("uefi.interrupt_prompt_seen", idx=idx, stream=self._stream)
-
-        # 2. Send ESC × 3 with short pauses.
-        for _ in range(3):
-            await bio.write(b"\x1b")
-            await asyncio.sleep(0.15)
-
-        # 3. Wait for selection menu.
-        menu_patterns = [rb"Select Entry", rb"Please select boot device"]
-        idx = await _wait_any(bio, menu_patterns, self._select_timeout)
-        if idx < 0:
-            # Fallback: try F11 (Boot Manager hotkey on some UEFI builds).
-            await bio.write(b"\x1b[23~")
-            idx = await _wait_any(bio, menu_patterns, self._select_timeout)
+        if not self._skip_menu:
+            # 1. Wait for UEFI interrupt prompt.
+            idx = await _wait_any(bio, _UEFI_INTERRUPT_PATTERNS, self._prompt_timeout)
             if idx < 0:
-                log.warning("uefi.no_menu", stream=self._stream)
-                return Error("uefi_no_menu"), ctx
+                log.warning("uefi.no_interrupt_prompt", stream=self._stream)
+                return Error("uefi_no_interrupt_prompt"), ctx
+            log.debug("uefi.interrupt_prompt_seen", idx=idx, stream=self._stream)
 
-        log.debug("uefi.menu_seen", menu_idx=idx, stream=self._stream)
-        await asyncio.sleep(0.2)
+            # 2. Send ESC × 3 with short pauses.
+            for _ in range(3):
+                await bio.write(b"\x1b")
+                await asyncio.sleep(0.15)
 
-        # 4. Navigate to UEFI Shell.
-        if idx == 0:
-            # "Select Entry" menu → Boot Manager → UEFI Shell (last entry).
-            await bio.write(b"\x1b[B")   # Down
-            await asyncio.sleep(0.3)
-            await bio.write(b"\x1b[B")   # Down
-            await asyncio.sleep(0.3)
-            await bio.write(b"\r")        # Enter → Boot Manager
+            # 3. Wait for selection menu.
+            menu_patterns = [rb"Select Entry", rb"Please select boot device"]
+            midx = await _wait_any(bio, menu_patterns, self._select_timeout)
+            if midx < 0:
+                # Fallback: try F11 (Boot Manager hotkey on some UEFI builds).
+                await bio.write(b"\x1b[23~")
+                midx = await _wait_any(bio, menu_patterns, self._select_timeout)
+                if midx < 0:
+                    log.warning("uefi.no_menu", stream=self._stream)
+                    return Error("uefi_no_menu"), ctx
 
-            bm_idx = await _wait_any(
-                bio, [rb"Esc=Exit", rb"ESC to exit"], self._boot_manager_timeout
-            )
-            if bm_idx < 0:
-                log.warning("uefi.no_boot_manager", stream=self._stream)
-                return Error("uefi_no_boot_manager"), ctx
+            log.debug("uefi.menu_seen", menu_idx=midx, stream=self._stream)
+            await asyncio.sleep(0.2)
 
-            await asyncio.sleep(1.0)
-            await bio.write(b"\x1b[A")   # Up → UEFI Shell entry
-            await asyncio.sleep(0.3)
-            await bio.write(b"\r")        # Enter
+            # 4. Navigate to UEFI Shell.
+            if midx == 0:
+                # "Select Entry" → Boot Manager → UEFI Shell (last entry).
+                await bio.write(b"\x1b[B")   # Down
+                await asyncio.sleep(0.3)
+                await bio.write(b"\x1b[B")   # Down
+                await asyncio.sleep(0.3)
+                await bio.write(b"\r")        # Enter → Boot Manager
 
-        else:
-            # "Please select boot device" menu → UEFI Shell is ~6 entries down.
-            for _ in range(6):
-                await bio.write(b"\x1b[B")
-                await asyncio.sleep(0.2)
-            await bio.write(b"\r")
+                bm_idx = await _wait_any(
+                    bio, [rb"Esc=Exit", rb"ESC to exit"], self._boot_manager_timeout
+                )
+                if bm_idx < 0:
+                    log.warning("uefi.no_boot_manager", stream=self._stream)
+                    return Error("uefi_no_boot_manager"), ctx
+
+                await asyncio.sleep(1.0)
+                await bio.write(b"\x1b[A")   # Up → UEFI Shell entry
+                await asyncio.sleep(0.3)
+                await bio.write(b"\r")        # Enter
+
+            else:
+                # "Please select boot device" → UEFI Shell ~6 entries down.
+                for _ in range(6):
+                    await bio.write(b"\x1b[B")
+                    await asyncio.sleep(0.2)
+                await bio.write(b"\r")
 
         # 5. Wait for Shell> (handle startup.nsh countdown by sending space).
         while True:
-            idx = await _wait_any(
+            sidx = await _wait_any(
                 bio, [rb"Shell>", rb"Press ESC in \d+ seconds"], self._shell_timeout
             )
-            if idx == 0:
+            if sidx == 0:
                 break  # Shell prompt received
-            if idx == 1:
+            if sidx == 1:
                 await bio.write(b" ")  # dismiss startup.nsh countdown
                 continue
             log.warning("uefi.no_shell_prompt", stream=self._stream)

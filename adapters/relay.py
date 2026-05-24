@@ -52,6 +52,7 @@ def _run_relay(action: str) -> None:
     import time
     import usbrelay_py
 
+    usbrelay_py.board_count()  # initialises the HID library before board_details()
     boards = usbrelay_py.board_details()
     if not boards:
         raise RuntimeError("no USB relay board found")
