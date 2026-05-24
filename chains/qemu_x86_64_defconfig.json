@@ -1,0 +1,54 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "repeat_poll",
+      "success_label": "ok",
+      "max_iter": 15,
+      "backoff": 2.0,
+      "step": {
+        "oracle": "ssh_command",
+        "host": "192.168.101.110",
+        "username": "hlyytine",
+        "cmd": "true",
+        "success_label": "ok"
+      }
+    },
+    {
+      "oracle": "spawn_process",
+      "cmd": [
+        "python3", "-u",
+        "$AUTOPILOT_QEMU_RUNNER",
+        "run-remote",
+        "--target", "qemu_x86_64_defconfig",
+        "--binary", "$AUTOPILOT_ORIGINAL_BINARY",
+        "--console-runtime-dir", "$AUTOPILOT_RESULT_DIR"
+      ],
+      "stream": "tty0",
+      "ready_pattern": ".",
+      "ready_label": "ready",
+      "env_extra": {
+        "VIRTIOSO_CONSOLE_ROUTER_USE_VM_PREFIX_DEMUX": "1",
+        "VIRTIOSO_QEMU_SPLIT_MONITOR": "1"
+      }
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 420,
+      "step": {
+        "oracle": "choice",
+        "stream": "tty0",
+        "options": [
+          {
+            "pattern": "All is well in the universe|driver-vm /dev/ttyS0|driver-vm login:|login:",
+            "label": "pass"
+          },
+          {
+            "pattern": "\\*\\*\\* FAILURES DETECTED \\*\\*\\*|Halting on fatal assertion\\.\\.\\.|Halting on first test failure|\\*\\*\\* ALL tests not run \\*\\*\\*|Kernel panic|QEMU_RUNNER_ERROR:|AUTOPILOT_FAIL: PROCESS_EXIT_NONZERO",
+            "label": "fail"
+          }
+        ]
+      }
+    }
+  ]
+}

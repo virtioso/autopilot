@@ -1,0 +1,45 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "uart_source",
+      "stream": "tty0",
+      "device": "$AUTOPILOT_TTY0"
+    },
+    {
+      "oracle": "relay",
+      "action": "boot"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/boot_stock_linux.json"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/deploy_and_boot_test_efi.json"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 180,
+      "step": {
+        "oracle": "choice",
+        "stream": "tty0",
+        "options": [
+          {
+            "pattern": "seL4|ELF-loader|driver-vm login:|root@driver-vm:~#",
+            "label": "efi_running"
+          }
+        ]
+      }
+    },
+    {
+      "oracle": "interactive",
+      "stream": "tty0",
+      "done_label": "interactive_done"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

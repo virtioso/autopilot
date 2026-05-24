@@ -1,0 +1,57 @@
+{
+  "_comment": "Shared sub-chain: upload isengard artifacts and boot isengard EFI. Assumes tty0 is registered and board is in Linux (after boot_stock_linux).",
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "mkdir -p /var/lib/virtioso-vm-images",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "ssh_upload",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "src": "$AUTOPILOT_ISENGARD_ROOTFS_PATH",
+      "dst": "/var/lib/virtioso-vm-images/isengard-rootfs.ext4"
+    },
+    {
+      "oracle": "ssh_upload",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "src": "$AUTOPILOT_LOCAL_EFI_PATH",
+      "dst": "$AUTOPILOT_REMOTE_EFI_PATH"
+    },
+    {
+      "oracle": "relay",
+      "action": "boot"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 180,
+      "step": {
+        "oracle": "uefi_shell_run",
+        "stream": "tty0",
+        "binary": "$AUTOPILOT_EFI_BINARY",
+        "fs": "fs2",
+        "prompt_timeout_s": 60.0,
+        "select_timeout_s": 30.0,
+        "boot_manager_timeout_s": 30.0,
+        "shell_timeout_s": 60.0,
+        "fs_timeout_s": 10.0
+      }
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 120,
+      "step": {
+        "oracle": "choice",
+        "stream": "tty0",
+        "options": [
+          {
+            "pattern": "isengard-agx-orin login:|isengard:",
+            "label": "isengard_login"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "spawn_process",
+      "cmd": [
+        "python3",
+        "$AUTOPILOT_QEMU_RUNNER",
+        "run-local",
+        "--target", "qemu_arm64_defconfig",
+        "--binary", "$AUTOPILOT_ORIGINAL_BINARY",
+        "--console-runtime-dir", "$AUTOPILOT_RESULT_DIR"
+      ],
+      "stream": "tty0",
+      "ready_pattern": ".",
+      "ready_label": "ready"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 420,
+      "step": {
+        "oracle": "choice",
+        "stream": "tty0",
+        "options": [
+          {
+            "pattern": "All is well in the universe",
+            "label": "pass"
+          },
+          {
+            "pattern": "\\*\\*\\* FAILURES DETECTED \\*\\*\\*|Halting on fatal assertion\\.\\.\\.|Halting on first test failure|\\*\\*\\* ALL tests not run \\*\\*\\*|Kernel panic|QEMU_RUNNER_ERROR:|AUTOPILOT_FAIL: PROCESS_EXIT_NONZERO",
+            "label": "fail"
+          }
+        ]
+      }
+    }
+  ]
+}

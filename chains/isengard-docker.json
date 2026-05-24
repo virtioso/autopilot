@@ -1,0 +1,64 @@
+{
+  "_comment": "Draft — TODO: confirm ROS 2 startup log pattern from an actual ros2 launch run; provision x86 test target",
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "docker import $AUTOPILOT_VC_IMAGE_PATH isengard-vehicle-control 2>&1 && echo 'import ok'",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "docker import $AUTOPILOT_AUTO_IMAGE_PATH isengard-autonomy 2>&1 && echo 'import ok'",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "docker rm -f autonomy-test 2>/dev/null; echo 'clean'",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "docker run --name autonomy-test --rm --network=host --detach isengard-autonomy ros2 launch nav2_bringup bringup_launch.py 2>&1 && echo 'started'",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "spawn_process",
+      "cmd": [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "BatchMode=yes",
+        "root@$AUTOPILOT_TARGET_IP",
+        "docker logs -f autonomy-test"
+      ],
+      "stream": "ros_log",
+      "ready_pattern": ".",
+      "ready_label": "ready"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 90,
+      "step": {
+        "oracle": "pattern",
+        "stream": "ros_log",
+        "pattern": "TODO_CONFIRM_PATTERN",
+        "label": "ros_started"
+      }
+    },
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "docker rm -f autonomy-test 2>/dev/null; echo 'stopped'",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

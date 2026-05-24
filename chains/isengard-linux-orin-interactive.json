@@ -1,0 +1,31 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "uart_source",
+      "stream": "tty0",
+      "device": "$AUTOPILOT_TTY0"
+    },
+    {
+      "oracle": "relay",
+      "action": "boot"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/boot_stock_linux.json"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/isengard_deploy_and_boot.json"
+    },
+    {
+      "oracle": "interactive",
+      "stream": "tty0",
+      "done_label": "interactive_done"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

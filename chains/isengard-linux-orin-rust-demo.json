@@ -1,0 +1,56 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "uart_source",
+      "stream": "tty0",
+      "device": "$AUTOPILOT_TTY0"
+    },
+    {
+      "oracle": "relay",
+      "action": "boot"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/boot_stock_linux.json"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/isengard_deploy_and_boot.json"
+    },
+    {
+      "oracle": "repeat_poll",
+      "success_label": "ok",
+      "max_iter": 30,
+      "backoff": 1.0,
+      "step": {
+        "oracle": "ssh_command",
+        "host": "$AUTOPILOT_TARGET_IP",
+        "cmd": "true",
+        "success_label": "ok"
+      }
+    },
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "isengard-demo-start",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "echo '=== isengard_snapshot_watch output ===' && timeout 3 isengard-demo-watch-rust 2>&1; echo \"=== exit $? ===\"",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "echo '=== binary exists ===' && ls -l /usr/bin/isengard_snapshot_watch && echo '=== demo-watch-rust script ===' && ls -l /usr/bin/isengard-demo-watch-rust",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}
