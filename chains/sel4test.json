@@ -8,6 +8,18 @@
       "baudrate": 115200
     },
     {
+      "oracle": "relay",
+      "action": "boot"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/boot_stock_linux.json"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/deploy_and_boot_test_efi.json"
+    },
+    {
       "oracle": "timeout",
       "seconds": 300,
       "step": {

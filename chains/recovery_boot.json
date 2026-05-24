@@ -1,0 +1,13 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "chain_ref",
+      "path": "chains/startup.json"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/boot_stock_linux.json"
+    }
+  ]
+}

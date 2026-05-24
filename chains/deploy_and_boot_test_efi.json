@@ -1,0 +1,46 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "mkdir -p /var/lib/virtioso-vm-images",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "ssh_upload",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "src": "$AUTOPILOT_ROOTFS_PATH",
+      "dst": "/var/lib/virtioso-vm-images/vm-image-driver-vm-jetson-agx-orin.rootfs.ext4"
+    },
+    {
+      "oracle": "ssh_upload",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "src": "$AUTOPILOT_LOCAL_EFI_PATH",
+      "dst": "$AUTOPILOT_REMOTE_EFI_PATH"
+    },
+    {
+      "oracle": "relay",
+      "action": "boot"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 180,
+      "step": {
+        "oracle": "uefi_shell_run",
+        "stream": "tty0",
+        "binary": "$AUTOPILOT_EFI_BINARY",
+        "fs": "fs2",
+        "prompt_timeout_s": 60.0,
+        "select_timeout_s": 30.0,
+        "boot_manager_timeout_s": 30.0,
+        "shell_timeout_s": 60.0,
+        "fs_timeout_s": 10.0
+      }
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

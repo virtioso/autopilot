@@ -1,0 +1,9 @@
+{
+  "oracle": "repeat_monitor",
+  "step": {
+    "oracle": "pattern",
+    "stream": "tty0",
+    "pattern": "AUTOPILOT_INTERNAL_NEVER_MATCH",
+    "label": "never"
+  }
+}

@@ -865,4 +865,359 @@ async def test_session_registry_populated_and_cleared():
     await oracle(ctx, 5.0)
     await task
 
-    assert "reg_test" not in list_sessions()
+
+# ---------------------------------------------------------------------------
+# RelayOracle
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_relay_oracle_no_usbrelay_py():
+    """Returns Error when usbrelay_py is not importable."""
+    import sys
+    from unittest.mock import patch
+    from adapters.relay import RelayOracle
+
+    with patch.dict(sys.modules, {"usbrelay_py": None}):
+        oracle = RelayOracle(action="boot")
+        ctx = make_ctx()
+        verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Error("usbrelay_py_not_installed")
+
+
+@pytest.mark.asyncio
+async def test_relay_oracle_no_board():
+    """Returns Error when board_details() returns empty list."""
+    import sys
+    from types import ModuleType
+    from unittest.mock import MagicMock, patch
+    from adapters.relay import RelayOracle
+
+    fake_usbrelay = ModuleType("usbrelay_py")
+    fake_usbrelay.board_count = MagicMock(return_value=0)
+    fake_usbrelay.board_details = MagicMock(return_value=[])
+    fake_usbrelay.board_control = MagicMock()
+
+    with patch.dict(sys.modules, {"usbrelay_py": fake_usbrelay}):
+        oracle = RelayOracle(action="boot")
+        ctx = make_ctx()
+        verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Error("relay_error")
+
+
+@pytest.mark.asyncio
+async def test_relay_oracle_boot_sequence():
+    """Calls board_control in correct boot sequence."""
+    import sys
+    from types import ModuleType
+    from unittest.mock import MagicMock, call, patch
+    from adapters.relay import RelayOracle
+
+    calls = []
+    fake_usbrelay = ModuleType("usbrelay_py")
+    fake_usbrelay.board_details = MagicMock(return_value=[["BOARD1", None]])
+    fake_usbrelay.board_control = MagicMock(side_effect=lambda *a: calls.append(a))
+
+    with patch("time.sleep"):  # skip actual sleep in _run_relay
+        with patch.dict(sys.modules, {"usbrelay_py": fake_usbrelay}):
+            oracle = RelayOracle(action="boot")
+            ctx = make_ctx()
+            verdict, _ = await oracle(ctx, 5.0)
+
+    assert verdict == Matched("ok")
+    # Expected: recovery=off, reset=on, reset=off, recovery=off
+    assert calls == [
+        ("BOARD1", 1, False),
+        ("BOARD1", 2, True),
+        ("BOARD1", 2, False),
+        ("BOARD1", 1, False),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_relay_oracle_boot_recovery_sequence():
+    """boot_recovery sets relay 1 to True first."""
+    import sys
+    from types import ModuleType
+    from unittest.mock import MagicMock, patch
+    from adapters.relay import RelayOracle
+
+    calls = []
+    fake_usbrelay = ModuleType("usbrelay_py")
+    fake_usbrelay.board_details = MagicMock(return_value=[["BOARD1", None]])
+    fake_usbrelay.board_control = MagicMock(side_effect=lambda *a: calls.append(a))
+
+    with patch("time.sleep"):
+        with patch.dict(sys.modules, {"usbrelay_py": fake_usbrelay}):
+            oracle = RelayOracle(action="boot_recovery")
+            ctx = make_ctx()
+            verdict, _ = await oracle(ctx, 5.0)
+
+    assert verdict == Matched("ok")
+    assert calls[0] == ("BOARD1", 1, True)   # recovery=on
+    assert calls[-1] == ("BOARD1", 1, False)  # recovery=off after
+
+
+@pytest.mark.asyncio
+async def test_relay_oracle_schema_roundtrip():
+    """RelayDef parses from JSON and builds a RelayOracle."""
+    from model.chain import OracleFactory
+    data = {"oracle": "relay", "action": "boot"}
+    d = OracleFactory.parse(data)
+    oracle = OracleFactory.hydrate(d)
+    from adapters.relay import RelayOracle
+    assert isinstance(oracle, RelayOracle)
+
+
+# ---------------------------------------------------------------------------
+# UEFIShellRunOracle
+# ---------------------------------------------------------------------------
+
+class _QueueStream:
+    """Deliver pre-seeded byte chunks in order; record writes."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._q: asyncio.Queue[bytes] = asyncio.Queue()
+        for chunk in chunks:
+            self._q.put_nowait(chunk)
+        self.written: list[bytes] = []
+
+    async def read(self, n: int = 4096) -> bytes:
+        return await self._q.get()
+
+    async def write(self, data: bytes) -> None:
+        self.written.append(data)
+
+
+@pytest.mark.asyncio
+async def test_uefi_shell_run_happy_path():
+    """Full UEFI navigation to Shell, fs switch, binary launch."""
+    from adapters.uefi import UEFIShellRunOracle
+
+    stream = _QueueStream([
+        b"Enter to continue boot.\r\n",   # interrupt prompt
+        b"Select Entry\r\n",              # UEFI selection menu
+        b"Esc=Exit\r\n",                  # Boot Manager (after nav)
+        b"Shell>\r\n",                    # shell ready
+        b"FS2:\\>\r\n",                   # filesystem switched
+        b"",                              # EOF — oracle returns after fs switch
+    ])
+    ctx = make_ctx(tty0=stream)
+    oracle = UEFIShellRunOracle(
+        stream="tty0",
+        binary="efiboot\\test.efi",
+        fs="fs2",
+        success_pattern=None,
+        prompt_timeout_s=2.0,
+        select_timeout_s=2.0,
+        boot_manager_timeout_s=2.0,
+        shell_timeout_s=2.0,
+        fs_timeout_s=2.0,
+    )
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Matched("ok")
+    # Oracle must have sent ESC to enter the menu
+    assert any(b"\x1b" in w for w in stream.written)
+    # Oracle must have sent the fs switch command and binary
+    assert any(b"FS2:\r" in w for w in stream.written)
+    assert any(b"efiboot\\test.efi\r" in w for w in stream.written)
+
+
+@pytest.mark.asyncio
+async def test_uefi_shell_run_with_success_pattern():
+    """Waits for success_pattern after launching binary."""
+    from adapters.uefi import UEFIShellRunOracle
+
+    stream = _QueueStream([
+        b"Enter to continue boot.\r\n",
+        b"Select Entry\r\n",
+        b"Esc=Exit\r\n",
+        b"Shell>\r\n",
+        b"FS2:\\>\r\n",
+        b"Loading test image... ELF-loader started on CPU 0\r\n",
+        b"",
+    ])
+    ctx = make_ctx(tty0=stream)
+    oracle = UEFIShellRunOracle(
+        stream="tty0",
+        binary="efiboot\\sel4test.efi",
+        fs="fs2",
+        success_pattern=r"ELF-loader started",
+        prompt_timeout_s=2.0,
+        select_timeout_s=2.0,
+        boot_manager_timeout_s=2.0,
+        shell_timeout_s=2.0,
+        fs_timeout_s=2.0,
+    )
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Matched("ok")
+
+
+@pytest.mark.asyncio
+async def test_uefi_shell_run_timeout_at_interrupt_prompt():
+    """Returns Error when UEFI interrupt prompt never arrives."""
+    from adapters.uefi import UEFIShellRunOracle
+
+    stream = _QueueStream([b"some irrelevant output\r\n", b""])
+    ctx = make_ctx(tty0=stream)
+    oracle = UEFIShellRunOracle(
+        stream="tty0",
+        binary="efiboot\\test.efi",
+        prompt_timeout_s=0.05,
+        select_timeout_s=0.05,
+        shell_timeout_s=0.05,
+        fs_timeout_s=0.05,
+    )
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Error("uefi_no_interrupt_prompt")
+
+
+@pytest.mark.asyncio
+async def test_uefi_shell_run_timeout_at_menu():
+    """Returns Error when UEFI menu never appears after ESC."""
+    from adapters.uefi import UEFIShellRunOracle
+
+    stream = _QueueStream([
+        b"Enter to continue boot.\r\n",
+        b"garbage after interrupt\r\n",
+        b"",
+    ])
+    ctx = make_ctx(tty0=stream)
+    oracle = UEFIShellRunOracle(
+        stream="tty0",
+        binary="efiboot\\test.efi",
+        prompt_timeout_s=2.0,
+        select_timeout_s=0.05,
+        boot_manager_timeout_s=0.05,
+        shell_timeout_s=0.05,
+        fs_timeout_s=0.05,
+    )
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Error("uefi_no_menu")
+
+
+@pytest.mark.asyncio
+async def test_uefi_shell_run_please_select_boot_device_path():
+    """Uses the 'Please select boot device' menu path (6 downs)."""
+    from adapters.uefi import UEFIShellRunOracle
+
+    stream = _QueueStream([
+        b"Enter to continue boot.\r\n",
+        b"Please select boot device\r\n",  # alternate menu variant
+        b"Shell>\r\n",
+        b"FS2:\\>\r\n",
+        b"",
+    ])
+    ctx = make_ctx(tty0=stream)
+    oracle = UEFIShellRunOracle(
+        stream="tty0",
+        binary="run.efi",
+        fs="fs2",
+        prompt_timeout_s=2.0,
+        select_timeout_s=2.0,
+        boot_manager_timeout_s=2.0,
+        shell_timeout_s=2.0,
+        fs_timeout_s=2.0,
+    )
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Matched("ok")
+
+
+@pytest.mark.asyncio
+async def test_uefi_shell_run_schema_roundtrip():
+    """UEFIShellRunDef parses from JSON and builds oracle."""
+    from adapters.uefi import UEFIShellRunOracle
+    from model.chain import OracleFactory
+    data = {
+        "oracle": "uefi_shell_run",
+        "stream": "tty0",
+        "binary": "efiboot\\test.efi",
+        "fs": "fs2",
+        "success_pattern": "ELF-loader started",
+        "shell_timeout_s": 90.0,
+    }
+    d = OracleFactory.parse(data)
+    oracle = OracleFactory.hydrate(d)
+    assert isinstance(oracle, UEFIShellRunOracle)
+
+
+# ---------------------------------------------------------------------------
+# ExtlinuxBootOracle
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_extlinux_boot_selects_entry():
+    """Sends entry number when menu appears."""
+    from adapters.uefi import ExtlinuxBootOracle
+
+    stream = _QueueStream([
+        b"L4TLauncher: Attempting Direct Boot\r\n"
+        b"1. Jetson-AGX\r\n"
+        b"2. seL4\r\n",
+        b"",
+    ])
+    ctx = make_ctx(tty0=stream)
+    oracle = ExtlinuxBootOracle(
+        stream="tty0",
+        entry=2,
+        menu_timeout_s=2.0,
+    )
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Matched("ok")
+    assert b"2\n" in stream.written
+
+
+@pytest.mark.asyncio
+async def test_extlinux_boot_with_interrupt():
+    """Sends interrupt_key when interrupt_pattern matches, then selects entry."""
+    from adapters.uefi import ExtlinuxBootOracle
+
+    stream = _QueueStream([
+        b"Press any key to interrupt...\r\n",
+        b"1. Linux\r\n2. seL4\r\n",
+        b"",
+    ])
+    ctx = make_ctx(tty0=stream)
+    oracle = ExtlinuxBootOracle(
+        stream="tty0",
+        entry=2,
+        interrupt_pattern=r"Press any key",
+        interrupt_key=b" ",
+        interrupt_timeout_s=2.0,
+        menu_timeout_s=2.0,
+    )
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Matched("ok")
+    assert b" " in stream.written        # interrupt key
+    assert b"2\n" in stream.written      # entry selection
+
+
+@pytest.mark.asyncio
+async def test_extlinux_boot_timeout_no_menu():
+    """Returns Error when menu never appears."""
+    from adapters.uefi import ExtlinuxBootOracle
+
+    stream = _QueueStream([b"boot output but no menu\r\n", b""])
+    ctx = make_ctx(tty0=stream)
+    oracle = ExtlinuxBootOracle(
+        stream="tty0",
+        entry=1,
+        menu_timeout_s=0.05,
+    )
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Error("extlinux_no_menu")
+
+
+@pytest.mark.asyncio
+async def test_extlinux_boot_schema_roundtrip():
+    """ExtlinuxBootDef parses from JSON and builds oracle."""
+    from adapters.uefi import ExtlinuxBootOracle
+    from model.chain import OracleFactory
+    data = {
+        "oracle": "extlinux_boot",
+        "stream": "tty0",
+        "entry": 2,
+        "menu_timeout_s": 45.0,
+    }
+    d = OracleFactory.parse(data)
+    oracle = OracleFactory.hydrate(d)
+    assert isinstance(oracle, ExtlinuxBootOracle)

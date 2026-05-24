@@ -1,0 +1,19 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "uart_source",
+      "stream": "tty0",
+      "device": "$AUTOPILOT_TTY0"
+    },
+    {
+      "oracle": "uart_source",
+      "stream": "tty1",
+      "device": "$AUTOPILOT_TTY1"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

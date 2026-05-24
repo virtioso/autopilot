@@ -1,0 +1,10 @@
+{
+  "oracle": "timeout",
+  "seconds": 120,
+  "step": {
+    "oracle": "pattern",
+    "stream": "tty0",
+    "pattern": "driver-vm login:",
+    "label": "pass"
+  }
+}

@@ -225,6 +225,35 @@ class ChainRefDef(BaseModel):
     path: str  # relative path to another chain JSON file, or $VAR
 
 
+class RelayDef(BaseModel):
+    oracle: Literal["relay"]
+    action: str = "boot"
+
+
+class UEFIShellRunDef(BaseModel):
+    oracle: Literal["uefi_shell_run"]
+    stream: str
+    binary: str
+    fs: str = "fs2"
+    success_pattern: str | None = None
+    prompt_timeout_s: float = 60.0
+    select_timeout_s: float = 30.0
+    boot_manager_timeout_s: float = 30.0
+    shell_timeout_s: float = 30.0
+    fs_timeout_s: float = 10.0
+
+
+class ExtlinuxBootDef(BaseModel):
+    oracle: Literal["extlinux_boot"]
+    stream: str
+    entry: int = 1
+    menu_pattern: str = r"^\s*1\.\s+"
+    interrupt_pattern: str | None = None
+    interrupt_key: str = " "
+    interrupt_timeout_s: float = 30.0
+    menu_timeout_s: float = 60.0
+
+
 # ---------------------------------------------------------------------------
 # Discriminated union (must be defined AFTER all model classes)
 # ---------------------------------------------------------------------------
@@ -251,6 +280,9 @@ OracleDef = Annotated[
         InteractiveDef,
         RFDef,
         ChainRefDef,
+        RelayDef,
+        UEFIShellRunDef,
+        ExtlinuxBootDef,
     ],
     Field(discriminator="oracle"),
 ]
@@ -455,13 +487,13 @@ def _build_uart_source(d: UARTSourceDef, f: OracleFactory):
 
 def _build_ssh_command(d: SSHCommandDef, f: OracleFactory):
     from adapters.ssh import SSHCommandOracle
-    kwargs = dict(
+    kwargs: dict = dict(
         host=_resolve(d.host),
         cmd=d.cmd,
         success_label=d.success_label,
-        failure_label=d.failure_label,
-        capture_name=d.capture_name,
     )
+    if d.failure_label is not None:
+        kwargs["failure_label"] = d.failure_label
     if d.username is not None:
         kwargs["username"] = d.username
     return SSHCommandOracle(**kwargs)
@@ -565,6 +597,39 @@ def _build_chain_ref(d: ChainRefDef, f: OracleFactory):
     return hydrate_chain(oracle_def)
 
 
+def _build_relay(d: RelayDef, f: OracleFactory):
+    from adapters.relay import RelayOracle
+    return RelayOracle(action=d.action)
+
+
+def _build_uefi_shell_run(d: UEFIShellRunDef, f: OracleFactory):
+    from adapters.uefi import UEFIShellRunOracle
+    return UEFIShellRunOracle(
+        stream=d.stream,
+        binary=_resolve(d.binary),
+        fs=d.fs,
+        success_pattern=d.success_pattern,
+        prompt_timeout_s=d.prompt_timeout_s,
+        select_timeout_s=d.select_timeout_s,
+        boot_manager_timeout_s=d.boot_manager_timeout_s,
+        shell_timeout_s=d.shell_timeout_s,
+        fs_timeout_s=d.fs_timeout_s,
+    )
+
+
+def _build_extlinux_boot(d: ExtlinuxBootDef, f: OracleFactory):
+    from adapters.uefi import ExtlinuxBootOracle
+    return ExtlinuxBootOracle(
+        stream=d.stream,
+        entry=d.entry,
+        menu_pattern=d.menu_pattern,
+        interrupt_pattern=d.interrupt_pattern,
+        interrupt_key=d.interrupt_key.encode(),
+        interrupt_timeout_s=d.interrupt_timeout_s,
+        menu_timeout_s=d.menu_timeout_s,
+    )
+
+
 # Register all built-in builders
 _BUILDERS = {
     "verdict": _build_verdict,
@@ -587,6 +652,9 @@ _BUILDERS = {
     "interactive": _build_interactive,
     "rf": _build_rf,
     "chain_ref": _build_chain_ref,
+    "relay": _build_relay,
+    "uefi_shell_run": _build_uefi_shell_run,
+    "extlinux_boot": _build_extlinux_boot,
 }
 
 for _name, _builder in _BUILDERS.items():

@@ -1,0 +1,6 @@
+{
+  "oracle": "pattern",
+  "stream": "tty0",
+  "pattern": "FTRACE: Storage full",
+  "label": "fail"
+}

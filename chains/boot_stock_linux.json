@@ -1,0 +1,51 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "timeout",
+      "seconds": 180,
+      "step": {
+        "oracle": "uefi_shell_run",
+        "stream": "tty0",
+        "binary": "EFI\\BOOT\\BOOTAA64.EFI",
+        "fs": "fs3",
+        "success_pattern": "L4TLauncher: Attempting Direct Boot",
+        "prompt_timeout_s": 60.0,
+        "select_timeout_s": 30.0,
+        "boot_manager_timeout_s": 30.0,
+        "shell_timeout_s": 60.0,
+        "fs_timeout_s": 10.0
+      }
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 180,
+      "step": {
+        "oracle": "choice",
+        "stream": "tty0",
+        "options": [
+          {
+            "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
+            "label": "stock_linux_prompt"
+          }
+        ]
+      }
+    },
+    {
+      "oracle": "repeat_poll",
+      "success_label": "ok",
+      "max_iter": 30,
+      "backoff": 1.0,
+      "step": {
+        "oracle": "ssh_command",
+        "host": "$AUTOPILOT_TARGET_IP",
+        "cmd": "uname -a",
+        "success_label": "ok"
+      }
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}
