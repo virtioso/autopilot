@@ -20,6 +20,12 @@
       "dst": "$AUTOPILOT_REMOTE_EFI_PATH"
     },
     {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "sync",
+      "success_label": "ok"
+    },
+    {
       "oracle": "relay",
       "action": "boot"
     },

@@ -330,6 +330,7 @@ class ChainRunner:
         ctx.metadata["run_id"] = self._run_id
         ctx.metadata["chain"] = self._chain_path.stem
         ctx.metadata["result_dir"] = str(self._result_dir)
+        ctx.metadata["recorder"] = recorder
 
         log.info(
             "runner.start",
