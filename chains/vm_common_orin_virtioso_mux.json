@@ -1,0 +1,56 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "uart_source",
+      "stream": "tty0",
+      "device": "$AUTOPILOT_TTY0"
+    },
+    {
+      "oracle": "uart_source",
+      "stream": "tty1",
+      "device": "$AUTOPILOT_TTY1"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/deploy_and_boot_test_efi.json"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 300,
+      "step": {
+        "oracle": "chain_ref",
+        "path": "chains/wait_for_elfloader.json"
+      }
+    },
+    {
+      "_comment": "VCMux on tty1 (carrier UARTI), raw outer mode — creates vm0, vm0_guest_console_sink etc.",
+      "oracle": "vcmux_source",
+      "stream": "tty1",
+      "nvidia_tcu": false
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 120,
+      "step": {
+        "oracle": "pattern",
+        "stream": "vm0_guest_console_sink",
+        "pattern": "driver-vm login:|login:|All is well in the universe",
+        "label": "pass"
+      }
+    },
+    {
+      "oracle": "run_process",
+      "cmd": [
+        "bash", "-lc",
+        "RDIR=\"$AUTOPILOT_RESULT_DIR\"; CROOT=\"$AUTOPILOT_CODE_ROOT\"; vm0_log=\"$RDIR/console/console-runtime/virtioso_mux_logs/vm0.txt\"; vm1_log=\"$RDIR/console/console-runtime/virtioso_mux_logs/vm1.txt\"; raw_log=\"$RDIR/console/raw_ccplex.txt\"; if [ -f \"$vm0_log\" ]; then \"$CROOT/filter_capdl_start.py\" < \"$vm0_log\" > \"$RDIR/console/vm0.filtered.log\"; elif [ -f \"$raw_log\" ]; then \"$CROOT/filter_capdl_start.py\" < \"$raw_log\" > \"$RDIR/console/raw_ccplex.filtered.log\"; else : > \"$RDIR/console/raw_ccplex.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then \"$CROOT/filter_vm_console.py\" < \"$vm1_log\" > \"$RDIR/console/vm1.log\"; else : > \"$RDIR/console/vm1.log\"; fi"
+      ],
+      "success_label": "ok",
+      "failure_label": "ok"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

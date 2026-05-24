@@ -213,6 +213,10 @@ class CommandOracle:
     waits for the actual response.
 
     suffix: appended to cmd before writing. Default b"\\n" (send as a line).
+
+    write_stream: if provided, writes go to this stream instead of stream.
+    Used for VCMux split channels where input (vm0) and output
+    (vm0_guest_console_sink) are separate named streams.
     """
 
     def __init__(
@@ -223,23 +227,26 @@ class CommandOracle:
         label: str = "ok",
         suffix: bytes = b"\n",
         max_buf: int = 1024 * 1024,
+        write_stream: str | None = None,
     ) -> None:
         if isinstance(cmd, str):
             cmd = cmd.encode()
         if isinstance(response_pattern, str):
             response_pattern = response_pattern.encode()
         self._stream = stream
+        self._write_stream = write_stream or stream
         self._cmd = cmd + suffix
         self._response = PatternOracle(stream, response_pattern, label=label, max_buf=max_buf)
 
     async def __call__(
         self, ctx: StreamContext, timeout: float
     ) -> tuple[Verdict, StreamContext]:
-        bio = ctx.streams[self._stream]
+        bio = ctx.streams[self._write_stream]
         await bio.write(self._cmd)
         log.debug(
             "command.sent",
-            stream=self._stream,
+            stream=self._write_stream,
+            read_stream=self._stream,
             cmd=self._cmd[:80],
         )
         return await self._response(ctx, timeout)

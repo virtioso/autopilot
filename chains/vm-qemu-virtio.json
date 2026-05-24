@@ -1,0 +1,31 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "chain_ref",
+      "path": "chains/vm_common_setup.json"
+    },
+    {
+      "oracle": "vcmux_source",
+      "stream": "tty0",
+      "nvidia_tcu": true
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/vm_wait_boot_qemu_virtio.json"
+    },
+    {
+      "oracle": "run_process",
+      "cmd": [
+        "bash", "-lc",
+        "RDIR=\"$AUTOPILOT_RESULT_DIR\"; CROOT=\"$AUTOPILOT_CODE_ROOT\"; vm0_log=\"$RDIR/console/console-runtime/virtioso_mux_logs/vm0_guest_console_sink.txt\"; vm1_log=\"$RDIR/console/console-runtime/virtioso_mux_logs/vm1_guest_console_sink.txt\"; if [ -f \"$vm0_log\" ]; then \"$CROOT/filter_capdl_start.py\" < \"$vm0_log\" > \"$RDIR/console/vm0_guest_console_sink.filtered.log\"; else : > \"$RDIR/console/vm0_guest_console_sink.filtered.log\"; fi; if [ -f \"$vm1_log\" ]; then \"$CROOT/filter_vm_console.py\" < \"$vm1_log\" > \"$RDIR/console/vm1_guest_console_sink.log\"; else : > \"$RDIR/console/vm1_guest_console_sink.log\"; fi"
+      ],
+      "success_label": "ok",
+      "failure_label": "ok"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "uart_source",
+      "stream": "tty0",
+      "device": "$AUTOPILOT_TTY0"
+    },
+    {
+      "oracle": "uart_source",
+      "stream": "tty1",
+      "device": "$AUTOPILOT_TTY1"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/deploy_and_boot_test_efi.json"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 300,
+      "step": {
+        "oracle": "chain_ref",
+        "path": "chains/wait_for_elfloader.json"
+      }
+    }
+  ]
+}

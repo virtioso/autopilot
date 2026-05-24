@@ -1,0 +1,72 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "uart_source",
+      "stream": "tty0",
+      "device": "$AUTOPILOT_TTY0"
+    },
+    {
+      "oracle": "relay",
+      "action": "boot"
+    },
+    {
+      "oracle": "chain_ref",
+      "path": "chains/boot_stock_linux.json"
+    },
+    {
+      "_comment": "Interactive session: user selects which kernel variant to test",
+      "oracle": "interactive",
+      "stream": "tty0",
+      "done_label": "interactive_done"
+    },
+    {
+      "oracle": "ssh_upload",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "src": "$AUTOPILOT_LOCAL_KERNEL_PATH",
+      "dst": "/boot/Image-$AUTOPILOT_KERNEL_RELEASE",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "ssh_command",
+      "host": "$AUTOPILOT_TARGET_IP",
+      "cmd": "reboot",
+      "success_label": "ok"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 300,
+      "step": {
+        "oracle": "extlinux_boot",
+        "stream": "tty0",
+        "entry": 2
+      }
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 300,
+      "step": {
+        "oracle": "choice",
+        "stream": "tty0",
+        "options": [
+          {
+            "pattern": "ubuntu@tegra-ubuntu:~\\$|tegra-ubuntu login:",
+            "label": "pass"
+          },
+          {
+            "pattern": "Kernel panic",
+            "label": "fail"
+          },
+          {
+            "pattern": "Unexpected global fault|callbacks suppressed",
+            "label": "fail"
+          }
+        ]
+      }
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

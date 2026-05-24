@@ -73,6 +73,7 @@ class CommandDef(BaseModel):
     label: str = "ok"
     suffix: str = "\n"
     max_buf: int = 1024 * 1024
+    write_stream: str | None = None
 
 
 class ChoiceOptionDef(BaseModel):
@@ -400,7 +401,7 @@ def _build_pattern(d: PatternDef, f: OracleFactory):
 
 def _build_command(d: CommandDef, f: OracleFactory):
     from engine.primitives import CommandOracle
-    return CommandOracle(
+    kwargs: dict = dict(
         stream=d.stream,
         cmd=d.cmd.encode(),
         response_pattern=d.response_pattern.encode(),
@@ -408,6 +409,9 @@ def _build_command(d: CommandDef, f: OracleFactory):
         suffix=d.suffix.encode(),
         max_buf=d.max_buf,
     )
+    if d.write_stream is not None:
+        kwargs["write_stream"] = d.write_stream
+    return CommandOracle(**kwargs)
 
 
 def _build_choice(d: ChoiceDef, f: OracleFactory):

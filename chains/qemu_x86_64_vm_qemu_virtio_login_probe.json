@@ -1,0 +1,80 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "repeat_poll",
+      "success_label": "ok",
+      "max_iter": 15,
+      "backoff": 2.0,
+      "step": {
+        "oracle": "ssh_command",
+        "host": "192.168.101.110",
+        "username": "hlyytine",
+        "cmd": "true",
+        "success_label": "ok"
+      }
+    },
+    {
+      "oracle": "spawn_process",
+      "cmd": [
+        "python3", "-u",
+        "$AUTOPILOT_QEMU_RUNNER",
+        "run-remote",
+        "--target", "qemu_x86_64_defconfig",
+        "--binary", "$AUTOPILOT_ORIGINAL_BINARY",
+        "--console-runtime-dir", "$AUTOPILOT_RESULT_DIR"
+      ],
+      "stream": "tty0",
+      "ready_pattern": ".",
+      "ready_label": "ready",
+      "env_extra": {
+        "VIRTIOSO_CONSOLE_ROUTER_USE_VM_PREFIX_DEMUX": "1",
+        "VIRTIOSO_QEMU_SPLIT_MONITOR": "1"
+      }
+    },
+    {
+      "oracle": "vcmux_source",
+      "stream": "tty0"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 420,
+      "step": {
+        "oracle": "choice",
+        "stream": "driver_vm_console",
+        "options": [
+          {
+            "pattern": "root@driver-vm:~#|root@.*:~#",
+            "label": "shell"
+          },
+          {
+            "pattern": "driver-vm login:|login:",
+            "label": "login"
+          }
+        ]
+      }
+    },
+    {
+      "_comment": "Send root login; probe command detects if login was actually accepted",
+      "oracle": "command",
+      "stream": "driver_vm_console",
+      "write_stream": "driver_vm_console",
+      "cmd": "root",
+      "suffix": "\n",
+      "response_pattern": "root@driver-vm:~#|root@.*:~#|driver-vm login:|login:|Password:"
+    },
+    {
+      "_comment": "Send a unique probe string to confirm shell (not echoed = logged in)",
+      "oracle": "command",
+      "stream": "driver_vm_console",
+      "write_stream": "driver_vm_console",
+      "cmd": "__AUTOPILOT_PROBE_AFTER_ROOT__",
+      "suffix": "\n",
+      "response_pattern": "root@driver-vm:~#|root@.*:~#"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

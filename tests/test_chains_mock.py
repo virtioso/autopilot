@@ -484,3 +484,242 @@ async def test_qemu_x86_64_defconfig_all_is_well_pattern():
     ctx = make_ctx(tty0=MockBiStream(b"All is well in the universe\r\n"))
     verdict, _ = await oracle(ctx, 5.0)
     assert verdict == Matched("pass")
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: vm_common_setup.json
+# ---------------------------------------------------------------------------
+
+def test_vm_common_setup_schema():
+    from model.chain import ChainRefDef, SequenceDef, TimeoutDef, UARTSourceDef
+    d = load_and_parse("vm_common_setup.json")
+    assert isinstance(d, SequenceDef)
+    assert len(d.steps) == 4
+    assert isinstance(d.steps[0], UARTSourceDef)
+    assert d.steps[0].stream == "tty0"
+    assert isinstance(d.steps[1], UARTSourceDef)
+    assert d.steps[1].stream == "tty1"
+    assert isinstance(d.steps[2], ChainRefDef)
+    assert "deploy_and_boot_test_efi" in d.steps[2].path
+    assert isinstance(d.steps[3], TimeoutDef)
+    assert d.steps[3].seconds == 300
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: vm_common.json
+# ---------------------------------------------------------------------------
+
+def test_vm_common_schema():
+    from model.chain import ChainRefDef, PatternDef, RunProcessDef, SequenceDef, TimeoutDef, VCMuxSourceDef, VerdictDef
+    d = load_and_parse("vm_common.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "ChainRefDef" in types
+    assert "VCMuxSourceDef" in types
+    assert "TimeoutDef" in types
+    assert "RunProcessDef" in types
+    assert "VerdictDef" in types
+    # VCMux on tty0 with nvidia_tcu=True
+    vcmux = next(s for s in d.steps if isinstance(s, VCMuxSourceDef))
+    assert vcmux.stream == "tty0"
+    assert vcmux.nvidia_tcu is True
+    # Wait pattern on vm0_guest_console_sink
+    timeout = next(s for s in d.steps if isinstance(s, TimeoutDef))
+    assert isinstance(timeout.step, PatternDef)
+    assert timeout.step.stream == "vm0_guest_console_sink"
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: vm-minimal.json
+# ---------------------------------------------------------------------------
+
+def test_vm_minimal_schema():
+    from model.chain import ChainRefDef
+    d = load_and_parse("vm-minimal.json")
+    assert isinstance(d, ChainRefDef)
+    assert "vm_common" in d.path
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: vm_wait_boot_qemu_virtio.json
+# ---------------------------------------------------------------------------
+
+def test_vm_wait_boot_qemu_virtio_schema():
+    from model.chain import CommandDef, SequenceDef, TimeoutDef, VerdictDef
+    d = load_and_parse("vm_wait_boot_qemu_virtio.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "TimeoutDef" in types
+    assert "CommandDef" in types
+    assert "VerdictDef" in types
+    # Commands must use split streams (write_stream != stream)
+    cmds = [s for s in d.steps if isinstance(s, CommandDef)]
+    split_cmds = [c for c in cmds if c.write_stream is not None]
+    assert len(split_cmds) > 0
+    # vm0 writes go to vm0, reads from vm0_guest_console_sink
+    vm0_cmds = [c for c in cmds if c.write_stream == "vm0"]
+    assert len(vm0_cmds) > 0
+    assert all(c.stream == "vm0_guest_console_sink" for c in vm0_cmds)
+    # vm1 writes go to vm1, reads from vm1_guest_console_sink
+    vm1_cmds = [c for c in cmds if c.write_stream == "vm1"]
+    assert len(vm1_cmds) > 0
+    assert all(c.stream == "vm1_guest_console_sink" for c in vm1_cmds)
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: vm-qemu-virtio.json
+# ---------------------------------------------------------------------------
+
+def test_vm_qemu_virtio_schema():
+    from model.chain import ChainRefDef, RunProcessDef, SequenceDef, VCMuxSourceDef, VerdictDef
+    d = load_and_parse("vm-qemu-virtio.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "ChainRefDef" in types
+    assert "VCMuxSourceDef" in types
+    assert "RunProcessDef" in types
+    assert "VerdictDef" in types
+    refs = [s.path for s in d.steps if isinstance(s, ChainRefDef)]
+    assert any("vm_common_setup" in r for r in refs)
+    assert any("vm_wait_boot_qemu_virtio" in r for r in refs)
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: vm_common_orin_virtioso_mux.json
+# ---------------------------------------------------------------------------
+
+def test_vm_common_orin_virtioso_mux_schema():
+    from model.chain import ChainRefDef, PatternDef, RunProcessDef, SequenceDef, TimeoutDef, UARTSourceDef, VCMuxSourceDef, VerdictDef
+    d = load_and_parse("vm_common_orin_virtioso_mux.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "UARTSourceDef" in types
+    assert "VCMuxSourceDef" in types
+    assert "TimeoutDef" in types
+    assert "RunProcessDef" in types
+    assert "VerdictDef" in types
+    # VCMux on tty1, raw mode (nvidia_tcu=False)
+    vcmux = next(s for s in d.steps if isinstance(s, VCMuxSourceDef))
+    assert vcmux.stream == "tty1"
+    assert vcmux.nvidia_tcu is False
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: linux-kernel.json and linux-kernel-multi.json
+# ---------------------------------------------------------------------------
+
+def test_linux_kernel_schema():
+    from model.chain import ChainRefDef, ExtlinuxBootDef, InteractiveDef, RelayDef, SSHCommandDef, SSHUploadDef, SequenceDef, TimeoutDef, UARTSourceDef, VerdictDef
+    d = load_and_parse("linux-kernel.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "UARTSourceDef" in types
+    assert "RelayDef" in types
+    assert "ChainRefDef" in types
+    assert "InteractiveDef" in types
+    assert "SSHUploadDef" in types
+    assert "SSHCommandDef" in types
+    assert "TimeoutDef" in types
+    assert "VerdictDef" in types
+    # extlinux_boot wrapped in timeout
+    timeouts = [s for s in d.steps if isinstance(s, TimeoutDef)]
+    extlinux_steps = [t for t in timeouts if isinstance(t.step, ExtlinuxBootDef)]
+    assert len(extlinux_steps) == 1
+    assert extlinux_steps[0].step.entry == 2
+
+
+def test_linux_kernel_multi_schema():
+    from model.chain import ExtlinuxBootDef, SSHUploadDef, SequenceDef, TimeoutDef
+    d = load_and_parse("linux-kernel-multi.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "SSHUploadDef" in types
+    assert "TimeoutDef" in types
+
+
+async def test_linux_kernel_pass_pattern():
+    """Boot success pattern: Ubuntu login prompt."""
+    from model.chain import OracleFactory
+    data = json.loads((CHAINS_DIR / "linux-kernel.json").read_text())
+    # Last timeout step = wait_kernel choice
+    timeout_def = OracleFactory.parse(data["steps"][-2])
+    oracle = OracleFactory.hydrate(timeout_def)
+    ctx = make_ctx(tty0=MockBiStream(b"ubuntu@tegra-ubuntu:~$ \r\n"))
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Matched("pass")
+
+
+async def test_linux_kernel_fail_pattern():
+    from model.chain import OracleFactory
+    data = json.loads((CHAINS_DIR / "linux-kernel.json").read_text())
+    timeout_def = OracleFactory.parse(data["steps"][-2])
+    oracle = OracleFactory.hydrate(timeout_def)
+    ctx = make_ctx(tty0=MockBiStream(b"Kernel panic - not syncing: Oops\r\n"))
+    verdict, _ = await oracle(ctx, 5.0)
+    assert verdict == Matched("fail")
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: qemu_x86_64_vm_qemu_virtio_* chains
+# ---------------------------------------------------------------------------
+
+def test_qemu_x86_64_vm_qemu_virtio_banner_cr_probe_schema():
+    from model.chain import CommandDef, RepeatPollDef, SequenceDef, SpawnProcessDef, TimeoutDef, VCMuxSourceDef, VerdictDef
+    d = load_and_parse("qemu_x86_64_vm_qemu_virtio_banner_cr_probe.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "RepeatPollDef" in types
+    assert "SpawnProcessDef" in types
+    assert "VCMuxSourceDef" in types
+    assert "TimeoutDef" in types
+    assert "CommandDef" in types
+    assert "VerdictDef" in types
+    # vcmux on tty0
+    vcmux = next(s for s in d.steps if isinstance(s, VCMuxSourceDef))
+    assert vcmux.stream == "tty0"
+
+
+def test_qemu_x86_64_vm_qemu_virtio_login_probe_schema():
+    from model.chain import CommandDef, RepeatPollDef, SequenceDef, SpawnProcessDef, VCMuxSourceDef, VerdictDef
+    d = load_and_parse("qemu_x86_64_vm_qemu_virtio_login_probe.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "RepeatPollDef" in types
+    assert "SpawnProcessDef" in types
+    assert "VCMuxSourceDef" in types
+    assert "CommandDef" in types
+    assert "VerdictDef" in types
+    # probe command must include the sentinel string
+    cmds = [s for s in d.steps if isinstance(s, CommandDef)]
+    assert any("__AUTOPILOT_PROBE_AFTER_ROOT__" in c.cmd for c in cmds)
+
+
+def test_qemu_x86_64_vm_qemu_virtio_minimal_login_schema():
+    from model.chain import CommandDef, RepeatPollDef, SequenceDef, SpawnProcessDef, VCMuxSourceDef, VerdictDef
+    d = load_and_parse("qemu_x86_64_vm_qemu_virtio_minimal_login.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "RepeatPollDef" in types
+    assert "SpawnProcessDef" in types
+    assert "VCMuxSourceDef" in types
+    assert "CommandDef" in types
+    assert "VerdictDef" in types
+
+
+def test_qemu_x86_64_vm_qemu_virtio_uservm_schema():
+    from model.chain import CommandDef, RepeatPollDef, SequenceDef, SpawnProcessDef, TimeoutDef, VCMuxSourceDef, VerdictDef
+    d = load_and_parse("qemu_x86_64_vm_qemu_virtio_uservm.json")
+    assert isinstance(d, SequenceDef)
+    types = [type(s).__name__ for s in d.steps]
+    assert "RepeatPollDef" in types
+    assert "SpawnProcessDef" in types
+    assert "VCMuxSourceDef" in types
+    assert "TimeoutDef" in types
+    assert "CommandDef" in types
+    assert "VerdictDef" in types
+    # uservm chain uses user_vm_console stream
+    cmds = [s for s in d.steps if isinstance(s, CommandDef)]
+    user_vm_cmds = [c for c in cmds if "user_vm_console" in (c.stream or "")]
+    assert len(user_vm_cmds) > 0
+    # uname command verifies user VM identity
+    assert any("uname" in c.cmd for c in cmds)

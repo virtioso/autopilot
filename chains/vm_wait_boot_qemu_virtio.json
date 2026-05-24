@@ -1,0 +1,98 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "_comment": "Wait for driver-vm to reach login or shell prompt via VCMux vm0 console",
+      "oracle": "timeout",
+      "seconds": 300,
+      "step": {
+        "oracle": "choice",
+        "stream": "vm0_guest_console_sink",
+        "options": [
+          {
+            "pattern": "root@driver-vm:|root@.*:~#",
+            "label": "shell"
+          },
+          {
+            "pattern": "driver-vm login:|login:",
+            "label": "login"
+          }
+        ]
+      }
+    },
+    {
+      "_comment": "Always send root login \u2014 harmless if already at shell",
+      "oracle": "command",
+      "stream": "vm0_guest_console_sink",
+      "write_stream": "vm0",
+      "cmd": "root",
+      "suffix": "\n",
+      "response_pattern": "root@driver-vm:|root@.*:~#|login:"
+    },
+    {
+      "_comment": "Answer cursor position query that bash may emit on first login",
+      "oracle": "command",
+      "stream": "vm0_guest_console_sink",
+      "write_stream": "vm0",
+      "cmd": "\u001b[1;1R",
+      "suffix": "",
+      "response_pattern": "root@driver-vm:|root@.*:~#"
+    },
+    {
+      "_comment": "Start user VM via uservmctl",
+      "oracle": "command",
+      "stream": "vm0_guest_console_sink",
+      "write_stream": "vm0",
+      "cmd": "echo 'AUTOPILOT_INFO: USERVMCTL_START'; uservmctl stop >/dev/null 2>&1 || true; if uservmctl start; then echo 'AUTOPILOT_INFO: USERVMCTL_START_OK'; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=$rc\"; fi; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'",
+      "suffix": "\n",
+      "response_pattern": "AUTOPILOT_INFO: USERVMCTL_START_OK|AUTOPILOT_FAIL: USERVMCTL_START_FAILED"
+    },
+    {
+      "_comment": "Wait for user VM login prompt on vm1 console",
+      "oracle": "timeout",
+      "seconds": 240,
+      "step": {
+        "oracle": "choice",
+        "stream": "vm1_guest_console_sink",
+        "options": [
+          {
+            "pattern": "root@user-vm:|root@.*:~#",
+            "label": "shell"
+          },
+          {
+            "pattern": "user-vm login:|login:",
+            "label": "login"
+          }
+        ]
+      }
+    },
+    {
+      "oracle": "command",
+      "stream": "vm1_guest_console_sink",
+      "write_stream": "vm1",
+      "cmd": "root",
+      "suffix": "\n",
+      "response_pattern": "root@user-vm:|root@.*:~#|login:"
+    },
+    {
+      "oracle": "command",
+      "stream": "vm1_guest_console_sink",
+      "write_stream": "vm1",
+      "cmd": "\u001b[1;1R",
+      "suffix": "",
+      "response_pattern": "root@user-vm:|root@.*:~#"
+    },
+    {
+      "oracle": "command",
+      "stream": "vm1_guest_console_sink",
+      "write_stream": "vm1",
+      "cmd": "uname -a",
+      "suffix": "\n",
+      "response_pattern": "Linux user-vm [^\r\n]*"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}

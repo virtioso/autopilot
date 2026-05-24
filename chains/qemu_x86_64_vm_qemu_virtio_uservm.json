@@ -1,0 +1,115 @@
+{
+  "oracle": "sequence",
+  "steps": [
+    {
+      "oracle": "repeat_poll",
+      "success_label": "ok",
+      "max_iter": 15,
+      "backoff": 2.0,
+      "step": {
+        "oracle": "ssh_command",
+        "host": "192.168.101.110",
+        "username": "hlyytine",
+        "cmd": "true",
+        "success_label": "ok"
+      }
+    },
+    {
+      "oracle": "spawn_process",
+      "cmd": [
+        "python3", "-u",
+        "$AUTOPILOT_QEMU_RUNNER",
+        "run-remote",
+        "--target", "qemu_x86_64_defconfig",
+        "--binary", "$AUTOPILOT_ORIGINAL_BINARY",
+        "--console-runtime-dir", "$AUTOPILOT_RESULT_DIR"
+      ],
+      "stream": "tty0",
+      "ready_pattern": ".",
+      "ready_label": "ready",
+      "env_extra": {
+        "VIRTIOSO_CONSOLE_ROUTER_USE_BINARY_FRAMES": "1",
+        "VIRTIOSO_QEMU_SPLIT_MONITOR": "1",
+        "VIRTIOSO_QEMU_DEDICATED_MUX_UPLINK": "1"
+      }
+    },
+    {
+      "oracle": "vcmux_source",
+      "stream": "tty0"
+    },
+    {
+      "oracle": "timeout",
+      "seconds": 420,
+      "step": {
+        "oracle": "choice",
+        "stream": "driver_vm_console",
+        "options": [
+          {
+            "pattern": "root@driver-vm:~#|root@.*:~#",
+            "label": "shell"
+          },
+          {
+            "pattern": "driver-vm login:|login:",
+            "label": "login"
+          }
+        ]
+      }
+    },
+    {
+      "oracle": "command",
+      "stream": "driver_vm_console",
+      "write_stream": "driver_vm_console",
+      "cmd": "root",
+      "suffix": "\n",
+      "response_pattern": "root@driver-vm:~#|root@.*:~#"
+    },
+    {
+      "_comment": "Start user VM and wait for it to become ready",
+      "oracle": "command",
+      "stream": "driver_vm_console",
+      "write_stream": "driver_vm_console",
+      "cmd": "echo 'AUTOPILOT_INFO: USERVMCTL_X86_BEGIN'; uservmctl stop >/dev/null 2>&1 || true; if uservmctl start; then echo 'AUTOPILOT_INFO: USERVMCTL_START_OK'; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_START_FAILED rc=$rc\"; fi; if uservmctl wait-ready 180; then echo 'AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK'; else rc=$?; echo \"AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED rc=$rc\"; fi; uservmctl status | sed 's/^/AUTOPILOT_USERVM_STATUS: /'; echo 'AUTOPILOT_INFO: USERVMCTL_X86_END'",
+      "suffix": "\n",
+      "response_pattern": "AUTOPILOT_INFO: USERVMCTL_WAIT_READY_OK|AUTOPILOT_FAIL: USERVMCTL_WAIT_READY_FAILED|AUTOPILOT_FAIL: USERVMCTL_START_FAILED"
+    },
+    {
+      "_comment": "Wait for user VM login prompt on user_vm_console",
+      "oracle": "timeout",
+      "seconds": 120,
+      "step": {
+        "oracle": "choice",
+        "stream": "user_vm_console",
+        "options": [
+          {
+            "pattern": "root@user-vm:~#|root@.*:~#",
+            "label": "shell"
+          },
+          {
+            "pattern": "user-vm login:|login:",
+            "label": "login"
+          }
+        ]
+      }
+    },
+    {
+      "oracle": "command",
+      "stream": "user_vm_console",
+      "write_stream": "user_vm_console",
+      "cmd": "root",
+      "suffix": "\n",
+      "response_pattern": "root@user-vm:~#|root@.*:~#"
+    },
+    {
+      "oracle": "command",
+      "stream": "user_vm_console",
+      "write_stream": "user_vm_console",
+      "cmd": "uname -a",
+      "suffix": "\n",
+      "response_pattern": "Linux user-vm [^\\r\\n]*"
+    },
+    {
+      "oracle": "verdict",
+      "label": "pass"
+    }
+  ]
+}
