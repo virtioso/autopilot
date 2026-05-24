@@ -142,6 +142,30 @@ class StreamContext:
         """Register a cleanup hook. Call immediately after resource acquisition."""
         self.cleanup_hooks.append((stream_name, fn))
 
+    def add_stream(self, name: str, stream: object) -> None:
+        """
+        Register a named stream, automatically teeing its read() output to
+        streams/<name>.raw in the result directory if result_dir is set.
+
+        Use this instead of ctx.streams[name] = stream everywhere a new
+        transport-level stream is first introduced (UART open, process spawn,
+        docker start, vcmux session open, SSH channel open). Do NOT use it for
+        derived/forked streams that are already registered — use ctx.streams
+        assignment directly for those.
+
+        The tee file is closed by a cleanup hook tied to this stream name.
+        """
+        result_dir = self.metadata.get("result_dir")
+        if result_dir:
+            from pathlib import Path
+            from engine.primitives import TeeStream
+            streams_dir = Path(str(result_dir)) / "streams"
+            streams_dir.mkdir(exist_ok=True)
+            log_file = open(streams_dir / f"{name}.raw", "wb")
+            self.register_cleanup(name, log_file.close)
+            stream = TeeStream(stream, log_file)
+        self.streams[name] = stream
+
 
 # ---------------------------------------------------------------------------
 # Oracle Protocol

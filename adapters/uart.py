@@ -110,10 +110,11 @@ class UARTSourceOracle:
             return Error(f"uart_open_failed: {exc}"), ctx
 
         ctx.register_cleanup(self._stream_name, stream.close)
+        # Tee raw bytes to streams/<name>.raw before ANSI/CRLF filtering.
+        ctx.add_stream(self._stream_name, stream)
         if self._preprocess:
             from engine.primitives import FilterBiStream
-            stream = FilterBiStream(stream)
-        ctx.streams[self._stream_name] = stream
+            ctx.streams[self._stream_name] = FilterBiStream(ctx.streams[self._stream_name])
         log.info(
             "uart_source.ready",
             stream=self._stream_name,

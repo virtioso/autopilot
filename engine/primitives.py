@@ -103,6 +103,35 @@ class VerdictOracle:
         return Matched(self._label), ctx
 
 
+class TeeStream:
+    """
+    Wraps any BiStream and writes all read() output to a file object.
+
+    write() is forwarded to the inner stream unchanged — only the inbound
+    (read) direction is teed. Attribute access falls through to the inner
+    stream so transport-specific methods (close, wait, etc.) remain accessible.
+
+    Used by ctx.add_stream() to capture raw stream bytes to results/streams/.
+    """
+
+    def __init__(self, inner: object, file) -> None:
+        self._inner = inner
+        self._file = file
+
+    async def read(self, n: int = 4096) -> bytes:
+        data = await self._inner.read(n)
+        if data:
+            self._file.write(data)
+            self._file.flush()
+        return data
+
+    async def write(self, data: bytes) -> None:
+        await self._inner.write(data)
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+
 class FilterBiStream:
     """
     Wraps any BiStream and preprocesses read() output.

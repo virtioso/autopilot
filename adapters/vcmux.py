@@ -464,11 +464,11 @@ class VCMuxSourceOracle:
                 nvidia_tcu=self._nvidia_tcu,
                 nvidia_tag=self._nvidia_tag,
             )
+            ctx_name = f"{self._prefix}{name}"
+            ctx.add_stream(ctx_name, bio)
             if self._preprocess:
                 from engine.primitives import FilterBiStream
-                bio = FilterBiStream(bio)
-            ctx_name = f"{self._prefix}{name}"
-            ctx.streams[ctx_name] = bio
+                ctx.streams[ctx_name] = FilterBiStream(ctx.streams[ctx_name])
             registered.append(ctx_name)
             log.info("vcmux.channel_registered", name=ctx_name, stream_id=stream_id)
 
@@ -478,11 +478,11 @@ class VCMuxSourceOracle:
                 nvidia_tcu=self._nvidia_tcu,
                 nvidia_tag=self._nvidia_tag,
             )
+            ctx_name = f"{self._prefix}default"
+            ctx.add_stream(ctx_name, default_bio)
             if self._preprocess:
                 from engine.primitives import FilterBiStream
-                default_bio = FilterBiStream(default_bio)
-            ctx_name = f"{self._prefix}default"
-            ctx.streams[ctx_name] = default_bio
+                ctx.streams[ctx_name] = FilterBiStream(ctx.streams[ctx_name])
             registered.append(ctx_name)
 
         log.info("vcmux.ready", streams=registered)

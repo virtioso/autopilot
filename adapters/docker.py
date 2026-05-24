@@ -251,10 +251,10 @@ class DockerContainerOracle:
         # Create BiStream and start log producer
         queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=self._queue_maxsize)
         bio: object = DockerLogBiStream(queue, container)
+        ctx.add_stream(self._stream_name, bio)
         if self._preprocess:
             from engine.primitives import FilterBiStream
-            bio = FilterBiStream(bio)
-        ctx.streams[self._stream_name] = bio
+            ctx.streams[self._stream_name] = FilterBiStream(ctx.streams[self._stream_name])
 
         # Background task — W22: do not capture ctx in the task, only the queue
         producer_task = asyncio.create_task(

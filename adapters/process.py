@@ -208,10 +208,10 @@ class SpawnProcessOracle:
             make_process_cleanup(proc, self._stream_name),
         )
 
+        ctx.add_stream(self._stream_name, stream)
         if self._preprocess:
             from engine.primitives import FilterBiStream
-            stream = FilterBiStream(stream)
-        ctx.streams[self._stream_name] = stream
+            ctx.streams[self._stream_name] = FilterBiStream(ctx.streams[self._stream_name])
 
         # Wait for readiness signal on the process stdout.
         readiness = PatternOracle(
