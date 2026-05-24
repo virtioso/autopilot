@@ -443,18 +443,26 @@ class Repeat:
         *,
         max_iter: int,
         backoff: float = 1.0,
+        retry_errors: bool = False,
     ) -> "Repeat":
         """
         Polling loop: stops on Matched(success_label) or Error, retries on
         TimeoutVerdict. For: "retry until SSH is reachable", "wait for service".
         The success_label distinguishes the expected success match from other
         Matched verdicts the inner oracle might return during retries.
+
+        retry_errors=True: also retry on Error (use for transient connection
+        failures, e.g. SSH during board boot where the network may not be up yet).
         """
+        if retry_errors:
+            stop_on = lambda v: isinstance(v, Matched) and v.label == success_label
+        else:
+            stop_on = lambda v: (
+                isinstance(v, Matched) and v.label == success_label
+            ) or isinstance(v, Error)
         return cls(
             oracle,
-            stop_on=lambda v: (
-                isinstance(v, Matched) and v.label == success_label
-            ) or isinstance(v, Error),
+            stop_on=stop_on,
             max_iter=max_iter,
             backoff=backoff,
         )

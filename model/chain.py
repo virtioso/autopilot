@@ -133,6 +133,7 @@ class RepeatPollDef(BaseModel):
     success_label: str
     max_iter: int = 100
     backoff: float = 1.0
+    retry_errors: bool = False
 
 
 class UARTSourceDef(BaseModel):
@@ -480,6 +481,7 @@ def _build_repeat_poll(d: RepeatPollDef, f: OracleFactory):
         success_label=d.success_label,
         max_iter=d.max_iter,
         backoff=d.backoff,
+        retry_errors=d.retry_errors,
     )
 
 

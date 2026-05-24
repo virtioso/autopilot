@@ -32,8 +32,9 @@
     {
       "oracle": "repeat_poll",
       "success_label": "ok",
-      "max_iter": 30,
-      "backoff": 1.0,
+      "max_iter": 60,
+      "backoff": 2.0,
+      "retry_errors": true,
       "step": {
         "oracle": "ssh_command",
         "host": "$AUTOPILOT_TARGET_IP",
