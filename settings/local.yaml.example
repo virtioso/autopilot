@@ -1,0 +1,14 @@
+# User-specific settings — copy to settings/local.yaml and fill in your values.
+# This file is gitignored. Do not commit settings/local.yaml.
+#
+# Values here override platform YAML defaults and are overridden by
+# AUTOPILOT_* environment variables.
+
+# Board access
+target_ip: 192.168.1.100
+
+# Local file paths (absolute paths on your workstation)
+# local_efi_path: /path/to/your/test.efi
+# rootfs_path: /path/to/your/rootfs.ext4
+# local_kernel_path: /path/to/your/Image
+# kernel_release: 5.15.0-custom
