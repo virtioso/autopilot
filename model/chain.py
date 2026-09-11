@@ -246,6 +246,24 @@ class UEFIShellRunDef(BaseModel):
     skip_menu: bool = False
 
 
+class CanSourceDef(BaseModel):
+    oracle: Literal["can_source"]
+    name: str
+    cmd: list[str]                       # e.g. ["candump", "-L", "vcan0"]
+    manifest: str                        # iomux2manifest JSON
+    bus: int                             # physical bus number in the manifest's numbering
+    tiers: list[str] = ["nmt", "probe", "monitor"]   # which gate tiers get substreams
+
+
+class NodeSetDef(BaseModel):
+    oracle: Literal["node_set"]
+    name: str
+    manifest: str
+    bus: int
+    tier: str = "nmt"
+    per_node_timeout: float = 20.0
+
+
 class ExtlinuxBootDef(BaseModel):
     oracle: Literal["extlinux_boot"]
     stream: str
@@ -286,6 +304,8 @@ OracleDef = Annotated[
         RelayDef,
         UEFIShellRunDef,
         ExtlinuxBootDef,
+        CanSourceDef,
+        NodeSetDef,
     ],
     Field(discriminator="oracle"),
 ]
@@ -641,6 +661,25 @@ def _build_extlinux_boot(d: ExtlinuxBootDef, f: OracleFactory):
     )
 
 
+def _build_can_source(d: CanSourceDef, f: OracleFactory):
+    from adapters.can import CanSourceOracle, nodes_from_manifest
+    nodes: list[int] = []
+    for tier in d.tiers:
+        try:
+            nodes += nodes_from_manifest(_resolve(d.manifest), d.bus, tier)
+        except ValueError as exc:
+            if "no " + tier + "-tier" not in str(exc):
+                raise
+    if not nodes:
+        raise ValueError(f"{d.manifest}: no nodes on bus {d.bus} in tiers {d.tiers}")
+    return CanSourceOracle(d.name, _resolve_list(d.cmd), nodes)
+
+
+def _build_node_set(d: NodeSetDef, f: OracleFactory):
+    from adapters.can import NodeSetOracle, nodes_from_manifest
+    return NodeSetOracle(d.name, nodes_from_manifest(_resolve(d.manifest), d.bus, d.tier), d.per_node_timeout)
+
+
 # Register all built-in builders
 _BUILDERS = {
     "verdict": _build_verdict,
@@ -666,6 +705,8 @@ _BUILDERS = {
     "relay": _build_relay,
     "uefi_shell_run": _build_uefi_shell_run,
     "extlinux_boot": _build_extlinux_boot,
+    "can_source": _build_can_source,
+    "node_set": _build_node_set,
 }
 
 for _name, _builder in _BUILDERS.items():
