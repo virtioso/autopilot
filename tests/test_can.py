@@ -130,3 +130,38 @@ async def test_raw_candump_is_teed_to_results(tmp_path):
     assert v == Matched("nodes_up")
     raw = (tmp_path / "streams" / "can0.raw").read_bytes()
     assert b" 72F#05" in raw and b"garbage line" in raw      # verbatim, unparsed lines included
+
+
+from adapters.can import MachineUpOracle
+
+
+async def machine(tmp_path, bus0: list[int], bus2: list[int]):
+    p = tmp_path / "m.json"; p.write_text(json.dumps(MANIFEST))
+    ctx = StreamContext()
+    v, ctx = await CanSourceOracle("can0", producer(bus0), nodes=[47, 57, 97])(ctx, 5.0)
+    v, ctx = await CanSourceOracle("can2", producer(bus2), nodes=[51])(ctx, 5.0)
+    try:
+        return await MachineUpOracle(p, {0: "can0", 2: "can2"}, per_node_timeout=1.0)(ctx, 5.0)
+    finally:
+        ctx.cleanup()
+
+
+async def test_machine_up_needs_every_bus(tmp_path):
+    v, ctx = await machine(tmp_path, [47, 57, 97], [51])
+    assert v == Matched("machine_up")
+    assert ctx.metadata["machine_up"]["buses"] == [0, 2]
+
+
+async def test_machine_up_names_bus_and_node(tmp_path):
+    v, ctx = await machine(tmp_path, [47, 57, 97], [])          # process bus silent
+    assert isinstance(v, Error) and v.reason == "nodes_absent: bus2:51"
+    v, ctx = await machine(tmp_path, [47, 97], [51])            # one TR node missing
+    assert isinstance(v, Error) and v.reason == "nodes_absent: bus0:57"
+
+
+def test_machine_up_refuses_an_unwatched_bus(tmp_path):
+    p = tmp_path / "m.json"; p.write_text(json.dumps(MANIFEST))
+    with pytest.raises(ValueError) as e:
+        MachineUpOracle(p, {0: "can0"}, 1.0)                     # bus 2 has nmt nodes, no source
+    assert "buses [2]" in str(e.value)
+    MachineUpOracle(p, {0: "can0", 2: "can2", 1: "can1"}, 1.0)   # a source for an empty bus is fine

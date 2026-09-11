@@ -209,3 +209,65 @@ def nodes_from_manifest(path: str | Path, bus: int, tier: str = "nmt") -> list[i
         raise ValueError(f"{path}: no {tier}-tier nodes on bus {bus}; buses present: "
                          f"{sorted({n['bus'] for n in m['nodes']})}")
     return ids
+
+
+class MachineUpOracle:
+    """
+    The whole machine's start gate: every `nmt`-tier node on EVERY bus the
+    manifest declares, in parallel, one NodeSetOracle per bus.
+
+    sources maps the manifest's physical bus number to the can_source name
+    that carries it (e.g. {0: "can0", 2: "can2"}). A bus that has nmt-tier
+    nodes in the manifest but no source here is refused up front: leaving a
+    bus out is how a gate silently narrows, and the machine does not start on
+    a bus nobody watched. Buses with no nmt-tier nodes (J1939, spare) need no
+    source. Verdict: Matched("machine_up") or Error("nodes_absent: bus0:57 bus2:112").
+    """
+
+    def __init__(self, manifest: str | Path, sources: dict[int, str], per_node_timeout: float,
+                 tier: str = "nmt") -> None:
+        m = json.loads(Path(manifest).read_text())
+        by_bus: dict[int, list[int]] = {}
+        for n in m.get("nodes", []):
+            if n.get("gate") == tier:
+                by_bus.setdefault(n["bus"], []).append(n["id"])
+        if not by_bus:
+            raise ValueError(f"{manifest}: no {tier}-tier nodes on any bus")
+        unwatched = sorted(b for b in by_bus if b not in sources)
+        if unwatched:
+            raise ValueError(f"{manifest}: buses {unwatched} carry {tier}-tier nodes "
+                             f"{ {b: by_bus[b] for b in unwatched} } but have no source")
+        self._serial = m.get("serial")
+        self._gates = [(b, sources[b], NodeSetOracle(sources[b], ids, per_node_timeout))
+                       for b, ids in sorted(by_bus.items())]
+
+    @property
+    def buses(self) -> list[int]:
+        return [b for b, _, _ in self._gates]
+
+    async def __call__(self, ctx: StreamContext, timeout: float) -> tuple[Verdict, StreamContext]:
+        # Each NodeSet reads its own source's substreams, so the branches are
+        # stream-disjoint; the primary name given to Parallel is the source name.
+        branches = [(g, src) for _, src, g in self._gates]
+        gates = self._gates
+
+        def reducer(results: list[ParallelBranchResult]) -> tuple[Verdict, set[str]]:
+            absent = []
+            for r in results:
+                bus, src, _ = gates[r.idx]
+                # A branch runs on a fork; its metadata does not merge back by
+                # itself. Copy the per-bus record up so the run can read it.
+                ns = r.fork.metadata.get(f"{src}/node_set", {})
+                ctx.metadata[f"{src}/node_set"] = ns
+                if not isinstance(r.verdict, Matched):
+                    ids = ns.get("absent") or ["?"]
+                    absent.append(f"bus{bus}:" + ",".join(map(str, ids)))
+            ctx.metadata["machine_up"] = {"serial": self._serial, "buses": [b for b, _, _ in gates],
+                                          "absent": absent}
+            if absent:
+                return Error("nodes_absent: " + " ".join(absent)), set()
+            return Matched("machine_up"), set()
+
+        verdict, ctx = await Parallel(branches, reducer=reducer)(ctx, timeout)
+        log.info("machine_up.verdict", serial=self._serial, verdict=verdict)
+        return verdict, ctx

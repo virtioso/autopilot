@@ -264,6 +264,14 @@ class NodeSetDef(BaseModel):
     per_node_timeout: float = 20.0
 
 
+class MachineUpDef(BaseModel):
+    oracle: Literal["machine_up"]
+    manifest: str
+    sources: dict[int, str]              # manifest bus number -> can_source name
+    per_node_timeout: float = 20.0
+    tier: str = "nmt"
+
+
 class ExtlinuxBootDef(BaseModel):
     oracle: Literal["extlinux_boot"]
     stream: str
@@ -306,6 +314,7 @@ OracleDef = Annotated[
         ExtlinuxBootDef,
         CanSourceDef,
         NodeSetDef,
+        MachineUpDef,
     ],
     Field(discriminator="oracle"),
 ]
@@ -680,6 +689,11 @@ def _build_node_set(d: NodeSetDef, f: OracleFactory):
     return NodeSetOracle(d.name, nodes_from_manifest(_resolve(d.manifest), d.bus, d.tier), d.per_node_timeout)
 
 
+def _build_machine_up(d: MachineUpDef, f: OracleFactory):
+    from adapters.can import MachineUpOracle
+    return MachineUpOracle(_resolve(d.manifest), d.sources, d.per_node_timeout, d.tier)
+
+
 # Register all built-in builders
 _BUILDERS = {
     "verdict": _build_verdict,
@@ -707,6 +721,7 @@ _BUILDERS = {
     "extlinux_boot": _build_extlinux_boot,
     "can_source": _build_can_source,
     "node_set": _build_node_set,
+    "machine_up": _build_machine_up,
 }
 
 for _name, _builder in _BUILDERS.items():
