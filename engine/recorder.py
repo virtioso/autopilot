@@ -61,7 +61,28 @@ class CleanupHookRan:
     hook_name: str            # descriptive name registered with the hook
 
 
-Event = Union[OracleStarted, OracleVerdict, StreamBytesRead, CleanupHookRan]
+@dataclass
+class FrameSaved:
+    path: str            # relative to the result dir
+    sha256: str
+    trigger: str         # "checkpoint:<step>" or the metric pattern that fired
+    t_host: float        # wall clock (time.time()) on the host at the grab
+    t_source: float | None = None   # the frame source's own clock, if it has one
+
+
+@dataclass
+class Incident:
+    """A marker, not a capture: the context around it is cut from the run's
+    teed streams afterwards (engine/incidents.py), so the window can be widened
+    later. Timestamps are wall clock (time.time()) so they compare with candump -L."""
+    t_host: float
+    trigger: str
+    frame: str | None = None        # FrameSaved.path, when a frame accompanied it
+    t_source: float | None = None
+    note: str = ""
+
+
+Event = Union[OracleStarted, OracleVerdict, StreamBytesRead, CleanupHookRan, FrameSaved, Incident]
 
 
 # ---------------------------------------------------------------------------

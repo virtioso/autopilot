@@ -119,3 +119,14 @@ def test_empty_manifest_is_refused(tmp_path):
     p = tmp_path / "m.json"; p.write_text("{}")
     with pytest.raises(ValueError):
         nodes_from_manifest(p, 0)
+
+
+async def test_raw_candump_is_teed_to_results(tmp_path):
+    ctx = StreamContext()
+    ctx.metadata["result_dir"] = str(tmp_path)
+    v, ctx = await CanSourceOracle("can0", producer([47]), nodes=[47])(ctx, 5.0)
+    v, ctx = await NodeSetOracle("can0", [47], per_node_timeout=1.0)(ctx, 5.0)
+    ctx.cleanup()
+    assert v == Matched("nodes_up")
+    raw = (tmp_path / "streams" / "can0.raw").read_bytes()
+    assert b" 72F#05" in raw and b"garbage line" in raw      # verbatim, unparsed lines included

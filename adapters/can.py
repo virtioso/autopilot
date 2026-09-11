@@ -39,7 +39,7 @@ import structlog
 from engine.combinators import Parallel, ParallelBranchResult, Timeout
 from engine.oracle import Error, Matched, StreamContext, Verdict
 from engine.primitives import PatternOracle
-from adapters.process import make_process_cleanup
+from adapters.process import ProcessBiStream, make_process_cleanup
 
 log = structlog.get_logger()
 
@@ -91,6 +91,12 @@ class CanSourceOracle:
             return Error(f"can_source_spawn_failed: {exc}"), ctx
         ctx.register_cleanup(self._name, make_process_cleanup(proc, self._name))
 
+        # The raw line stream goes through add_stream so the run's results hold
+        # streams/<name>.raw verbatim: that file is what an incident window is
+        # cut from afterwards. The pump reads through the tee, not around it.
+        ctx.add_stream(self._name, ProcessBiStream(proc))
+        raw = ctx.streams[self._name]
+
         subs: dict[int, QueueBiStream] = {n: QueueBiStream() for n in self._nodes}
         other = QueueBiStream()
         for n, s in subs.items():
@@ -99,31 +105,43 @@ class CanSourceOracle:
         stats = {"lines": 0, "routed": 0, "dropped": 0, "unparsed": 0}
         ctx.metadata[f"{self._name}/stats"] = stats
 
+        def route(line: bytes) -> None:
+            stats["lines"] += 1
+            m = LINE_RE.match(line)
+            if not m:
+                stats["unparsed"] += 1
+                return
+            cob = int(m.group(3), 16)
+            if cob > 0x7FF:
+                other.feed(line)
+                return
+            node = cob & 0x7F
+            s = subs.get(node)
+            if s is None:
+                stats["dropped"] += 1
+                return
+            stats["routed"] += 1
+            s.feed(line)
+
         async def pump() -> None:
-            assert proc.stdout is not None
+            buf = b""
             while True:
-                line = await proc.stdout.readline()
-                if not line:
+                chunk = await raw.read(4096)
+                if not chunk:
                     break
-                stats["lines"] += 1
-                m = LINE_RE.match(line)
-                if not m:
-                    stats["unparsed"] += 1
-                    continue
-                cob = int(m.group(3), 16)
-                if cob > 0x7FF:
-                    other.feed(line)
-                    continue
-                node = cob & 0x7F
-                s = subs.get(node)
-                if s is None:
-                    stats["dropped"] += 1
-                    continue
-                stats["routed"] += 1
-                s.feed(line)
+                buf += chunk
+                while True:
+                    nl = buf.find(b"\n")
+                    if nl < 0:
+                        break
+                    line, buf = buf[:nl + 1], buf[nl + 1:]
+                    route(line)
+            if buf:
+                route(buf)
             for s in subs.values():
                 s.feed_eof()
             other.feed_eof()
+
 
         task = asyncio.create_task(pump(), name=f"can-pump:{self._name}")
         ctx.register_cleanup(self._name, task.cancel)
