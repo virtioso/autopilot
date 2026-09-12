@@ -182,6 +182,7 @@ class SpawnProcessDef(BaseModel):
 class RunProcessDef(BaseModel):
     oracle: Literal["run_process"]
     cmd: list[str]
+    success_exit_codes: list[int] = [0]
     success_label: str = "ok"
     failure_label: str | None = None
     capture_name: str | None = None
@@ -590,6 +591,7 @@ def _build_run_process(d: RunProcessDef, f: OracleFactory):
     from pathlib import Path
     return RunProcessOracle(
         cmd=_resolve_list(d.cmd),
+        success_exit_codes=frozenset(d.success_exit_codes),
         success_label=d.success_label,
         failure_label=d.failure_label,
         capture_name=d.capture_name,
