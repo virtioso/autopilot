@@ -150,8 +150,11 @@ class CanSourceOracle:
 
 
 def heartbeat_pattern(node: int, states: tuple[str, ...] = ("00", "04", "05", "7F")) -> bytes:
-    """A candump -L line carrying node's heartbeat (COB 0x700+id) in one of `states`."""
-    return rf" {0x700 + node:03X}#({'|'.join(states)})\b".encode()
+    """A candump -L line carrying node's heartbeat (COB 0x700+id) whose FIRST byte is
+    one of `states`. The vendor's heartbeat is two bytes (72F#7F00, 72F#7F80 -- state
+    then a toggle), so the state byte may be followed by more hex; measured on FCA0128
+    2026-09-12, where a one-byte pattern missed 563 heartbeats from node 47."""
+    return rf" {0x700 + node:03X}#({'|'.join(states)})(?:[0-9A-Fa-f]{{2}})*(?![0-9A-Fa-f])".encode()
 
 
 class NodeSetOracle:

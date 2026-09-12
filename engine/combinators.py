@@ -490,11 +490,13 @@ class Repeat:
 
 class Ensure:
     """
-    Run `step`, then ALWAYS run `finally_steps` in order, whatever step returned
-    and even if it raised. The verdict is step's; a finally step that does not
-    return Matched turns the result into Error("finally_failed: <label>; step
-    was <verdict>") so a teardown that did not verify is never hidden behind a
-    green test.
+    Run `step`, then ALWAYS run EVERY finally step in order, whatever step
+    returned and even if it raised -- a failing finally step does not skip the
+    ones after it, because the last of them is usually the one that turns the
+    rig off (measured: a watch that exited 2 left a board running). The verdict
+    is step's; any finally step that does not return Matched turns the result
+    into Error("finally_failed[i,j]: ...; step was <verdict>") naming each, so a
+    teardown that did not verify is never hidden behind a green test.
 
     This is for measurements that must happen on every exit path -- "the bus
     is ALONE after the relays are down, and NOT ALONE once they are back" --
@@ -529,6 +531,7 @@ class Ensure:
         return await self._run_finally(ctx, timeout, verdict), ctx
 
     async def _run_finally(self, ctx: StreamContext, timeout: float, verdict: Verdict) -> Verdict:
+        failures = []
         for i, step in enumerate(self._finally):
             try:
                 fv, _ = await asyncio.shield(step(ctx, timeout))
@@ -536,6 +539,7 @@ class Ensure:
                 fv = Error(f"unhandled: {exc!r}")
             log.info("ensure.finally", index=i, verdict=fv)
             if not isinstance(fv, Matched):
-                label = getattr(fv, "reason", type(fv).__name__)
-                return Error(f"finally_failed[{i}]: {label}; step was {verdict}")
+                failures.append(f"[{i}] {getattr(fv, 'reason', type(fv).__name__)}")
+        if failures:
+            return Error(f"finally_failed{'; '.join(failures)}; step was {verdict}")
         return verdict

@@ -25,7 +25,7 @@ def producer(nodes: list[int], repeat: int = 3, period: float = 0.05) -> list[st
         t = 1757600000.0
         for i in range({repeat}):
             for n in nodes:
-                print("(%.6f) vcan0 %03X#05" % (t, 0x700 + n)); t += 0.001
+                print("(%.6f) vcan0 %03X#0500" % (t, 0x700 + n)); t += 0.001   # two-byte, as the vendor's
             print("(%.6f) vcan0 18FEF100#00000000" % t)        # a J1939 frame -> other
             print("garbage line")                                # -> unparsed
             sys.stdout.flush(); time.sleep({period})
@@ -103,6 +103,9 @@ def test_heartbeat_pattern_is_node_specific():
     assert p.search(b"(1.0) vcan0 72F#05")
     assert not p.search(b"(1.0) vcan0 72E#05")       # node 46
     assert not p.search(b"(1.0) vcan0 5AF#05")       # SDO response, not heartbeat
+    assert p.search(b"(1.0) vcan0 72F#7F00\n")      # the vendor's two-byte heartbeat, PRE-OPERATIONAL
+    assert p.search(b"(1.0) vcan0 72F#0580\n")      # OPERATIONAL with the toggle bit
+    assert not p.search(b"(1.0) vcan0 72F#7\n")     # a truncated byte is not a state
 
 
 def test_nodes_from_manifest(tmp_path):

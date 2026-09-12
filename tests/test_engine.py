@@ -661,8 +661,9 @@ async def test_ensure_runs_finally_after_failure_and_keeps_step_verdict():
 async def test_ensure_finally_failure_is_not_hidden():
     from engine.combinators import Ensure
     log = []
-    v, _ = await Ensure(_Rec(Matched("test"), log), [_Rec(Matched("alone"), log), _Rec(Error("residue"), log)])(StreamContext(), 1)
-    assert isinstance(v, Error) and v.reason.startswith("finally_failed[1]: residue; step was Matched(label='test')")
+    v, _ = await Ensure(_Rec(Matched("test"), log), [_Rec(Matched("alone"), log), _Rec(Error("residue"), log), _Rec(Matched("down"), log)])(StreamContext(), 1)
+    assert isinstance(v, Error) and v.reason.startswith("finally_failed[1] residue; step was Matched(label='test')")
+    assert [getattr(x, "label", None) for x in log][-1] == "down"        # the step after the failure still ran
 
 
 async def test_ensure_runs_finally_when_step_raises():
