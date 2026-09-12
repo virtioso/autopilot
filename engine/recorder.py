@@ -33,11 +33,14 @@ from typing import Union
 class OracleStarted:
     oracle_type: str
     stream_name: str | None  # primary stream this oracle reads, if any
-    timestamp: float = 0.0
+    timestamp: float = 0.0   # monotonic, for elapsed arithmetic
+    t_wall: float = 0.0      # time.time(), so an event can be placed in a candump -L capture
 
     def __post_init__(self) -> None:
         if self.timestamp == 0.0:
             self.timestamp = time.monotonic()
+        if self.t_wall == 0.0:
+            self.t_wall = time.time()
 
 
 @dataclass
@@ -46,6 +49,11 @@ class OracleVerdict:
     verdict_type: str   # "Matched", "TimeoutVerdict", "Error"
     verdict_label: str | None  # Matched.label or Error.reason; None for TimeoutVerdict
     elapsed: float      # seconds since OracleStarted for this oracle
+    t_wall: float = 0.0 # time.time() at the verdict; the gate's moment in the captures
+
+    def __post_init__(self) -> None:
+        if self.t_wall == 0.0:
+            self.t_wall = time.time()
 
 
 @dataclass
