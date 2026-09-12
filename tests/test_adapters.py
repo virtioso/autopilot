@@ -1229,3 +1229,14 @@ async def test_extlinux_boot_schema_roundtrip():
     from engine.runtime import RecordedOracle
     assert isinstance(oracle, RecordedOracle)
     assert isinstance(oracle._inner, ExtlinuxBootOracle)
+
+
+
+async def test_spawn_without_readiness_returns_spawned():
+    """A process that prints nothing: the chain gets Matched('spawned'), not 'ready'."""
+    from adapters.process import SpawnProcessOracle
+    import sys
+    ctx = StreamContext()
+    v, ctx = await SpawnProcessOracle([sys.executable, "-c", "import time; time.sleep(5)"], "quiet", None)(ctx, 2.0)
+    ctx.cleanup()
+    assert v == Matched("spawned")

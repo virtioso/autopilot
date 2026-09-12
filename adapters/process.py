@@ -159,7 +159,7 @@ class SpawnProcessOracle:
         self,
         cmd: list[str],
         stream_name: str,
-        ready_pattern: bytes | str,
+        ready_pattern: bytes | str | None,
         *,
         ready_label: str = "ready",
         env_extra: dict[str, str] | None = None,
@@ -212,6 +212,14 @@ class SpawnProcessOracle:
         if self._preprocess:
             from engine.primitives import FilterBiStream
             ctx.streams[self._stream_name] = FilterBiStream(ctx.streams[self._stream_name])
+
+        # ready_pattern=None: this process prints nothing a chain can wait on
+        # (a wine plant, say) and its readiness is asserted by the NEXT step on
+        # another stream. Returns Matched("spawned"), which is a weaker label on
+        # purpose -- a chain that stops here has not shown the process is ready.
+        if self._ready_pattern is None:
+            log.info("spawn.spawned_no_readiness", name=self._stream_name, pid=proc.pid)
+            return Matched("spawned"), ctx
 
         # Wait for readiness signal on the process stdout.
         readiness = PatternOracle(

@@ -172,7 +172,7 @@ class SpawnProcessDef(BaseModel):
     oracle: Literal["spawn_process"]
     cmd: list[str]
     stream: str
-    ready_pattern: str
+    ready_pattern: str | None            # None: readiness is asserted by a later step on another stream
     ready_label: str = "ready"
     env_extra: dict[str, str] = Field(default_factory=dict)
     cwd: str | None = None
