@@ -361,6 +361,7 @@ class ChainRunner:
 
         self._verdict = verdict
         self._write_verdict(verdict)
+        self._write_captures(ctx)
 
         log.info(
             "runner.done",
@@ -370,6 +371,21 @@ class ChainRunner:
             exit_code=self.exit_code(),
         )
         return verdict
+
+    def _write_captures(self, ctx: StreamContext) -> None:
+        """Persist every run_process capture (ctx.metadata[capture_name]) as
+        captures/<name>.txt. Until this, a step's stdout lived only in memory:
+        a rig step that printed what it energised and read back left no trace
+        in the run directory, so "did it run" was answered by its exit code alone."""
+        out = self._result_dir / "captures"
+        for name, val in ctx.metadata.items():
+            if not isinstance(val, (bytes, str)):
+                continue
+            try:
+                out.mkdir(exist_ok=True)
+                (out / f"{name}.txt").write_bytes(val if isinstance(val, bytes) else val.encode())
+            except OSError as exc:
+                log.warning("runner.capture_write_failed", name=name, error=repr(exc))
 
     def _write_verdict(self, verdict: Verdict) -> None:
         summary = {
