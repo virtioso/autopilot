@@ -277,6 +277,7 @@ class MachineUpDef(BaseModel):
     sources: dict[int, str]              # manifest bus number -> can_source name
     per_node_timeout: float = 20.0
     tier: str = "nmt"
+    states: list[str] = ["00", "04", "05", "7F"]   # heartbeat state bytes that count; ["05"] = OPERATIONAL only
 
 
 class ExtlinuxBootDef(BaseModel):
@@ -713,7 +714,7 @@ def _build_node_set(d: NodeSetDef, f: OracleFactory):
 
 def _build_machine_up(d: MachineUpDef, f: OracleFactory):
     from adapters.can import MachineUpOracle
-    return MachineUpOracle(_resolve(d.manifest), d.sources, d.per_node_timeout, d.tier)
+    return MachineUpOracle(_resolve(d.manifest), d.sources, d.per_node_timeout, d.tier, tuple(d.states))
 
 
 # Register all built-in builders

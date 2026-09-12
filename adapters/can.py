@@ -228,7 +228,7 @@ class MachineUpOracle:
     """
 
     def __init__(self, manifest: str | Path, sources: dict[int, str], per_node_timeout: float,
-                 tier: str = "nmt") -> None:
+                 tier: str = "nmt", states: tuple[str, ...] = ("00", "04", "05", "7F")) -> None:
         m = json.loads(Path(manifest).read_text())
         by_bus: dict[int, list[int]] = {}
         for n in m.get("nodes", []):
@@ -241,7 +241,7 @@ class MachineUpOracle:
             raise ValueError(f"{manifest}: buses {unwatched} carry {tier}-tier nodes "
                              f"{ {b: by_bus[b] for b in unwatched} } but have no source")
         self._serial = m.get("serial")
-        self._gates = [(b, sources[b], NodeSetOracle(sources[b], ids, per_node_timeout))
+        self._gates = [(b, sources[b], NodeSetOracle(sources[b], ids, per_node_timeout, states))
                        for b, ids in sorted(by_bus.items())]
 
     @property
@@ -270,6 +270,10 @@ class MachineUpOracle:
             if absent:
                 return Error("nodes_absent: " + " ".join(absent)), set()
             return Matched("machine_up"), set()
+
+    # The heartbeat state byte, CiA 301: 00 boot-up, 04 STOPPED, 05 OPERATIONAL,
+    # 7F PRE-OPERATIONAL. A gate on ("05",) asks "did the master START every node",
+    # which is the question after "is every node present".
 
         verdict, ctx = await Parallel(branches, reducer=reducer)(ctx, timeout)
         log.info("machine_up.verdict", serial=self._serial, verdict=verdict)

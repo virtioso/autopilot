@@ -168,3 +168,24 @@ def test_machine_up_refuses_an_unwatched_bus(tmp_path):
         MachineUpOracle(p, {0: "can0"}, 1.0)                     # bus 2 has nmt nodes, no source
     assert "buses [2]" in str(e.value)
     MachineUpOracle(p, {0: "can0", 2: "can2", 1: "can1"}, 1.0)   # a source for an empty bus is fine
+
+
+async def test_machine_up_operational_only(tmp_path):
+    """A node heartbeating PRE-OPERATIONAL is present but not started; states=('05',) must say so."""
+    p = tmp_path / "m.json"; p.write_text(json.dumps(MANIFEST))
+    ctx = StreamContext()
+    # bus 0: 47 and 97 OPERATIONAL, 57 PRE-OPERATIONAL; bus 2: 51 OPERATIONAL
+    script = textwrap.dedent("""
+        import sys, time
+        for i in range(3):
+            print("(1.0) vcan0 72F#0500"); print("(1.0) vcan0 761#0580"); print("(1.0) vcan0 739#7F00")
+            sys.stdout.flush(); time.sleep(0.05)
+        time.sleep(5)
+    """)
+    v, ctx = await CanSourceOracle("can0", [sys.executable, "-u", "-c", script], nodes=[47, 57, 97])(ctx, 5.0)
+    v, ctx = await CanSourceOracle("can2", producer([51]), nodes=[51])(ctx, 5.0)
+    try:
+        v, ctx = await MachineUpOracle(p, {0: "can0", 2: "can2"}, per_node_timeout=1.0, states=("05",))(ctx, 5.0)
+    finally:
+        ctx.cleanup()
+    assert isinstance(v, Error) and v.reason == "nodes_absent: bus0:57"
