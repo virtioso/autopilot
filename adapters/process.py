@@ -199,6 +199,20 @@ class SpawnProcessOracle:
         )
         log.info("spawn.started", name=self._stream_name, pid=proc.pid)
 
+        # A spawned process that dies on its own is otherwise invisible: cleanup
+        # sees returncode already set and returns without a word, so the run
+        # record shows a process that was started and never stopped. Log the
+        # exit when it happens, with the wait status -- negative is the signal
+        # that killed it, which is the one fact a silent death leaves behind.
+        async def _watch_exit(name: str = self._stream_name) -> None:
+            rc = await proc.wait()
+            if rc < 0:
+                log.warning("process.exited", name=name, pid=proc.pid, returncode=rc,
+                            signal=-rc)
+            else:
+                log.info("process.exited", name=name, pid=proc.pid, returncode=rc)
+        asyncio.get_running_loop().create_task(_watch_exit())
+
         stream = ProcessBiStream(proc)
 
         # Register kill hook BEFORE readiness check (W29).
