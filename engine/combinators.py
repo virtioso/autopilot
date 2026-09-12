@@ -482,3 +482,60 @@ class Repeat:
 
         log.warning("repeat.max_iter_exceeded", max_iter=self._max_iter)
         return Error("max_iter_exceeded"), ctx
+
+
+# ---------------------------------------------------------------------------
+# Ensure
+# ---------------------------------------------------------------------------
+
+class Ensure:
+    """
+    Run `step`, then ALWAYS run `finally_steps` in order, whatever step returned
+    and even if it raised. The verdict is step's; a finally step that does not
+    return Matched turns the result into Error("finally_failed: <label>; step
+    was <verdict>") so a teardown that did not verify is never hidden behind a
+    green test.
+
+    This is for measurements that must happen on every exit path -- "the bus
+    is ALONE after the relays are down, and NOT ALONE once they are back" --
+    which are not cleanup hooks: a hook releases a resource, this asserts a
+    state. Cleanup hooks still run after the whole chain, as before.
+
+    Cancellation (a Timeout above this) still runs the finally steps, each
+    shielded, so an outer deadline cannot skip the teardown measurement; give
+    the finally steps their own inner Timeouts.
+    """
+
+    def __init__(self, step: Oracle, finally_steps: list[Oracle]) -> None:
+        if not finally_steps:
+            raise ValueError("Ensure without finally steps is a Sequence")
+        self._step = step
+        self._finally = finally_steps
+
+    async def __call__(
+        self, ctx: StreamContext, timeout: float
+    ) -> tuple[Verdict, StreamContext]:
+        verdict: Verdict
+        try:
+            orig = ctx
+            verdict, ctx = await self._step(ctx, timeout)
+            assert_oracle_result(ctx, orig)
+        except asyncio.CancelledError:
+            verdict = Error("cancelled")
+            await self._run_finally(ctx, timeout, verdict)
+            raise
+        except Exception as exc:
+            verdict = Error(f"unhandled: {exc!r}")
+        return await self._run_finally(ctx, timeout, verdict), ctx
+
+    async def _run_finally(self, ctx: StreamContext, timeout: float, verdict: Verdict) -> Verdict:
+        for i, step in enumerate(self._finally):
+            try:
+                fv, _ = await asyncio.shield(step(ctx, timeout))
+            except Exception as exc:
+                fv = Error(f"unhandled: {exc!r}")
+            log.info("ensure.finally", index=i, verdict=fv)
+            if not isinstance(fv, Matched):
+                label = getattr(fv, "reason", type(fv).__name__)
+                return Error(f"finally_failed[{i}]: {label}; step was {verdict}")
+        return verdict

@@ -624,3 +624,66 @@ async def test_filter_multiple_ansi_codes():
     inner = MockBiStream(b"\x1b[1m\x1b[32mBOOT\x1b[0m OK\r\n")
     f = FilterBiStream(inner)
     assert await _read_all(f) == b"BOOT OK\n"
+
+
+# ---------------------------------------------------------------------------
+# Ensure
+# ---------------------------------------------------------------------------
+
+class _Rec:
+    """An oracle that records that it ran and returns a fixed verdict."""
+    def __init__(self, verdict, log):
+        self.verdict, self.log = verdict, log
+    async def __call__(self, ctx, timeout):
+        self.log.append(self.verdict)
+        return self.verdict, ctx
+
+
+class _Boom:
+    async def __call__(self, ctx, timeout):
+        raise RuntimeError("boom")
+
+
+async def test_ensure_runs_finally_after_success():
+    from engine.combinators import Ensure
+    log = []
+    v, _ = await Ensure(_Rec(Matched("test"), log), [_Rec(Matched("alone"), log), _Rec(Matched("not_alone"), log)])(StreamContext(), 1)
+    assert v == Matched("test") and [x.label for x in log] == ["test", "alone", "not_alone"]
+
+
+async def test_ensure_runs_finally_after_failure_and_keeps_step_verdict():
+    from engine.combinators import Ensure
+    log = []
+    v, _ = await Ensure(_Rec(Error("nodes_absent: 57"), log), [_Rec(Matched("alone"), log)])(StreamContext(), 1)
+    assert v == Error("nodes_absent: 57") and len(log) == 2
+
+
+async def test_ensure_finally_failure_is_not_hidden():
+    from engine.combinators import Ensure
+    log = []
+    v, _ = await Ensure(_Rec(Matched("test"), log), [_Rec(Matched("alone"), log), _Rec(Error("residue"), log)])(StreamContext(), 1)
+    assert isinstance(v, Error) and v.reason.startswith("finally_failed[1]: residue; step was Matched(label='test')")
+
+
+async def test_ensure_runs_finally_when_step_raises():
+    from engine.combinators import Ensure
+    log = []
+    v, _ = await Ensure(_Boom(), [_Rec(Matched("alone"), log)])(StreamContext(), 1)
+    assert isinstance(v, Error) and "boom" in v.reason and len(log) == 1
+
+
+async def test_ensure_runs_finally_on_outer_timeout():
+    from engine.combinators import Ensure, Timeout
+    log = []
+    class Hang:
+        async def __call__(self, ctx, timeout):
+            await asyncio.sleep(10)
+            return Matched("never"), ctx
+    v, _ = await Timeout(Ensure(Hang(), [_Rec(Matched("alone"), log)]), 0.2)(StreamContext(), 1)
+    assert isinstance(v, TimeoutVerdict) and len(log) == 1
+
+
+def test_ensure_without_finally_is_refused():
+    from engine.combinators import Ensure
+    with pytest.raises(ValueError):
+        Ensure(_Rec(Matched("x"), []), [])

@@ -93,6 +93,12 @@ class SequenceDef(BaseModel):
     steps: list[OracleDef]
 
 
+class EnsureDef(BaseModel):
+    oracle: Literal["ensure"]
+    step: OracleDef
+    finally_steps: list[OracleDef]
+
+
 class TimeoutDef(BaseModel):
     oracle: Literal["timeout"]
     seconds: float
@@ -294,6 +300,7 @@ OracleDef = Annotated[
         CommandDef,
         ChoiceDef,
         SequenceDef,
+        EnsureDef,
         TimeoutDef,
         RaceDef,
         ParallelDef,
@@ -321,6 +328,7 @@ OracleDef = Annotated[
 
 # Rebuild models that reference OracleDef (resolves forward references)
 SequenceDef.model_rebuild()
+EnsureDef.model_rebuild()
 TimeoutDef.model_rebuild()
 RaceBranchDef.model_rebuild()
 RaceDef.model_rebuild()
@@ -352,13 +360,20 @@ class ChainDef(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _resolve(value: str) -> str:
-    """Substitute $VAR_NAME with its value from os.environ."""
+    """Substitute $VAR_NAME with its value from os.environ.
+
+    An unset variable is an error, not the literal "$VAR_NAME": a chain that
+    ran with a literal would open a device named "$AUTOPILOT_TTY0" and report
+    the failure of that, which is a plausible wrong result about the wrong
+    thing. The config layer (model/config.py) exports everything a platform
+    profile and settings/local.yaml define before hydration, so a missing
+    variable means the profile lacks it -- say which."""
     if value.startswith("$"):
         var = value[1:]
         resolved = os.environ.get(var)
         if resolved is None:
-            log.warning("chain.env_var_missing", var=var)
-            return value
+            raise ValueError(f"chain references ${var} but it is not set (platform profile, "
+                             f"settings/local.yaml, or the environment)")
         return resolved
     return value
 
@@ -460,6 +475,11 @@ def _build_choice(d: ChoiceDef, f: OracleFactory):
 def _build_sequence(d: SequenceDef, f: OracleFactory):
     from engine.combinators import Sequence
     return Sequence(steps=[f.hydrate(step) for step in d.steps])
+
+
+def _build_ensure(d: EnsureDef, f: OracleFactory):
+    from engine.combinators import Ensure
+    return Ensure(f.hydrate(d.step), [f.hydrate(x) for x in d.finally_steps])
 
 
 def _build_timeout(d: TimeoutDef, f: OracleFactory):
@@ -701,6 +721,7 @@ _BUILDERS = {
     "command": _build_command,
     "choice": _build_choice,
     "sequence": _build_sequence,
+    "ensure": _build_ensure,
     "timeout": _build_timeout,
     "race": _build_race,
     "parallel": _build_parallel,
