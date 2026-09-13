@@ -51,15 +51,56 @@ class ProcessBiStream:
     messages from the process are visible to pattern-matching oracles.
     This matches the old system's behaviour (SourceBinding merges stderr).
 
-    When the process exits, read() returns b"" (EOF).
+    THE PIPE IS DRAINED CONTINUOUSLY, not only when an oracle reads. Before this,
+    a spawned process's stdout was read only while a readiness pattern was being
+    matched; after that nothing pulled, the 64 KiB pipe filled, and a chatty
+    process then blocked on its next write -- alive, silent, answering nothing
+    (the ExMeBus server, run five) -- or died on the write error (runs six and
+    nine, exit 1 with no traceback, because the traceback goes to the same full
+    pipe). Ten runs' `streams/<name>.raw` held only each process's banner, so
+    the evidence of the cause was missing for the same reason as the cause. A
+    pump task now reads the pipe as fast as the process writes, queues chunks for
+    read(), and the tee sees everything the process said.
+
+    When the process exits, read() returns b"" (EOF) after the queued data.
     """
 
-    def __init__(self, proc: asyncio.subprocess.Process) -> None:
+    def __init__(self, proc: asyncio.subprocess.Process, tee=None) -> None:
         self._proc = proc
+        self._tee = tee                       # a binary file: written by the pump, not by read()
+        self._queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._eof = False
+        self._pump = asyncio.get_running_loop().create_task(self._drain())
+
+    async def _drain(self) -> None:
+        assert self._proc.stdout is not None
+        try:
+            while True:
+                chunk = await self._proc.stdout.read(65536)
+                if not chunk:
+                    break
+                if self._tee is not None:
+                    try:
+                        self._tee.write(chunk); self._tee.flush()
+                    except (OSError, ValueError):
+                        pass                  # a closed tee must not stop the drain
+                await self._queue.put(chunk)
+        finally:
+            self._eof = True
+            await self._queue.put(b"")
 
     async def read(self, n: int = 4096) -> bytes:
-        assert self._proc.stdout is not None
-        return await self._proc.stdout.read(n)
+        chunk = await self._queue.get()
+        if len(chunk) > n:
+            rest = chunk[n:]
+            # put the remainder back at the FRONT: order is the stream's only contract
+            items = [rest]
+            while not self._queue.empty():
+                items.append(self._queue.get_nowait())
+            for it in items:
+                self._queue.put_nowait(it)
+            return chunk[:n]
+        return chunk
 
     async def write(self, data: bytes) -> None:
         assert self._proc.stdin is not None
@@ -213,7 +254,17 @@ class SpawnProcessOracle:
                 log.info("process.exited", name=name, pid=proc.pid, returncode=rc)
         asyncio.get_running_loop().create_task(_watch_exit())
 
-        stream = ProcessBiStream(proc)
+        # The tee is the pump's, so streams/<name>.raw holds everything the process
+        # wrote, read or not; registered directly rather than through add_stream,
+        # whose tee only sees what an oracle reads.
+        tee = None
+        result_dir = ctx.metadata.get("result_dir")
+        if result_dir:
+            streams_dir = Path(str(result_dir)) / "streams"
+            streams_dir.mkdir(exist_ok=True)
+            tee = open(streams_dir / f"{self._stream_name}.raw", "wb")
+            ctx.register_cleanup(self._stream_name + ".raw", tee.close)
+        stream = ProcessBiStream(proc, tee=tee)
 
         # Register kill hook BEFORE readiness check (W29).
         # If readiness times out, ctx.cleanup() will kill the process.
@@ -222,7 +273,7 @@ class SpawnProcessOracle:
             make_process_cleanup(proc, self._stream_name),
         )
 
-        ctx.add_stream(self._stream_name, stream)
+        ctx.streams[self._stream_name] = stream
         if self._preprocess:
             from engine.primitives import FilterBiStream
             ctx.streams[self._stream_name] = FilterBiStream(ctx.streams[self._stream_name])
