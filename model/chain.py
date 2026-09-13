@@ -185,6 +185,11 @@ class RunProcessDef(BaseModel):
     success_exit_codes: list[int] = [0]
     success_label: str = "ok"
     failure_label: str | None = None
+    # A failure that ENDS the sequence it is in, carrying failure_label as the
+    # Error's reason: for a step whose non-zero exit is the chain's verdict (the
+    # dev chain's first-fail check), where a Matched(failure_label) would let the
+    # sequence run on to a later step's verdict.
+    failure_stops: bool = False
     capture_name: str | None = None
     env_extra: dict[str, str] = Field(default_factory=dict)
     cwd: str | None = None
@@ -595,6 +600,7 @@ def _build_run_process(d: RunProcessDef, f: OracleFactory):
         success_exit_codes=frozenset(d.success_exit_codes),
         success_label=d.success_label,
         failure_label=d.failure_label,
+        failure_stops=d.failure_stops,
         capture_name=d.capture_name,
         env_extra={k: _resolve(v) for k, v in d.env_extra.items()},
         cwd=Path(d.cwd) if d.cwd else None,

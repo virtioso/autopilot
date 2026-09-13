@@ -282,6 +282,7 @@ class RunProcessOracle:
         success_exit_codes: frozenset[int] = frozenset({0}),
         success_label: str = "ok",
         failure_label: str | None = None,
+        failure_stops: bool = False,
         capture_name: str | None = None,
         env_extra: dict[str, str] | None = None,
         cwd: Path | str | None = None,
@@ -290,6 +291,7 @@ class RunProcessOracle:
         self._success_codes = success_exit_codes
         self._success_label = success_label
         self._failure_label = failure_label
+        self._failure_stops = failure_stops
         self._capture_name = capture_name
         self._env_extra = env_extra or {}
         self._cwd = str(cwd) if cwd else None
@@ -328,5 +330,7 @@ class RunProcessOracle:
         if exit_code in self._success_codes:
             return Matched(self._success_label), ctx
         if self._failure_label is not None:
+            if self._failure_stops:
+                return Error(self._failure_label), ctx      # ends the enclosing sequence, reason = the label
             return Matched(self._failure_label), ctx
         return Error(f"exit={exit_code}"), ctx
