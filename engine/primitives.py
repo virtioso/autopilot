@@ -16,11 +16,12 @@ Layering:
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 import structlog
 
-from .oracle import Error, Matched, StreamContext, Verdict
+from .oracle import Error, Matched, StreamContext, TimeoutVerdict, Verdict
 
 log = structlog.get_logger()
 
@@ -58,9 +59,23 @@ class PatternOracle:
     ) -> tuple[Verdict, StreamContext]:
         bio = ctx.streams[self._stream]
         buf = bytearray()
+        # The budget is honoured HERE, not only by a Timeout combinator around the
+        # step: an unwrapped readiness pattern on a process that never prints waited
+        # 24 minutes past a 20-minute chain timeout (evk-dtc-20260913T163932Z, a
+        # follower hung in a drain loop before its first line). A chain's stated
+        # budget is a promise to whoever is waiting on it.
+        deadline = asyncio.get_running_loop().time() + timeout
 
         while True:
-            chunk = await bio.read(4096)
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                log.warning("pattern.timeout", stream=self._stream, pattern=self._pattern.pattern, timeout=timeout)
+                return TimeoutVerdict(), ctx
+            try:
+                chunk = await asyncio.wait_for(bio.read(4096), timeout=remaining)
+            except asyncio.TimeoutError:
+                log.warning("pattern.timeout", stream=self._stream, pattern=self._pattern.pattern, timeout=timeout)
+                return TimeoutVerdict(), ctx
             if not chunk:
                 return Error("stream_eof"), ctx
             buf.extend(chunk)
