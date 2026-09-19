@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 settings/local.yaml
 results/
+projects/*
+!projects/README.md

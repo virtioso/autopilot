@@ -64,8 +64,14 @@ def _configure_logging() -> None:
 async def _cmd_run(args: argparse.Namespace) -> int:
     from engine.runtime import ChainRunner
 
+    from model.projects import Ambiguous, find_chain
+    try:
+        chain = find_chain(str(args.chain))
+    except (Ambiguous, FileNotFoundError) as exc:
+        print(f"autopilot: {exc}", file=sys.stderr)
+        return 2
     runner = ChainRunner(
-        chain_path=args.chain,
+        chain_path=chain,
         timeout=args.timeout,
         platform=args.platform,
         result_base=args.result_dir,
@@ -114,18 +120,21 @@ async def _cmd_run(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _cmd_list(args: argparse.Namespace) -> int:
-    chains_dir = Path(args.chains_dir)
-    if not chains_dir.exists():
-        print(f"Chains directory not found: {chains_dir}", file=sys.stderr)
-        return 1
-
-    chains = sorted(chains_dir.glob("*.json"))
-    if not chains:
-        print(f"No chain files in {chains_dir}", file=sys.stderr)
+    if args.chains_dir != "chains":
+        chains_dir = Path(args.chains_dir)
+        if not chains_dir.exists():
+            print(f"Chains directory not found: {chains_dir}", file=sys.stderr)
+            return 1
+        for chain in sorted(chains_dir.glob("*.json")):
+            print(chain.stem)
         return 0
-
-    for chain in chains:
-        print(chain.stem)
+    from model.projects import list_chains
+    found = list_chains()
+    if not found:
+        print("No chain files in chains/ nor in any projects/<name>/chains/", file=sys.stderr)
+        return 0
+    for label, _ in found:
+        print(label)
     return 0
 
 
@@ -148,7 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         type=Path,
         metavar="FILE",
-        help="Path to chain JSON file",
+        help="Chain: a path, or a name resolved in chains/ or a project's (projects/<name>/chains/)",
     )
     run_p.add_argument(
         "--timeout",
@@ -183,7 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--chains-dir",
         default="chains",
         metavar="DIR",
-        help="Directory to search for chain files (default: chains/)",
+        help="Directory to search for chain files (default: chains/ and every projects/<name>/chains/)",
     )
 
     return parser

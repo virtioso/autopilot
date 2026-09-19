@@ -167,11 +167,16 @@ def _load_local_settings() -> dict[str, Any]:
 
 
 def _load_platform(platform: str) -> dict[str, Any]:
-    """Load a platform YAML file. Returns empty dict if not found."""
-    yaml_path = _PROJECT_ROOT / "platforms" / f"{platform}.yaml"
-    if not yaml_path.exists():
+    """Load a platform YAML file, from platforms/ here or a project's
+    (model/projects.py). Returns empty dict if not found."""
+    from model.projects import Ambiguous, find_platform
+    try:
+        yaml_path = find_platform(platform)
+    except Ambiguous as exc:
+        raise SystemExit(f"autopilot: {exc}") from exc
+    except FileNotFoundError as exc:
         if platform != "generic":
-            log.warning("config.platform_file_missing", path=str(yaml_path))
+            log.warning("config.platform_file_missing", detail=str(exc))
         return {}
 
     try:
