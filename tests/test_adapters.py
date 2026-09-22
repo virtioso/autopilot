@@ -1240,3 +1240,36 @@ async def test_spawn_without_readiness_returns_spawned():
     v, ctx = await SpawnProcessOracle([sys.executable, "-c", "import time; time.sleep(5)"], "quiet", None)(ctx, 2.0)
     ctx.cleanup()
     assert v == Matched("spawned")
+
+
+async def test_run_process_markers_become_events(tmp_path):
+    """FRAME / INCIDENT lines on stdout reach the recorder as its own events;
+    a marker that does not parse is logged, never dropped silently, and the
+    step's verdict is unaffected either way."""
+    import json
+    from adapters.process import RunProcessOracle
+    from engine.recorder import ChainRecorder
+
+    script = (
+        'echo "noise"; '
+        'echo \'FRAME {"path": "frames/x.png", "sha256": "ab", "trigger": "red>0.5", "t_host": 1.5}\'; '
+        'echo \'INCIDENT {"t_host": 1.5, "trigger": "red>0.5", "frame": "frames/x.png"}\'; '
+        'echo \'INCIDENT not json\''
+    )
+    rec = ChainRecorder(tmp_path)
+    oracle = RunProcessOracle(["sh", "-c", script], success_label="done", markers=True)
+    ctx = make_ctx()
+    ctx.metadata["recorder"] = rec
+    verdict, _ = await oracle(ctx, 5.0)
+    rec.close()
+    assert verdict == Matched("done")
+    kinds = [json.loads(l)["event_type"] for l in (tmp_path / "events.jsonl").read_text().splitlines()]
+    assert kinds.count("FrameSaved") == 1 and kinds.count("Incident") == 1
+
+    # the same script without markers=True emits nothing: the flag is the consent
+    (tmp_path / "off").mkdir()
+    rec2 = ChainRecorder(tmp_path / "off")
+    ctx = make_ctx(); ctx.metadata["recorder"] = rec2
+    await RunProcessOracle(["sh", "-c", script], success_label="done")(ctx, 5.0)
+    rec2.close()
+    assert "Incident" not in (tmp_path / "off" / "events.jsonl").read_text()

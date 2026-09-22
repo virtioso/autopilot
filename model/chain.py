@@ -193,6 +193,9 @@ class RunProcessDef(BaseModel):
     capture_name: str | None = None
     env_extra: dict[str, str] = Field(default_factory=dict)
     cwd: str | None = None
+    # stdout lines `FRAME {json}` / `INCIDENT {json}` become FrameSaved /
+    # Incident events in the run's log (adapters/process.py, _emit_markers)
+    markers: bool = False
 
 
 class DockerContainerDef(BaseModel):
@@ -604,6 +607,7 @@ def _build_run_process(d: RunProcessDef, f: OracleFactory):
         capture_name=d.capture_name,
         env_extra={k: _resolve(v) for k, v in d.env_extra.items()},
         cwd=Path(d.cwd) if d.cwd else None,
+        markers=d.markers,
     )
 
 

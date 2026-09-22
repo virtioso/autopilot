@@ -337,6 +337,7 @@ class RunProcessOracle:
         capture_name: str | None = None,
         env_extra: dict[str, str] | None = None,
         cwd: Path | str | None = None,
+        markers: bool = False,
     ) -> None:
         self._cmd = cmd
         self._success_codes = success_exit_codes
@@ -346,6 +347,7 @@ class RunProcessOracle:
         self._capture_name = capture_name
         self._env_extra = env_extra or {}
         self._cwd = str(cwd) if cwd else None
+        self._markers = markers
 
     async def __call__(
         self, ctx: StreamContext, timeout: float
@@ -374,6 +376,8 @@ class RunProcessOracle:
 
         if self._capture_name:
             ctx.metadata[self._capture_name] = stdout
+        if self._markers:
+            self._emit_markers(ctx, stdout)
 
         exit_code = proc.returncode
         log.debug("run_process.done", cmd=self._cmd, exit_code=exit_code)
@@ -385,3 +389,28 @@ class RunProcessOracle:
                 return Error(self._failure_label), ctx      # ends the enclosing sequence, reason = the label
             return Matched(self._failure_label), ctx
         return Error(f"exit={exit_code}"), ctx
+
+    # A tool that took a frame or saw an incident says so on stdout, one JSON
+    # object per line behind a fixed word, and the run's event log carries it
+    # as the recorder's own event -- so `incidents` can cut the window around
+    # it later and nothing in the tool knows the recorder exists:
+    #     FRAME {"path": ..., "sha256": ..., "trigger": ..., "t_host": ...}
+    #     INCIDENT {"t_host": ..., "trigger": ..., "frame": ..., "note": ...}
+    # A line that names the word but does not parse is an error event in the
+    # log, never dropped: a marker lost is a window nobody can cut.
+    def _emit_markers(self, ctx: StreamContext, stdout: bytes) -> None:
+        import json
+        from engine.recorder import FrameSaved, Incident
+        recorder = ctx.metadata.get("recorder")
+        if recorder is None:
+            return
+        kinds = {b"FRAME": FrameSaved, b"INCIDENT": Incident}
+        for raw in stdout.splitlines():
+            word, _, rest = raw.partition(b" ")
+            cls = kinds.get(word)
+            if cls is None:
+                continue
+            try:
+                recorder.emit(cls(**json.loads(rest)))
+            except (ValueError, TypeError) as exc:
+                log.error("run_process.marker_unreadable", cmd=self._cmd, line=raw[:200], error=repr(exc))
