@@ -140,8 +140,35 @@ def make_process_cleanup(proc: asyncio.subprocess.Process, name: str) -> callabl
     SIGTERM and the 3s timeout elapses, SIGKILL is sent. If Autopilot itself
     receives SIGKILL, this cleanup does not run — manual recovery needed.
     """
-    def cleanup() -> None:
+    def _has_exited() -> bool:
+        """Is the process gone, whether or not the event loop noticed?
+
+        proc.returncode is set by asyncio's child watcher, which runs ON THE
+        EVENT LOOP -- and this cleanup runs after the loop has stopped, so the
+        field is frozen at None however quickly the process exits. Polling it
+        alone made the 3 s wait UNCONDITIONAL: every process was SIGKILLed,
+        including ones that had exited seconds before, no run ever logged
+        process.exited_cleanly, and a teardown of fourteen processes spent 42 s
+        waiting for exits that had already happened. Anything a process wrote
+        after SIGTERM was lost with it.
+
+        /proc rather than waitpid: a waitpid here would race the loop's own
+        watcher for the status and could leave proc.wait() waiting forever. A
+        process that exited and has not been reaped is a zombie in /proc; one
+        the watcher already reaped has no /proc entry. Both are gone.
+        """
         if proc.returncode is not None:
+            return True
+        try:
+            with open(f"/proc/{proc.pid}/stat", "rb") as fh:
+                st = fh.read()
+        except OSError:
+            return True                      # no such process
+        i = st.rindex(b")") + 2              # comm may hold ')' and spaces
+        return st[i:i + 1] == b"Z"
+
+    def cleanup() -> None:
+        if _has_exited():
             return  # already exited
         try:
             # Kill the whole process group so child processes are also killed.
@@ -156,10 +183,10 @@ def make_process_cleanup(proc: asyncio.subprocess.Process, name: str) -> callabl
         import time
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline:
-            if proc.returncode is not None:
+            if _has_exited():
                 log.debug("process.exited_cleanly", name=name)
                 return
-            time.sleep(0.1)
+            time.sleep(0.02)
 
         # Still running — escalate to SIGKILL.
         try:
