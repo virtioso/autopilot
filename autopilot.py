@@ -111,7 +111,11 @@ async def _cmd_run(args: argparse.Namespace) -> int:
         + (f"({verdict.label!r})" if hasattr(verdict, "label") else ""),
         file=sys.stderr,
     )
-    print(f"results: {runner.result_dir}", file=sys.stderr)
+    # BOTH paths: a chain run prints two "results:" lines -- the launcher's naming
+    # the chain directory, this one naming the run subdirectory -- and a reader
+    # tailing the log sees only the last. Most of a chain's artifacts are in the parent.
+    print(f"results: {runner.result_dir}  (chain results: {runner.result_dir.parent})",
+          file=sys.stderr)
     return runner.exit_code()
 
 
